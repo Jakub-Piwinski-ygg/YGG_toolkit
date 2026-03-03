@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YGG Toolkit</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#0e0e0f;--surface:#18181b;--surface2:#1f1f24;--border:#2a2a30;
+  --accent:#FF762E;--accent2:#47c8ff;--accent3:#ff6b47;
+  --text:#f0f0f0;--muted:#888;
+  --font-mono:'DM Mono',monospace;--font-display:'Syne',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-display);min-height:100vh;display:flex;flex-direction:column;padding:2rem;gap:1.5rem}
+header{display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--border);padding-bottom:1rem;flex-wrap:wrap}
+.header-logo{display:flex;align-items:center;gap:.75rem}
+h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color:var(--accent)}
+.subtitle{font-size:.8rem;color:var(--muted);font-family:var(--font-mono)}
+.wasm-badge{margin-left:auto;font-family:var(--font-mono);font-size:.65rem;padding:.25rem .6rem;border-radius:3px;border:1px solid var(--border);color:var(--muted);display:flex;align-items:center;gap:.4rem}
+.wasm-badge .dot{width:6px;height:6px;border-radius:50%;background:#555;transition:background .3s}
+.wasm-badge.loading .dot{background:var(--accent);animation:pulse 1s infinite}
+.wasm-badge.ready .dot{background:#4cff88}
+.wasm-badge.error .dot{background:var(--accent3)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.app-layout{display:grid;grid-template-columns:280px 1fr;gap:1.5rem;flex:1}
+@media(max-width:900px){.app-layout{grid-template-columns:1fr}}
+.sidebar{display:flex;flex-direction:column;gap:.8rem}
+.tool-tabs{display:flex;flex-direction:column;gap:.3rem}
+.tool-tab{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.7rem 1rem;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:.7rem;font-family:var(--font-mono);font-size:.78rem;color:var(--muted);text-align:left;width:100%}
+.tool-tab:hover{border-color:#444;color:var(--text)}
+.tool-tab.active{border-color:var(--accent);color:var(--accent);background:#1a1208}
+.tool-tab .icon{font-size:1rem;width:20px;text-align:center}
+.tool-tab .label{font-weight:500;display:flex;flex-direction:column;gap:.1rem}
+.tool-tab .label small{color:#555;font-size:.6rem;font-weight:400}
+.tool-tab.active .label small{color:#a06040}
+.dropzone{background:var(--surface);border:1px dashed var(--border);border-radius:8px;padding:1.5rem 1rem;text-align:center;cursor:pointer;transition:all .2s;font-family:var(--font-mono);font-size:.72rem;color:var(--muted);line-height:1.8}
+.dropzone:hover,.dropzone.drag-over{border-color:var(--accent2);color:var(--accent2);background:#141419}
+.dropzone .drop-icon{font-size:1.8rem;margin-bottom:.5rem;display:block}
+#fileInput{display:none}
+.file-list{display:flex;flex-direction:column;gap:.3rem;max-height:180px;overflow-y:auto}
+.file-item{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:.4rem .6rem;font-family:var(--font-mono);font-size:.68rem;color:var(--muted);display:flex;align-items:center;gap:.5rem}
+.file-item .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.file-item .fsize{color:#555}
+.file-item .fremove{cursor:pointer;color:#444;transition:color .15s;padding:0 .2rem}
+.file-item .fremove:hover{color:var(--accent3)}
+.main-panel{display:flex;flex-direction:column;gap:1rem}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.panel-header span{color:var(--accent2);font-weight:500}
+.settings-body{padding:1.2rem;display:flex;flex-direction:column;gap:1.2rem}
+.tool-section{display:none}
+.tool-section.active{display:flex;flex-direction:column;gap:1rem}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
+.field{display:flex;flex-direction:column;gap:.4rem}
+.field label{font-family:var(--font-mono);font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.field input[type=number],.field select{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;transition:border-color .15s;width:100%}
+.field input[type=range]{background:transparent;border:none;width:100%;cursor:pointer;accent-color:var(--accent);padding:.3rem 0}
+.field input:focus,.field select:focus{border-color:var(--accent2)}
+.btn{font-family:var(--font-mono);font-size:.72rem;letter-spacing:.05em;padding:.5rem 1.1rem;border-radius:4px;border:1px solid var(--border);cursor:pointer;transition:all .15s;background:transparent;color:var(--muted)}
+.btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
+.btn-primary:hover:not(:disabled){background:#e8621a;border-color:#e8621a}
+.action-row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+.progress-label{font-family:var(--font-mono);font-size:.7rem;color:var(--muted);margin-left:auto}
+.output-log{background:var(--surface2);border-radius:4px;padding:.8rem 1rem;font-family:var(--font-mono);font-size:.72rem;color:var(--muted);max-height:120px;overflow-y:auto;line-height:1.7}
+.log-line{display:block}
+.log-line.ok{color:#4cff88}
+.log-line.err{color:var(--accent3)}
+.log-line.info{color:var(--accent2)}
+.results-grid{display:flex;flex-wrap:wrap;gap:.8rem;padding:1rem}
+.result-card{background:var(--surface2);border:1px solid var(--border);border-radius:6px;overflow:hidden;width:130px;display:flex;flex-direction:column;cursor:pointer;transition:border-color .15s}
+.result-card:hover{border-color:var(--accent2)}
+.result-card img{width:100%;height:100px;object-fit:contain;background:#111;display:block}
+.result-card .rc-label{padding:.3rem .5rem;font-family:var(--font-mono);font-size:.58rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid var(--border)}
+.empty-state{color:#444;font-family:var(--font-mono);font-size:.8rem;padding:2rem;text-align:center}
+.dl-bar{display:flex;gap:.6rem;padding:.75rem 1rem;border-top:1px solid var(--border);align-items:center;flex-wrap:wrap}
+.dl-bar .dl-info{font-family:var(--font-mono);font-size:.7rem;color:var(--muted);margin-right:auto}
+.separator{height:1px;background:var(--border)}
+.tool-desc{font-family:var(--font-mono);font-size:.72rem;color:#555;line-height:1.6}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-logo" style="display: flex; align-items: center; gap: 12px;">
+    <a href="https://yggdrasilgaming.com">
+      <img 
+        src="https://yggdrasilgaming.com/w/files/2020/07/symbol.png" 
+        alt="Yggdrasil Gaming Logo"
+        style="width: 70px; display: block;"
+      >
+    </a>
+    <div>
+      <h1>YGG&nbsp;&nbsp;&nbsp;TOOLKIT</h1>
+      <span class="subtitle">crop · blur · convert · no install needed</span>
+    </div>
+  </div>
+  <div class="wasm-badge loading" id="wasmBadge">
+    <div class="dot"></div>
+    <span id="wasmStatus">loading wasm…</span>
+  </div>
+</header>
+
+<div class="app-layout">
+  <div class="sidebar">
+    <div class="tool-tabs">
+      <button class="tool-tab active" onclick="switchTool('crop')" id="tab-crop">
+        <span class="icon">✂️</span>
+        <span class="label">Center Crop<small>resize to exact dimensions</small></span>
+      </button>
+      <button class="tool-tab" onclick="switchTool('blur')" id="tab-blur">
+        <span class="icon">💨</span>
+        <span class="label">Directional Blur<small>motion blur with feathering</small></span>
+      </button>
+      <button class="tool-tab" onclick="switchTool('webp')" id="tab-webp">
+        <span class="icon">🔄</span>
+        <span class="label">Convert to WebP<small>png → webp via canvas</small></span>
+      </button>
+    </div>
+    <div class="separator"></div>
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+      <span class="drop-icon">📂</span>
+      drop PNG files here<br>or click to browse
+    </div>
+    <input type="file" id="fileInput" accept=".png,image/png" multiple>
+    <div class="file-list" id="fileList"></div>
+    <div id="fileCount" style="font-family:var(--font-mono);font-size:.65rem;color:#555;text-align:center"></div>
+  </div>
+
+  <div class="main-panel">
+    <div class="panel">
+      <div class="panel-header">settings <span id="toolName">center crop</span></div>
+      <div class="settings-body">
+
+        <div class="tool-section active" id="section-crop">
+          <p class="tool-desc">Crops all PNG files to the specified dimensions from their center point. Great for sprite sheets, thumbnails, and texture atlases.</p>
+          <div class="field-row">
+            <div class="field">
+              <label>Width (px)</label>
+              <input type="number" id="crop-w" value="256" min="1" max="8192">
+            </div>
+            <div class="field">
+              <label>Height (px)</label>
+              <input type="number" id="crop-h" value="256" min="1" max="8192">
+            </div>
+          </div>
+        </div>
+
+        <div class="tool-section" id="section-blur">
+          <p class="tool-desc">Applies directional motion blur — edges fade to transparent so the blur blends naturally with surroundings.</p>
+          <div class="field-row">
+            <div class="field">
+              <label>Radius</label>
+              <input type="number" id="blur-radius" value="0" min="0" max="50">
+            </div>
+            <div class="field">
+              <label>Sigma (strength)</label>
+              <input type="number" id="blur-sigma" value="12" min="1" max="100">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Angle — <span id="blur-angle-val" style="color:var(--accent)">90°</span></label>
+              <input type="range" id="blur-angle" value="90" min="0" max="360" oninput="document.getElementById('blur-angle-val').textContent=this.value+'°'">
+            </div>
+            <div class="field">
+              <label>Edge Feather (px)</label>
+              <input type="number" id="blur-feather" value="5" min="0" max="100">
+            </div>
+          </div>
+        </div>
+
+        <div class="tool-section" id="section-webp">
+          <p class="tool-desc">Converts PNG files to WebP using the browser's built-in Canvas encoder — no WASM needed. WebP is typically 25–34% smaller than PNG.</p>
+          <div class="field-row">
+            <div class="field">
+              <label>Quality — <span id="webp-quality-val" style="color:var(--accent)">80</span></label>
+              <input type="range" id="webp-quality" value="80" min="1" max="100" oninput="document.getElementById('webp-quality-val').textContent=this.value">
+            </div>
+            <div class="field">
+              <label>Mode</label>
+              <select id="webp-lossless">
+                <option value="0">Lossy (smaller file)</option>
+                <option value="1">Lossless (max quality)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-row">
+          <button class="btn btn-primary" id="runBtn" onclick="runTool()" disabled>▶ RUN</button>
+          <button class="btn" onclick="clearResults()">CLEAR</button>
+          <span class="progress-label" id="progressLabel"></span>
+        </div>
+        <div class="output-log" id="outputLog"><span class="log-line info">— loading ImageMagick WASM… —</span></div>
+      </div>
+    </div>
+
+    <div class="panel" style="flex:1">
+      <div class="panel-header">output <span id="resultCount">0 files</span></div>
+      <div id="resultsArea" style="min-height:150px">
+        <div class="empty-state">processed images will appear here</div>
+      </div>
+      <div class="dl-bar" id="dlBar" style="display:none">
+        <span class="dl-info" id="dlInfo"></span>
+        <button class="btn btn-primary" onclick="downloadAll()">⬇ DOWNLOAD ALL</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import * as Magick from 'https://knicknic.github.io/wasm-imagemagick/magickApi.js';
+  window._Magick = Magick;
+  const badge  = document.getElementById('wasmBadge');
+  const status = document.getElementById('wasmStatus');
+  badge.className  = 'wasm-badge ready';
+  status.textContent = 'wasm ready';
+  window._magickReady = true;
+  window.updateRunBtn();
+  clearLog();
+  log('ImageMagick WASM loaded — no local install needed', 'info');
+  log('Drop PNG files on the left, choose a tool and hit RUN.', 'info');
+</script>
+
+<script>
+window._magickReady = false;
+let currentTool = 'crop';
+let inputFiles  = [];
+let outputFiles = [];
+
+function switchTool(tool) {
+  currentTool = tool;
+  document.querySelectorAll('.tool-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tool-section').forEach(s => s.classList.remove('active'));
+  document.getElementById('tab-' + tool).classList.add('active');
+  document.getElementById('section-' + tool).classList.add('active');
+  const names = { crop:'center crop', blur:'directional blur', webp:'png → webp' };
+  document.getElementById('toolName').textContent = names[tool];
+}
+
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault(); dropzone.classList.remove('drag-over');
+  addFiles([...e.dataTransfer.files].filter(f => f.type === 'image/png' || f.name.endsWith('.png')));
+});
+fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
+
+function addFiles(files) {
+  for (const f of files) {
+    if (inputFiles.find(x => x.name === f.name)) continue;
+    inputFiles.push({ name: f.name, file: f, url: URL.createObjectURL(f) });
+  }
+  renderFileList(); updateRunBtn();
+}
+
+function removeFile(name) {
+  const idx = inputFiles.findIndex(x => x.name === name);
+  if (idx !== -1) { URL.revokeObjectURL(inputFiles[idx].url); inputFiles.splice(idx, 1); }
+  renderFileList(); updateRunBtn();
+}
+
+function renderFileList() {
+  document.getElementById('fileList').innerHTML = inputFiles.map(f => `
+    <div class="file-item">
+      <span class="fname">${esc(f.name)}</span>
+      <span class="fsize">${(f.file.size/1024).toFixed(0)}k</span>
+      <span class="fremove" onclick="removeFile('${esc(f.name)}')">✕</span>
+    </div>`).join('');
+  document.getElementById('fileCount').textContent =
+    inputFiles.length ? `${inputFiles.length} file${inputFiles.length > 1 ? 's' : ''} loaded` : '';
+}
+
+function updateRunBtn() {
+  const wasmNeeded = currentTool !== 'webp';
+  document.getElementById('runBtn').disabled = inputFiles.length === 0 || (wasmNeeded && !window._magickReady);
+}
+
+function log(msg, type = '') {
+  const el   = document.getElementById('outputLog');
+  const line = document.createElement('span');
+  line.className = 'log-line ' + type;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.appendChild(document.createElement('br'));
+  el.scrollTop = el.scrollHeight;
+}
+function clearLog() { document.getElementById('outputLog').innerHTML = ''; }
+
+async function runTool() {
+  if (inputFiles.length === 0) return;
+  clearLog();
+  outputFiles = [];
+  document.getElementById('resultsArea').innerHTML = '<div class="empty-state">processing…</div>';
+  document.getElementById('resultCount').textContent = '0 files';
+  document.getElementById('dlBar').style.display = 'none';
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  log(`Running ${currentTool} on ${inputFiles.length} file(s)`, 'info');
+
+  for (let i = 0; i < inputFiles.length; i++) {
+    const { name, file } = inputFiles[i];
+    document.getElementById('progressLabel').textContent = `${i+1} / ${inputFiles.length}`;
+    try {
+      const uint8 = new Uint8Array(await file.arrayBuffer());
+      let blob;
+      if      (currentTool === 'crop') blob = await doCrop(uint8, name);
+      else if (currentTool === 'blur') blob = await doBlur(uint8, name);
+      else                             blob = await doWebp(file);
+      if (blob) {
+        const outName = getOutName(name);
+        outputFiles.push({ name: outName, blob, url: URL.createObjectURL(blob) });
+        log(`✓ ${name} → ${outName}`, 'ok');
+      }
+    } catch(e) {
+      log(`✗ ${name}: ${e.message || e}`, 'err');
+    }
+  }
+
+  document.getElementById('progressLabel').textContent = `done — ${outputFiles.length} file(s)`;
+  btn.disabled = false;
+  renderResults();
+}
+
+function getOutName(name) {
+  const b = name.replace(/\.png$/i, '');
+  if (currentTool === 'crop') return b + '_cropped.png';
+  if (currentTool === 'blur') return b + '_blur.png';
+  return b + '.webp';
+}
+
+async function doCrop(uint8, name) {
+  const w = parseInt(document.getElementById('crop-w').value) || 256;
+  const h = parseInt(document.getElementById('crop-h').value) || 256;
+  const dims = await getImageDimensions(uint8);
+  const cw = Math.min(w, dims.w);
+  const ch = Math.min(h, dims.h);
+  const result = await window._Magick.Call(
+    [{ name: 'input.png', content: uint8 }],
+    ['convert', 'input.png', '-gravity', 'Center', '-crop', `${cw}x${ch}+0+0`, '+repage', 'output.png']
+  );
+  if (!result || result.length === 0) throw new Error('No output from ImageMagick');
+  return result[0].blob;
+}
+
+async function doBlur(uint8) {
+  const radius  = document.getElementById('blur-radius').value  || '0';
+  const sigma   = document.getElementById('blur-sigma').value   || '12';
+  const angle   = document.getElementById('blur-angle').value   || '90';
+  const feather = document.getElementById('blur-feather').value || '5';
+  const blurArg = `${radius}x${sigma}+${angle}`;
+  const fresh = async blob => new Uint8Array(await blob.arrayBuffer());
+
+  const r1 = await window._Magick.Call([{ name:'input.png', content:uint8 }],
+    ['convert','input.png','-motion-blur',blurArg,'blurred.png']);
+  if (!r1||!r1.length) throw new Error('Motion blur failed');
+  const blurredBlob = r1[0].blob;
+
+  const r2 = await window._Magick.Call([{ name:'blurred.png', content:await fresh(blurredBlob) }],
+    ['convert','blurred.png','-alpha','off','-fill','white','-colorize','100',
+     '-shave',`${feather}x${feather}`,'-bordercolor','black','-border',`${feather}x${feather}`,
+     '-blur',`0x${feather}`,'-level','20%,80%','mask.png']);
+  if (!r2||!r2.length) throw new Error('Mask creation failed');
+  const maskBlob = r2[0].blob;
+
+  const r3 = await window._Magick.Call([{ name:'blurred.png', content:await fresh(blurredBlob) }],
+    ['convert','blurred.png','-alpha','extract','orig_alpha.png']);
+  if (!r3||!r3.length) throw new Error('Alpha extract failed');
+  const alphaBlob = r3[0].blob;
+
+  const r4 = await window._Magick.Call(
+    [{ name:'orig_alpha.png', content:await fresh(alphaBlob) },
+     { name:'mask.png',       content:await fresh(maskBlob)  }],
+    ['convert','orig_alpha.png','mask.png','-compose','Multiply','-composite','combined_alpha.png']);
+  if (!r4||!r4.length) throw new Error('Alpha multiply failed');
+  const combinedAlphaBlob = r4[0].blob;
+
+  const r5 = await window._Magick.Call(
+    [{ name:'blurred.png',        content:await fresh(blurredBlob)       },
+     { name:'combined_alpha.png', content:await fresh(combinedAlphaBlob) }],
+    ['convert','blurred.png','combined_alpha.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
+  if (!r5||!r5.length) throw new Error('Final composite failed');
+  return r5[0].blob;
+}
+
+async function doWebp(file) {
+  const quality  = parseInt(document.getElementById('webp-quality').value) / 100;
+  const lossless = document.getElementById('webp-lossless').value === '1';
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(
+        blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob failed')),
+        'image/webp', lossless ? 1.0 : quality
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
+    img.src = url;
+  });
+}
+
+function getImageDimensions(uint8) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([uint8], { type:'image/png' });
+    const url  = URL.createObjectURL(blob);
+    const img  = new Image();
+    img.onload  = () => { URL.revokeObjectURL(url); resolve({ w:img.naturalWidth, h:img.naturalHeight }); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read dimensions')); };
+    img.src = url;
+  });
+}
+
+function renderResults() {
+  const area = document.getElementById('resultsArea');
+  document.getElementById('resultCount').textContent =
+    outputFiles.length + ' file' + (outputFiles.length !== 1 ? 's' : '');
+  if (!outputFiles.length) {
+    area.innerHTML = '<div class="empty-state">no output files generated</div>';
+    document.getElementById('dlBar').style.display = 'none';
+    return;
+  }
+  const totalKb = outputFiles.reduce((s, f) => s + f.blob.size, 0);
+  document.getElementById('dlInfo').textContent =
+    `${outputFiles.length} file${outputFiles.length > 1 ? 's' : ''} · ${(totalKb/1024).toFixed(0)} KB total`;
+  area.innerHTML = '<div class="results-grid">' +
+    outputFiles.map(f => `
+      <div class="result-card" onclick="downloadOne('${esc(f.name)}')" title="Click to download">
+        <img src="${f.url}" alt="${esc(f.name)}" loading="lazy">
+        <div class="rc-label">${esc(f.name)}</div>
+      </div>`).join('') + '</div>';
+  document.getElementById('dlBar').style.display = 'flex';
+}
+
+async function downloadAll() {
+  for (const f of outputFiles) { triggerDl(f.url, f.name); await new Promise(r => setTimeout(r, 80)); }
+}
+function downloadOne(name) {
+  const f = outputFiles.find(x => x.name === name);
+  if (f) triggerDl(f.url, f.name);
+}
+function triggerDl(url, name) {
+  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+}
+function clearResults() {
+  outputFiles.forEach(f => URL.revokeObjectURL(f.url));
+  outputFiles = [];
+  document.getElementById('resultsArea').innerHTML = '<div class="empty-state">processed images will appear here</div>';
+  document.getElementById('resultCount').textContent = '0 files';
+  document.getElementById('dlBar').style.display = 'none';
+  document.getElementById('progressLabel').textContent = '';
+  clearLog();
+  log('— ready —', 'info');
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>
