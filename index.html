@@ -18,11 +18,16 @@ header{display:flex;align-items:center;gap:1rem;border-bottom:1px solid var(--bo
 .header-logo{display:flex;align-items:center;gap:.75rem}
 h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color:var(--accent)}
 .subtitle{font-size:.8rem;color:var(--muted);font-family:var(--font-mono)}
-.wasm-badge{margin-left:auto;font-family:var(--font-mono);font-size:.65rem;padding:.25rem .6rem;border-radius:3px;border:1px solid var(--border);color:var(--muted);display:flex;align-items:center;gap:.4rem}
+.subtitle-link{cursor:pointer;transition:color .15s;border-bottom:1px solid transparent;padding-bottom:1px}
+.subtitle-link:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.header-right{margin-left:auto;display:flex;align-items:center;gap:.5rem}
+.wasm-badge{font-family:var(--font-mono);font-size:.65rem;padding:.25rem .6rem;border-radius:3px;border:1px solid var(--border);color:var(--muted);display:flex;align-items:center;gap:.4rem}
 .wasm-badge .dot{width:6px;height:6px;border-radius:50%;background:#555;transition:background .3s}
 .wasm-badge.loading .dot{background:var(--accent);animation:pulse 1s infinite}
 .wasm-badge.ready .dot{background:#4cff88}
 .wasm-badge.error .dot{background:var(--accent3)}
+.restart-btn{font-family:var(--font-mono);font-size:.65rem;padding:.25rem .6rem;border-radius:3px;border:1px solid var(--border);color:var(--muted);background:transparent;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:.35rem}
+.restart-btn:hover{border-color:#666;color:var(--text)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .app-layout{display:grid;grid-template-columns:280px 1fr;gap:1.5rem;flex:1}
 @media(max-width:900px){.app-layout{grid-template-columns:1fr}}
@@ -50,12 +55,12 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .panel-header{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 .panel-header span{color:var(--accent2);font-weight:500}
 .settings-body{padding:1.2rem;display:flex;flex-direction:column;gap:1.2rem}
-.tool-section{display:none}
-.tool-section.active{display:flex;flex-direction:column;gap:1rem}
+.tool-section{display:none;flex-direction:column;gap:1rem}
+.tool-section.active{display:flex}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
 .field{display:flex;flex-direction:column;gap:.4rem}
 .field label{font-family:var(--font-mono);font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
-.field input[type=number],.field select{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;transition:border-color .15s;width:100%}
+.field input[type=number],.field input[type=text],.field select{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;transition:border-color .15s;width:100%}
 .field input[type=range]{background:transparent;border:none;width:100%;cursor:pointer;accent-color:var(--accent);padding:.3rem 0}
 .field input:focus,.field select:focus{border-color:var(--accent2)}
 .btn{font-family:var(--font-mono);font-size:.72rem;letter-spacing:.05em;padding:.5rem 1.1rem;border-radius:4px;border:1px solid var(--border);cursor:pointer;transition:all .15s;background:transparent;color:var(--muted)}
@@ -63,6 +68,10 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .btn:disabled{opacity:.35;cursor:not-allowed}
 .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:500}
 .btn-primary:hover:not(:disabled){background:#e8621a;border-color:#e8621a}
+.btn-replace{color:var(--accent2);border-color:rgba(71,200,255,.3)}
+.btn-replace:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2);background:rgba(71,200,255,.07)}
+.btn-replace-confirm{color:#4cff88 !important;border-color:rgba(76,255,136,.5) !important;background:rgba(76,255,136,.07) !important;animation:confirmPop .25s ease}
+@keyframes confirmPop{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
 .action-row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap}
 .progress-label{font-family:var(--font-mono);font-size:.7rem;color:var(--muted);margin-left:auto}
 .output-log{background:var(--surface2);border-radius:4px;padding:.8rem 1rem;font-family:var(--font-mono);font-size:.72rem;color:var(--muted);max-height:120px;overflow-y:auto;line-height:1.7}
@@ -80,50 +89,92 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .dl-bar .dl-info{font-family:var(--font-mono);font-size:.7rem;color:var(--muted);margin-right:auto}
 .separator{height:1px;background:var(--border)}
 .tool-desc{font-family:var(--font-mono);font-size:.72rem;color:#555;line-height:1.6}
+/* ── Crop / Canvas Resize mode indicator ── */
+.crop-mode-hint{font-family:var(--font-mono);font-size:.65rem;padding:.35rem .6rem;border-radius:4px;border:1px solid var(--border);display:flex;align-items:center;gap:.45rem;transition:all .25s}
+.crop-mode-hint.mode-crop{border-color:rgba(255,118,46,.35);background:rgba(255,118,46,.06);color:var(--accent)}
+.crop-mode-hint.mode-pad{border-color:rgba(71,200,255,.35);background:rgba(71,200,255,.06);color:var(--accent2)}
+.crop-mode-hint .mode-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.crop-mode-hint.mode-crop .mode-dot{background:var(--accent)}
+.crop-mode-hint.mode-pad .mode-dot{background:var(--accent2)}
+.btn-match{color:var(--accent2);border-color:rgba(71,200,255,.3);font-size:.65rem;padding:.4rem .8rem}
+.btn-match:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2);background:rgba(71,200,255,.07)}
+/* RGBA */
+.rgba-slots-grid{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
+.rgba-slot{background:var(--surface2);border:1px solid var(--border);border-radius:6px;overflow:hidden;display:flex;flex-direction:column;transition:border-color .2s}
+.rgba-slot:hover{border-color:var(--ch-color,var(--border))}
+.slot-header{display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;border-bottom:1px solid var(--border)}
+.slot-badge{font-family:var(--font-mono);font-size:.65rem;font-weight:700;padding:.1rem .4rem;border-radius:3px;border:1px solid;letter-spacing:.05em;flex-shrink:0}
+.slot-hint{font-family:var(--font-mono);font-size:.56rem;color:#444;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.slot-preview{width:100%;height:80px;background:#111;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.slot-thumb{width:100%;height:100%;object-fit:contain;display:block;filter:grayscale(1);opacity:.85}
+.slot-empty-thumb{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%}
+.slot-select{background:var(--surface);border:none;border-top:1px solid var(--border);color:var(--muted);font-family:var(--font-mono);font-size:.65rem;padding:.4rem .5rem;outline:none;cursor:pointer;width:100%}
+.slot-select:hover,.slot-select:focus{color:var(--text)}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+
+/* ═══ Font Preview Tool Styles ═══ */
+.fp-controls-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.8rem;align-items:end}
+.fp-letter-builder{display:flex;flex-direction:column;gap:.5rem}
+.fp-letter-builder-header{display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.fp-letter-list{display:flex;flex-direction:column;gap:.4rem;max-height:260px;overflow-y:auto;padding-right:2px}
+.fp-letter-row{display:grid;grid-template-columns:28px 1fr 28px;gap:.4rem;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.3rem .5rem;transition:border-color .15s}
+.fp-letter-row:hover{border-color:#3a3a42}
+.fp-letter-idx{font-family:var(--font-mono);font-size:.6rem;color:#444;text-align:center;flex-shrink:0}
+.fp-letter-select{background:transparent;border:none;color:var(--text);font-family:var(--font-mono);font-size:.72rem;outline:none;cursor:pointer;width:100%;padding:.1rem 0}
+.fp-letter-select option{background:var(--surface2)}
+.fp-letter-thumb{width:24px;height:24px;object-fit:contain;border-radius:2px;display:block;flex-shrink:0;background:#111;border:1px solid var(--border)}
+.fp-letter-thumb-empty{width:24px;height:24px;background:var(--surface);border:1px solid var(--border);border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fp-length-row{display:flex;align-items:center;gap:.6rem}
+.fp-length-row label{font-family:var(--font-mono);font-size:.65rem;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.08em}
+.fp-length-row input{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.4rem .6rem;border-radius:4px;outline:none;width:70px;transition:border-color .15s}
+.fp-length-row input:focus{border-color:var(--accent2)}
+.fp-gradient-row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}
+.fp-color-field{display:flex;flex-direction:column;gap:.4rem}
+.fp-color-field label{font-family:var(--font-mono);font-size:.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.fp-color-swatch{display:flex;align-items:center;gap:.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.35rem .6rem;cursor:pointer;transition:border-color .15s}
+.fp-color-swatch:hover{border-color:#444}
+.fp-color-dot{width:18px;height:18px;border-radius:3px;border:1px solid rgba(255,255,255,.12);flex-shrink:0;transition:background .15s}
+.fp-color-val{font-family:var(--font-mono);font-size:.72rem;color:var(--muted)}
+.fp-color-input{position:absolute;opacity:0;width:0;height:0;pointer-events:none}
+.fp-preview-panel{background:var(--surface2);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.fp-preview-label{font-family:var(--font-mono);font-size:.6rem;color:#444;text-transform:uppercase;letter-spacing:.08em;padding:.4rem .7rem;border-bottom:1px solid var(--border)}
+.fp-preview-canvas-wrap{padding:.75rem;display:flex;align-items:center;justify-content:center;min-height:80px}
+#fpPreviewCanvas{border-radius:4px;max-width:100%;display:block;image-rendering:pixelated}
 </style>
 </head>
 <body>
 
 <header>
-  <div class="header-logo" style="display: flex; align-items: center; gap: 12px;">
+  <div class="header-logo" style="display:flex;align-items:center;gap:12px">
     <a href="https://yggdrasilgaming.com">
-      <img 
-        src="https://yggdrasilgaming.com/w/files/2020/07/symbol.png" 
-        alt="Yggdrasil Gaming Logo"
-        style="width: 70px; display: block;"
-      >
+      <img src="https://yggdrasilgaming.com/w/files/2020/07/symbol.png"
+           alt="Yggdrasil Gaming Logo" style="width:70px;display:block">
     </a>
     <div>
       <h1>YGG&nbsp;&nbsp;&nbsp;TOOLKIT</h1>
-      <span class="subtitle">crop · blur · convert · no install needed</span>
+      <span class="subtitle">
+        <span class="subtitle-link" onclick="switchTool('crop')">crop</span> ·
+        <span class="subtitle-link" onclick="switchTool('blur')">blur</span> ·
+        <span class="subtitle-link" onclick="switchTool('webp')">convert</span> ·
+        <span class="subtitle-link" onclick="switchTool('rgba')">rgba mask</span> ·
+        <span class="subtitle-link" onclick="switchTool('fontpreview')">font preview</span>
+      </span>
     </div>
   </div>
-  <div class="wasm-badge loading" id="wasmBadge">
-    <div class="dot"></div>
-    <span id="wasmStatus">loading wasm…</span>
+  <div class="header-right">
+    <div class="wasm-badge loading" id="wasmBadge">
+      <div class="dot"></div>
+      <span id="wasmStatus">loading wasm…</span>
+    </div>
+    <button class="restart-btn" title="Restart toolkit — loaded files are preserved" onclick="restartToolkit()">&#8635; restart</button>
   </div>
 </header>
 
 <div class="app-layout">
   <div class="sidebar">
-    <div class="tool-tabs">
-      <button class="tool-tab active" onclick="switchTool('crop')" id="tab-crop">
-        <span class="icon">✂️</span>
-        <span class="label">Center Crop<small>resize to exact dimensions</small></span>
-      </button>
-      <button class="tool-tab" onclick="switchTool('blur')" id="tab-blur">
-        <span class="icon">💨</span>
-        <span class="label">Directional Blur<small>motion blur with feathering</small></span>
-      </button>
-      <button class="tool-tab" onclick="switchTool('webp')" id="tab-webp">
-        <span class="icon">🔄</span>
-        <span class="label">Convert to WebP<small>png → webp via canvas</small></span>
-      </button>
-    </div>
-    <div class="separator"></div>
+    <!-- Files first, tools below -->
     <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
       <span class="drop-icon">📂</span>
       drop PNG files here<br>or click to browse
@@ -131,74 +182,23 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
     <input type="file" id="fileInput" accept=".png,image/png" multiple>
     <div class="file-list" id="fileList"></div>
     <div id="fileCount" style="font-family:var(--font-mono);font-size:.65rem;color:#555;text-align:center"></div>
+    <div class="separator"></div>
+    <div class="tool-tabs" id="toolTabs"></div>
   </div>
 
   <div class="main-panel">
     <div class="panel">
-      <div class="panel-header">settings <span id="toolName">center crop</span></div>
-      <div class="settings-body">
-
-        <div class="tool-section active" id="section-crop">
-          <p class="tool-desc">Crops all PNG files to the specified dimensions from their center point. Great for sprite sheets, thumbnails, and texture atlases.</p>
-          <div class="field-row">
-            <div class="field">
-              <label>Width (px)</label>
-              <input type="number" id="crop-w" value="256" min="1" max="8192">
-            </div>
-            <div class="field">
-              <label>Height (px)</label>
-              <input type="number" id="crop-h" value="256" min="1" max="8192">
-            </div>
-          </div>
-        </div>
-
-        <div class="tool-section" id="section-blur">
-          <p class="tool-desc">Applies directional motion blur — edges fade to transparent so the blur blends naturally with surroundings.</p>
-          <div class="field-row">
-            <div class="field">
-              <label>Radius</label>
-              <input type="number" id="blur-radius" value="0" min="0" max="50">
-            </div>
-            <div class="field">
-              <label>Sigma (strength)</label>
-              <input type="number" id="blur-sigma" value="12" min="1" max="100">
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label>Angle — <span id="blur-angle-val" style="color:var(--accent)">90°</span></label>
-              <input type="range" id="blur-angle" value="90" min="0" max="360" oninput="document.getElementById('blur-angle-val').textContent=this.value+'°'">
-            </div>
-            <div class="field">
-              <label>Edge Feather (px)</label>
-              <input type="number" id="blur-feather" value="5" min="0" max="100">
-            </div>
-          </div>
-        </div>
-
-        <div class="tool-section" id="section-webp">
-          <p class="tool-desc">Converts PNG files to WebP using the browser's built-in Canvas encoder — no WASM needed. WebP is typically 25–34% smaller than PNG.</p>
-          <div class="field-row">
-            <div class="field">
-              <label>Quality — <span id="webp-quality-val" style="color:var(--accent)">80</span></label>
-              <input type="range" id="webp-quality" value="80" min="1" max="100" oninput="document.getElementById('webp-quality-val').textContent=this.value">
-            </div>
-            <div class="field">
-              <label>Mode</label>
-              <select id="webp-lossless">
-                <option value="0">Lossy (smaller file)</option>
-                <option value="1">Lossless (max quality)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
+      <div class="panel-header">settings <span id="toolName"></span></div>
+      <div class="settings-body" id="settingsBody">
+        <!-- tool sections injected before action-row -->
         <div class="action-row">
-          <button class="btn btn-primary" id="runBtn" onclick="runTool()" disabled>▶ RUN</button>
-          <button class="btn" onclick="clearResults()">CLEAR</button>
+          <button class="btn btn-primary" id="runBtn" disabled>&#9654; RUN</button>
+          <button class="btn" id="clearBtn">CLEAR</button>
           <span class="progress-label" id="progressLabel"></span>
         </div>
-        <div class="output-log" id="outputLog"><span class="log-line info">— loading ImageMagick WASM… —</span></div>
+        <div class="output-log" id="outputLog">
+          <span class="log-line info">&#8212; loading ImageMagick WASM&#8230; &#8212;</span>
+        </div>
       </div>
     </div>
 
@@ -209,267 +209,764 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
       </div>
       <div class="dl-bar" id="dlBar" style="display:none">
         <span class="dl-info" id="dlInfo"></span>
-        <button class="btn btn-primary" onclick="downloadAll()">⬇ DOWNLOAD ALL</button>
+        <button class="btn btn-replace" id="replaceBtn" onclick="replaceFilesWithOutput()">&#8645; REPLACE LOADED FILES</button>
+        <button class="btn btn-primary" id="dlAllBtn">&#8681; DOWNLOAD ALL</button>
       </div>
     </div>
   </div>
 </div>
 
-<script type="module">
-  import * as Magick from 'https://knicknic.github.io/wasm-imagemagick/magickApi.js';
-  window._Magick = Magick;
-  const badge  = document.getElementById('wasmBadge');
-  const status = document.getElementById('wasmStatus');
-  badge.className  = 'wasm-badge ready';
-  status.textContent = 'wasm ready';
-  window._magickReady = true;
-  window.updateRunBtn();
-  clearLog();
-  log('ImageMagick WASM loaded — no local install needed', 'info');
-  log('Drop PNG files on the left, choose a tool and hit RUN.', 'info');
+
+<!-- ═══ core/state.js ═══ -->
+<script>
+const state = { magickReady:false, currentTool:'crop', inputFiles:[], outputFiles:[] };
+const _EV = {};
+function on(e,fn){ (_EV[e]=_EV[e]||[]).push(fn); }
+function emit(e,d){ (_EV[e]||[]).forEach(fn=>fn(d)); }
 </script>
 
+<!-- ═══ core/ui.js ═══ -->
 <script>
-window._magickReady = false;
-let currentTool = 'crop';
-let inputFiles  = [];
-let outputFiles = [];
-
-function switchTool(tool) {
-  currentTool = tool;
-  document.querySelectorAll('.tool-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tool-section').forEach(s => s.classList.remove('active'));
-  document.getElementById('tab-' + tool).classList.add('active');
-  document.getElementById('section-' + tool).classList.add('active');
-  const names = { crop:'center crop', blur:'directional blur', webp:'png → webp' };
-  document.getElementById('toolName').textContent = names[tool];
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function log(msg,type=''){
+  const el=document.getElementById('outputLog'),ln=document.createElement('span');
+  ln.className='log-line '+type; ln.textContent=msg;
+  el.appendChild(ln); el.appendChild(document.createElement('br')); el.scrollTop=el.scrollHeight;
 }
-
-const dropzone  = document.getElementById('dropzone');
-const fileInput = document.getElementById('fileInput');
-
-dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
-dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-dropzone.addEventListener('drop', e => {
-  e.preventDefault(); dropzone.classList.remove('drag-over');
-  addFiles([...e.dataTransfer.files].filter(f => f.type === 'image/png' || f.name.endsWith('.png')));
-});
-fileInput.addEventListener('change', () => { addFiles([...fileInput.files]); fileInput.value = ''; });
-
-function addFiles(files) {
-  for (const f of files) {
-    if (inputFiles.find(x => x.name === f.name)) continue;
-    inputFiles.push({ name: f.name, file: f, url: URL.createObjectURL(f) });
-  }
-  renderFileList(); updateRunBtn();
+function clearLog(){ document.getElementById('outputLog').innerHTML=''; }
+function setBadge(mode,text){
+  document.getElementById('wasmBadge').className='wasm-badge '+mode;
+  document.getElementById('wasmStatus').textContent=text;
 }
-
-function removeFile(name) {
-  const idx = inputFiles.findIndex(x => x.name === name);
-  if (idx !== -1) { URL.revokeObjectURL(inputFiles[idx].url); inputFiles.splice(idx, 1); }
-  renderFileList(); updateRunBtn();
+function updateRunBtn(){
+  const tool=typeof TOOLS!=='undefined'&&TOOLS.find(t=>t.meta.id===state.currentTool);
+  const needsWasm=tool?tool.meta.needsMagick:true;
+  document.getElementById('runBtn').disabled=state.inputFiles.length===0||(needsWasm&&!state.magickReady);
 }
-
-function renderFileList() {
-  document.getElementById('fileList').innerHTML = inputFiles.map(f => `
+function renderFileList(){
+  document.getElementById('fileList').innerHTML=state.inputFiles.map(f=>`
     <div class="file-item">
       <span class="fname">${esc(f.name)}</span>
       <span class="fsize">${(f.file.size/1024).toFixed(0)}k</span>
-      <span class="fremove" onclick="removeFile('${esc(f.name)}')">✕</span>
+      <span class="fremove" onclick="removeFile('${esc(f.name)}')">&#10005;</span>
     </div>`).join('');
-  document.getElementById('fileCount').textContent =
-    inputFiles.length ? `${inputFiles.length} file${inputFiles.length > 1 ? 's' : ''} loaded` : '';
+  const n=state.inputFiles.length;
+  document.getElementById('fileCount').textContent=n?`${n} file${n>1?'s':''} loaded`:'';
+  emit('filesChanged');
 }
-
-function updateRunBtn() {
-  const wasmNeeded = currentTool !== 'webp';
-  document.getElementById('runBtn').disabled = inputFiles.length === 0 || (wasmNeeded && !window._magickReady);
+function renderResults(){
+  const area=document.getElementById('resultsArea'),n=state.outputFiles.length;
+  document.getElementById('resultCount').textContent=n+' file'+(n!==1?'s':'');
+  if(!n){ area.innerHTML='<div class="empty-state">no output files generated</div>'; document.getElementById('dlBar').style.display='none'; return; }
+  const kb=state.outputFiles.reduce((s,f)=>s+f.blob.size,0);
+  document.getElementById('dlInfo').textContent=`${n} file${n>1?'s':''} \u00b7 ${(kb/1024).toFixed(0)} KB total`;
+  area.innerHTML='<div class="results-grid">'+state.outputFiles.map(f=>`
+    <div class="result-card" onclick="downloadOne('${esc(f.name)}')" title="Click to download">
+      <img src="${f.url}" alt="${esc(f.name)}" loading="lazy">
+      <div class="rc-label">${esc(f.name)}</div>
+    </div>`).join('')+'</div>';
+  document.getElementById('dlBar').style.display='flex';
+  // Reset replace button state whenever results refresh
+  const replBtn=document.getElementById('replaceBtn');
+  replBtn.className='btn btn-replace';
+  replBtn.innerHTML='&#8645; REPLACE LOADED FILES';
 }
-
-function log(msg, type = '') {
-  const el   = document.getElementById('outputLog');
-  const line = document.createElement('span');
-  line.className = 'log-line ' + type;
-  line.textContent = msg;
-  el.appendChild(line);
-  el.appendChild(document.createElement('br'));
-  el.scrollTop = el.scrollHeight;
+function clearResults(){
+  state.outputFiles.forEach(f=>URL.revokeObjectURL(f.url)); state.outputFiles=[];
+  document.getElementById('resultsArea').innerHTML='<div class="empty-state">processed images will appear here</div>';
+  document.getElementById('resultCount').textContent='0 files';
+  document.getElementById('dlBar').style.display='none';
+  document.getElementById('progressLabel').textContent='';
+  clearLog(); log('\u2014 ready \u2014','info');
 }
-function clearLog() { document.getElementById('outputLog').innerHTML = ''; }
-
-async function runTool() {
-  if (inputFiles.length === 0) return;
-  clearLog();
-  outputFiles = [];
-  document.getElementById('resultsArea').innerHTML = '<div class="empty-state">processing…</div>';
-  document.getElementById('resultCount').textContent = '0 files';
-  document.getElementById('dlBar').style.display = 'none';
-  const btn = document.getElementById('runBtn');
-  btn.disabled = true;
-  log(`Running ${currentTool} on ${inputFiles.length} file(s)`, 'info');
-
-  for (let i = 0; i < inputFiles.length; i++) {
-    const { name, file } = inputFiles[i];
-    document.getElementById('progressLabel').textContent = `${i+1} / ${inputFiles.length}`;
-    try {
-      const uint8 = new Uint8Array(await file.arrayBuffer());
-      let blob;
-      if      (currentTool === 'crop') blob = await doCrop(uint8, name);
-      else if (currentTool === 'blur') blob = await doBlur(uint8, name);
-      else                             blob = await doWebp(file);
-      if (blob) {
-        const outName = getOutName(name);
-        outputFiles.push({ name: outName, blob, url: URL.createObjectURL(blob) });
-        log(`✓ ${name} → ${outName}`, 'ok');
-      }
-    } catch(e) {
-      log(`✗ ${name}: ${e.message || e}`, 'err');
-    }
-  }
-
-  document.getElementById('progressLabel').textContent = `done — ${outputFiles.length} file(s)`;
-  btn.disabled = false;
-  renderResults();
-}
-
-function getOutName(name) {
-  const b = name.replace(/\.png$/i, '');
-  if (currentTool === 'crop') return b + '_cropped.png';
-  if (currentTool === 'blur') return b + '_blur.png';
-  return b + '.webp';
-}
-
-async function doCrop(uint8, name) {
-  const w = parseInt(document.getElementById('crop-w').value) || 256;
-  const h = parseInt(document.getElementById('crop-h').value) || 256;
-  const dims = await getImageDimensions(uint8);
-  const cw = Math.min(w, dims.w);
-  const ch = Math.min(h, dims.h);
-  const result = await window._Magick.Call(
-    [{ name: 'input.png', content: uint8 }],
-    ['convert', 'input.png', '-gravity', 'Center', '-crop', `${cw}x${ch}+0+0`, '+repage', 'output.png']
-  );
-  if (!result || result.length === 0) throw new Error('No output from ImageMagick');
-  return result[0].blob;
-}
-
-async function doBlur(uint8) {
-  const radius  = document.getElementById('blur-radius').value  || '0';
-  const sigma   = document.getElementById('blur-sigma').value   || '12';
-  const angle   = document.getElementById('blur-angle').value   || '90';
-  const feather = document.getElementById('blur-feather').value || '5';
-  const blurArg = `${radius}x${sigma}+${angle}`;
-  const fresh = async blob => new Uint8Array(await blob.arrayBuffer());
-
-  const r1 = await window._Magick.Call([{ name:'input.png', content:uint8 }],
-    ['convert','input.png','-motion-blur',blurArg,'blurred.png']);
-  if (!r1||!r1.length) throw new Error('Motion blur failed');
-  const blurredBlob = r1[0].blob;
-
-  const r2 = await window._Magick.Call([{ name:'blurred.png', content:await fresh(blurredBlob) }],
-    ['convert','blurred.png','-alpha','off','-fill','white','-colorize','100',
-     '-shave',`${feather}x${feather}`,'-bordercolor','black','-border',`${feather}x${feather}`,
-     '-blur',`0x${feather}`,'-level','20%,80%','mask.png']);
-  if (!r2||!r2.length) throw new Error('Mask creation failed');
-  const maskBlob = r2[0].blob;
-
-  const r3 = await window._Magick.Call([{ name:'blurred.png', content:await fresh(blurredBlob) }],
-    ['convert','blurred.png','-alpha','extract','orig_alpha.png']);
-  if (!r3||!r3.length) throw new Error('Alpha extract failed');
-  const alphaBlob = r3[0].blob;
-
-  const r4 = await window._Magick.Call(
-    [{ name:'orig_alpha.png', content:await fresh(alphaBlob) },
-     { name:'mask.png',       content:await fresh(maskBlob)  }],
-    ['convert','orig_alpha.png','mask.png','-compose','Multiply','-composite','combined_alpha.png']);
-  if (!r4||!r4.length) throw new Error('Alpha multiply failed');
-  const combinedAlphaBlob = r4[0].blob;
-
-  const r5 = await window._Magick.Call(
-    [{ name:'blurred.png',        content:await fresh(blurredBlob)       },
-     { name:'combined_alpha.png', content:await fresh(combinedAlphaBlob) }],
-    ['convert','blurred.png','combined_alpha.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
-  if (!r5||!r5.length) throw new Error('Final composite failed');
-  return r5[0].blob;
-}
-
-async function doWebp(file) {
-  const quality  = parseInt(document.getElementById('webp-quality').value) / 100;
-  const lossless = document.getElementById('webp-lossless').value === '1';
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      canvas.toBlob(
-        blob => blob ? resolve(blob) : reject(new Error('Canvas toBlob failed')),
-        'image/webp', lossless ? 1.0 : quality
-      );
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
-    img.src = url;
+function triggerDl(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; a.click(); }
+async function downloadAll(){ for(const f of state.outputFiles){ triggerDl(f.url,f.name); await new Promise(r=>setTimeout(r,80)); } }
+function downloadOne(name){ const f=state.outputFiles.find(x=>x.name===name); if(f) triggerDl(f.url,f.name); }
+function getImageDimensions(uint8){
+  return new Promise((resolve,reject)=>{
+    const blob=new Blob([uint8],{type:'image/png'}),url=URL.createObjectURL(blob),img=new Image();
+    img.onload=()=>{ URL.revokeObjectURL(url); resolve({w:img.naturalWidth,h:img.naturalHeight}); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('Could not read dimensions')); };
+    img.src=url;
   });
 }
 
-function getImageDimensions(uint8) {
-  return new Promise((resolve, reject) => {
-    const blob = new Blob([uint8], { type:'image/png' });
-    const url  = URL.createObjectURL(blob);
-    const img  = new Image();
-    img.onload  = () => { URL.revokeObjectURL(url); resolve({ w:img.naturalWidth, h:img.naturalHeight }); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read dimensions')); };
-    img.src = url;
-  });
-}
-
-function renderResults() {
-  const area = document.getElementById('resultsArea');
-  document.getElementById('resultCount').textContent =
-    outputFiles.length + ' file' + (outputFiles.length !== 1 ? 's' : '');
-  if (!outputFiles.length) {
-    area.innerHTML = '<div class="empty-state">no output files generated</div>';
-    document.getElementById('dlBar').style.display = 'none';
+// ── Replace loaded files with output ──────────────────────────────────────────
+let _replaceConfirmTimer = null;
+function replaceFilesWithOutput(){
+  const btn = document.getElementById('replaceBtn');
+  if(!btn.classList.contains('btn-replace-confirm')){
+    // First click — ask for confirmation
+    clearTimeout(_replaceConfirmTimer);
+    btn.classList.remove('btn-replace');
+    btn.classList.add('btn-replace-confirm');
+    btn.textContent = '✓ CONFIRM REPLACE';
+    _replaceConfirmTimer = setTimeout(()=>{
+      btn.classList.remove('btn-replace-confirm');
+      btn.classList.add('btn-replace');
+      btn.innerHTML = '&#8645; REPLACE LOADED FILES';
+    }, 3000);
     return;
   }
-  const totalKb = outputFiles.reduce((s, f) => s + f.blob.size, 0);
-  document.getElementById('dlInfo').textContent =
-    `${outputFiles.length} file${outputFiles.length > 1 ? 's' : ''} · ${(totalKb/1024).toFixed(0)} KB total`;
-  area.innerHTML = '<div class="results-grid">' +
-    outputFiles.map(f => `
-      <div class="result-card" onclick="downloadOne('${esc(f.name)}')" title="Click to download">
-        <img src="${f.url}" alt="${esc(f.name)}" loading="lazy">
-        <div class="rc-label">${esc(f.name)}</div>
-      </div>`).join('') + '</div>';
-  document.getElementById('dlBar').style.display = 'flex';
-}
-
-async function downloadAll() {
-  for (const f of outputFiles) { triggerDl(f.url, f.name); await new Promise(r => setTimeout(r, 80)); }
-}
-function downloadOne(name) {
-  const f = outputFiles.find(x => x.name === name);
-  if (f) triggerDl(f.url, f.name);
-}
-function triggerDl(url, name) {
-  const a = document.createElement('a'); a.href = url; a.download = name; a.click();
-}
-function clearResults() {
-  outputFiles.forEach(f => URL.revokeObjectURL(f.url));
-  outputFiles = [];
+  // Confirmed — swap output → input
+  clearTimeout(_replaceConfirmTimer);
+  const outputSnapshot = [...state.outputFiles];
+  // Revoke old input blob URLs
+  state.inputFiles.forEach(f => URL.revokeObjectURL(f.url));
+  // Build new input entries from output blobs
+  const newFiles = outputSnapshot.map(o => ({
+    name: o.name,
+    file: new File([o.blob], o.name, {type:'image/png'}),
+    url: URL.createObjectURL(o.blob)
+  }));
+  // Clear output state (but keep blob URLs alive — they're now used by input)
+  state.outputFiles = [];
   document.getElementById('resultsArea').innerHTML = '<div class="empty-state">processed images will appear here</div>';
   document.getElementById('resultCount').textContent = '0 files';
   document.getElementById('dlBar').style.display = 'none';
   document.getElementById('progressLabel').textContent = '';
   clearLog();
-  log('— ready —', 'info');
+  // Load new inputs
+  state.inputFiles = newFiles;
+  renderFileList();
+  updateRunBtn();
+  if(state.currentTool === 'fontpreview') document.getElementById('runBtn').disabled = false;
+  log(`\u2713 ${newFiles.length} output file${newFiles.length!==1?'s':''} loaded as input`, 'ok');
 }
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-                  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+// ── Restart toolkit (preserve loaded files) ───────────────────────────────────
+function restartToolkit(){
+  const savedFiles = [...state.inputFiles];
+  // Revoke output URLs
+  state.outputFiles.forEach(f => URL.revokeObjectURL(f.url));
+  state.outputFiles = [];
+  document.getElementById('resultsArea').innerHTML = '<div class="empty-state">processed images will appear here</div>';
+  document.getElementById('resultCount').textContent = '0 files';
+  document.getElementById('dlBar').style.display = 'none';
+  document.getElementById('progressLabel').textContent = '';
+  state.inputFiles = savedFiles;
+  renderFileList();
+  switchTool(state.currentTool);
+  updateRunBtn();
+  if(state.currentTool === 'fontpreview') document.getElementById('runBtn').disabled = false;
+  clearLog();
+  log('\u2014 restarted \u2014 loaded files preserved \u2014', 'info');
 }
 </script>
+
+<!-- ═══ tools/crop.js — upgraded to Canvas Resize (crop OR pad) ═══ -->
+<script>
+async function cropMatchFirstImage(){
+  if(!state.inputFiles.length) return;
+  const first = state.inputFiles[0];
+  const dims = await getImageDimensions(new Uint8Array(await first.file.arrayBuffer()));
+  document.getElementById('crop-w').value = dims.w;
+  document.getElementById('crop-h').value = dims.h;
+  cropUpdateModeHint();
+  log(`✓ matched first image: ${dims.w} × ${dims.h} px`, 'ok');
+}
+
+async function cropUpdateModeHint(){
+  const hint = document.getElementById('crop-mode-hint');
+  if(!hint) return;
+  const tw = parseInt(document.getElementById('crop-w')?.value)||0;
+  const th = parseInt(document.getElementById('crop-h')?.value)||0;
+  if(!state.inputFiles.length || !tw || !th){
+    hint.className='crop-mode-hint';
+    hint.innerHTML='<span class="mode-dot"></span><span>load files to preview mode</span>';
+    return;
+  }
+  try{
+    const dims = await getImageDimensions(new Uint8Array(await state.inputFiles[0].file.arrayBuffer()));
+    const willCrop = tw < dims.w || th < dims.h;
+    const willPad  = tw > dims.w || th > dims.h;
+    if(willCrop && willPad){
+      hint.className='crop-mode-hint mode-crop';
+      hint.innerHTML='<span class="mode-dot"></span><span>mixed — crop on one axis, pad on other</span>';
+    } else if(willCrop){
+      hint.className='crop-mode-hint mode-crop';
+      hint.innerHTML='<span class="mode-dot"></span><span>will CENTER CROP (target smaller than source)</span>';
+    } else if(willPad){
+      hint.className='crop-mode-hint mode-pad';
+      hint.innerHTML='<span class="mode-dot"></span><span>will PAD with transparency (target larger than source)</span>';
+    } else {
+      hint.className='crop-mode-hint mode-pad';
+      hint.innerHTML='<span class="mode-dot"></span><span>same size — no change</span>';
+    }
+  } catch(e){ /* ignore */ }
+}
+
+const ToolCrop={
+  meta:{id:'crop',label:'Canvas Resize',small:'crop or pad to exact size',icon:'✂️',needsMagick:true,batchMode:false,
+    desc:'Resizes the canvas of each PNG to exact pixel dimensions. If the target is <em>smaller</em> than the source the image is center-cropped; if <em>larger</em>, transparent pixels are added around the image to reach the target size.'},
+  settingsHTML(){return`
+    <div class="field-row">
+      <div class="field">
+        <label>Width (px)</label>
+        <input type="number" id="crop-w" value="256" min="1" max="8192" oninput="cropUpdateModeHint()">
+      </div>
+      <div class="field">
+        <label>Height (px)</label>
+        <input type="number" id="crop-h" value="256" min="1" max="8192" oninput="cropUpdateModeHint()">
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+      <button class="btn btn-match" id="cropMatchBtn" onclick="cropMatchFirstImage()" ${state.inputFiles.length?'':'disabled'}>
+        ↓ match first image
+      </button>
+      <div class="crop-mode-hint" id="crop-mode-hint">
+        <span class="mode-dot"></span><span>load files to preview mode</span>
+      </div>
+    </div>`;},
+  outName(n){return n.replace(/\.png$/i,'')+'_resized.png';},
+  async run(uint8){
+    const tw=parseInt(document.getElementById('crop-w').value)||256;
+    const th=parseInt(document.getElementById('crop-h').value)||256;
+    // -extent with gravity Center: crops if target < source, pads if target > source
+    // -background transparent ensures padding is fully transparent
+    const r = await window._Magick.Call(
+      [{name:'input.png', content:uint8}],
+      ['convert','input.png','-background','transparent','-gravity','Center','-extent',`${tw}x${th}`,'+repage','output.png']
+    );
+    if(!r||!r.length) throw new Error('No output from ImageMagick');
+    return r[0].blob;
+  }
+};
+
+on('filesChanged', ()=>{
+  const btn = document.getElementById('cropMatchBtn');
+  if(btn) btn.disabled = state.inputFiles.length === 0;
+  cropUpdateModeHint();
+});
+</script>
+
+
+<!-- ═══ tools/blur.js ═══ -->
+<script>
+const ToolBlur={
+  meta:{id:'blur',label:'Directional Blur',small:'motion blur with feathering',icon:'&#128168;',needsMagick:true,batchMode:false,
+    desc:'Applies directional motion blur — edges fade to transparent so the blur blends naturally with surroundings.'},
+  settingsHTML(){return`<div class="field-row">
+    <div class="field"><label>Radius</label><input type="number" id="blur-radius" value="0" min="0" max="50"></div>
+    <div class="field"><label>Sigma (strength)</label><input type="number" id="blur-sigma" value="12" min="1" max="100"></div>
+    </div><div class="field-row">
+    <div class="field"><label>Angle &mdash; <span id="blur-angle-val" style="color:var(--accent)">90&deg;</span></label>
+      <input type="range" id="blur-angle" value="90" min="0" max="360" oninput="document.getElementById('blur-angle-val').textContent=this.value+'&deg;'"></div>
+    <div class="field"><label>Edge Feather (px)</label><input type="number" id="blur-feather" value="5" min="0" max="100"></div>
+    </div>`;},
+  outName(n){return n.replace(/\.png$/i,'')+'_blur.png';},
+  async run(uint8){
+    const radius=document.getElementById('blur-radius').value||'0',sigma=document.getElementById('blur-sigma').value||'12',
+          angle=document.getElementById('blur-angle').value||'90',feather=document.getElementById('blur-feather').value||'5';
+    const blurArg=`${radius}x${sigma}+${angle}`,fresh=async b=>new Uint8Array(await b.arrayBuffer());
+    const r1=await window._Magick.Call([{name:'input.png',content:uint8}],['convert','input.png','-motion-blur',blurArg,'blurred.png']);
+    if(!r1||!r1.length) throw new Error('Motion blur failed');
+    const blurred=r1[0].blob;
+    const r2=await window._Magick.Call([{name:'blurred.png',content:await fresh(blurred)}],
+      ['convert','blurred.png','-alpha','off','-fill','white','-colorize','100','-shave',`${feather}x${feather}`,'-bordercolor','black','-border',`${feather}x${feather}`,'-blur',`0x${feather}`,'-level','20%,80%','mask.png']);
+    if(!r2||!r2.length) throw new Error('Mask creation failed');
+    const mask=r2[0].blob;
+    const r3=await window._Magick.Call([{name:'blurred.png',content:await fresh(blurred)}],['convert','blurred.png','-alpha','extract','orig_alpha.png']);
+    if(!r3||!r3.length) throw new Error('Alpha extract failed');
+    const alpha=r3[0].blob;
+    const r4=await window._Magick.Call([{name:'orig_alpha.png',content:await fresh(alpha)},{name:'mask.png',content:await fresh(mask)}],
+      ['convert','orig_alpha.png','mask.png','-compose','Multiply','-composite','combined_alpha.png']);
+    if(!r4||!r4.length) throw new Error('Alpha multiply failed');
+    const cAlpha=r4[0].blob;
+    const r5=await window._Magick.Call([{name:'blurred.png',content:await fresh(blurred)},{name:'combined_alpha.png',content:await fresh(cAlpha)}],
+      ['convert','blurred.png','combined_alpha.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
+    if(!r5||!r5.length) throw new Error('Final composite failed');
+    return r5[0].blob;
+  }
+};
+</script>
+
+<!-- ═══ tools/webp.js ═══ -->
+<script>
+const ToolWebp={
+  meta:{id:'webp',label:'Convert to WebP',small:'png \u2192 webp via canvas',icon:'&#128260;',needsMagick:false,batchMode:false,
+    desc:"Converts PNG files to WebP using the browser's built-in Canvas encoder \u2014 no WASM needed. WebP is typically 25\u201334% smaller than PNG."},
+  settingsHTML(){return`<div class="field-row">
+    <div class="field"><label>Quality &mdash; <span id="webp-quality-val" style="color:var(--accent)">80</span></label>
+      <input type="range" id="webp-quality" value="80" min="1" max="100" oninput="document.getElementById('webp-quality-val').textContent=this.value"></div>
+    <div class="field"><label>Mode</label><select id="webp-lossless">
+      <option value="0">Lossy (smaller file)</option><option value="1">Lossless (max quality)</option></select></div>
+    </div>`;},
+  outName(n){return n.replace(/\.png$/i,'')+'.webp';},
+  async run(_u,_n,file){
+    const quality=parseInt(document.getElementById('webp-quality').value)/100,lossless=document.getElementById('webp-lossless').value==='1';
+    return new Promise((resolve,reject)=>{
+      const img=new Image(),url=URL.createObjectURL(file);
+      img.onload=()=>{
+        const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
+        c.getContext('2d').drawImage(img,0,0); URL.revokeObjectURL(url);
+        c.toBlob(b=>b?resolve(b):reject(new Error('Canvas toBlob failed')),'image/webp',lossless?1.0:quality);
+      };
+      img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
+      img.src=url;
+    });
+  }
+};
+</script>
+
+<!-- ═══ tools/rgba.js ═══ -->
+<script>
+const _slots={R:null,G:null,B:null,A:null};
+const CH_COLOR={R:'#ff4455',G:'#44ff88',B:'#4499ff',A:'#cccccc'};
+const CH_HINT={R:'e.g. Metallic',G:'e.g. Roughness',B:'e.g. AO',A:'e.g. Height'};
+
+function rgbaRender(){
+  const el=document.getElementById('rgba-slots'); if(!el) return;
+  el.innerHTML=['R','G','B','A'].map(ch=>{
+    const col=CH_COLOR[ch],file=_slots[ch];
+    const opts=`<option value="">&#8212; none / zero fill &#8212;</option>`+
+      state.inputFiles.map(f=>`<option value="${esc(f.name)}"${file===f.name?' selected':''}>${esc(f.name)}</option>`).join('');
+    let preview;
+    if(file){
+      const entry=state.inputFiles.find(x=>x.name===file);
+      preview=entry?`<img src="${entry.url}" class="slot-thumb" alt="${esc(file)}">`:`<div class="slot-empty-thumb"><span style="font-size:1.2rem;opacity:.4">&#9888;&#65039;</span></div>`;
+    } else {
+      preview=`<div class="slot-empty-thumb"><span style="font-size:1.5rem;opacity:.18">&#128444;&#65039;</span><span style="font-family:var(--font-mono);font-size:.56rem;color:#333;margin-top:.25rem">unassigned</span></div>`;
+    }
+    return`<div class="rgba-slot" style="--ch-color:${col}">
+      <div class="slot-header">
+        <span class="slot-badge" style="background:${col}1a;color:${col};border-color:${col}44">${ch}</span>
+        <span class="slot-hint">${CH_HINT[ch]}</span>
+      </div>
+      <div class="slot-preview">${preview}</div>
+      <select class="slot-select" onchange="rgbaSetSlot('${ch}',this.value)">${opts}</select>
+    </div>`;
+  }).join('');
+}
+function rgbaSetSlot(ch,val){ _slots[ch]=val||null; rgbaRender(); }
+on('filesChanged',()=>{
+  for(const ch of ['R','G','B','A']) if(_slots[ch]&&!state.inputFiles.find(f=>f.name===_slots[ch])) _slots[ch]=null;
+  rgbaRender();
+});
+
+const ToolRgba={
+  meta:{id:'rgba',label:'RGBA Mask Combiner',small:'pack textures into channels',icon:'&#127912;',needsMagick:false,batchMode:true,
+    desc:'Packs up to 4 greyscale PNG textures into a single RGBA image \u2014 one texture per channel. Perfect for PBR mask maps (metallic, roughness, AO, height).'},
+  settingsHTML(){return`
+    <div id="rgba-slots" class="rgba-slots-grid"></div>
+    <div class="field">
+      <label>Output filename</label>
+      <input type="text" id="rgba-outname" value="mask_rgba">
+      <span style="font-family:var(--font-mono);font-size:.6rem;color:#555;margin-top:.2rem;display:block">.png appended automatically</span>
+    </div>`;},
+  outName(){const base=(document.getElementById('rgba-outname')?.value||'mask_rgba').trim(); return(base||'mask_rgba')+'.png';},
+  async run(_u,_n,_f,allFiles){
+    async function toGrey(entry){
+      return new Promise((resolve,reject)=>{
+        const img=new Image();
+        img.onload=()=>{
+          const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
+          const ctx=c.getContext('2d'); ctx.drawImage(img,0,0); URL.revokeObjectURL(img.src);
+          const d=ctx.getImageData(0,0,c.width,c.height).data,g=new Uint8Array(c.width*c.height);
+          for(let i=0;i<g.length;i++) g[i]=Math.round(0.2126*d[i*4]+0.7152*d[i*4+1]+0.0722*d[i*4+2]);
+          resolve({grey:g,w:c.width,h:c.height});
+        };
+        img.onerror=()=>reject(new Error('Failed to load '+entry.name));
+        img.src=entry.url;
+      });
+    }
+    const ch={};let refW=0,refH=0;
+    for(const k of ['R','G','B','A']){
+      if(_slots[k]){
+        const entry=allFiles.find(f=>f.name===_slots[k]);
+        if(!entry) throw new Error(`Channel ${k}: "${_slots[k]}" not found`);
+        ch[k]=await toGrey(entry); if(!refW){refW=ch[k].w;refH=ch[k].h;}
+      }
+    }
+    if(!refW) throw new Error('No channels assigned \u2014 assign at least one texture to a slot');
+    const canvas=document.createElement('canvas'); canvas.width=refW; canvas.height=refH;
+    const ctx=canvas.getContext('2d'),out=ctx.createImageData(refW,refH),data=out.data;
+    for(let i=0;i<refW*refH;i++){
+      data[i*4]=ch.R?ch.R.grey[i]:0; data[i*4+1]=ch.G?ch.G.grey[i]:0;
+      data[i*4+2]=ch.B?ch.B.grey[i]:0; data[i*4+3]=ch.A?ch.A.grey[i]:255;
+    }
+    ctx.putImageData(out,0,0);
+    return new Promise((resolve,reject)=>{ canvas.toBlob(b=>b?resolve(b):reject(new Error('toBlob failed')),'image/png'); });
+  }
+};
+</script>
+
+<!-- ═══ tools/fontpreview.js ═══ -->
+<script>
+// Font Preview tool — replicates ImageText.cs engine behaviour
+// Layout rules from the C# source:
+//   1. Each letter image height is scaled to `size` px (width preserves aspect ratio)
+//   2. Letter x-position = totalWidth + characterOffset * letterIndex  (left-pivot)
+//   3. After all letters placed, the whole string is shifted left by totalWidth/2 (centered)
+//   4. If totalWidth > canvasW OR totalHeight > canvasH → uniform scale-down to fit
+//   5. Canvas has a vertical gradient background between two user-chosen colours
+
+const _fpLetterAssignments = []; // array of filename|null, length = current text length
+let _fpLength = 4;
+
+function fpHexToRgb(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return {r,g,b};
+}
+
+function fpBuildLetterOptions(selected){
+  const none=`<option value="">— unassigned —</option>`;
+  const opts=state.inputFiles.map(f=>`<option value="${esc(f.name)}"${f.name===selected?' selected':''}>${esc(f.name)}</option>`).join('');
+  return none+opts;
+}
+
+function fpRenderLetterList(){
+  const el=document.getElementById('fp-letter-list'); if(!el) return;
+  // Sync array length
+  while(_fpLetterAssignments.length < _fpLength) _fpLetterAssignments.push(null);
+  while(_fpLetterAssignments.length > _fpLength) _fpLetterAssignments.pop();
+
+  el.innerHTML=_fpLetterAssignments.map((assigned,i)=>{
+    const entry=assigned?state.inputFiles.find(f=>f.name===assigned):null;
+    const thumb=entry
+      ?`<img src="${entry.url}" class="fp-letter-thumb" alt="">`
+      :`<div class="fp-letter-thumb-empty"><span style="font-size:.7rem;color:#333">?</span></div>`;
+    return`<div class="fp-letter-row">
+      <span class="fp-letter-idx">${i+1}</span>
+      <select class="fp-letter-select" data-idx="${i}" onchange="fpSetLetter(${i},this.value)">${fpBuildLetterOptions(assigned||'')}</select>
+      ${thumb}
+    </div>`;
+  }).join('');
+  fpUpdatePreview();
+}
+
+function fpSetLetter(idx,val){
+  _fpLetterAssignments[idx]=val||null;
+  fpRenderLetterList();
+}
+
+function fpSetLength(n){
+  _fpLength=Math.max(1,Math.min(32,parseInt(n)||1));
+  fpRenderLetterList();
+}
+
+on('filesChanged',()=>{
+  // Drop assignments for removed files
+  for(let i=0;i<_fpLetterAssignments.length;i++){
+    if(_fpLetterAssignments[i]&&!state.inputFiles.find(f=>f.name===_fpLetterAssignments[i])){
+      _fpLetterAssignments[i]=null;
+    }
+  }
+  if(state.currentTool==='fontpreview') fpRenderLetterList();
+});
+
+// Live preview on a small canvas (scaled down for the UI panel)
+async function fpUpdatePreview(){
+  const canvas=document.getElementById('fpPreviewCanvas'); if(!canvas) return;
+  const bgTop=document.getElementById('fp-bg-top')?.value||'#1a1a2e';
+  const bgBot=document.getElementById('fp-bg-bot')?.value||'#16213e';
+  const size=parseInt(document.getElementById('fp-size')?.value)||100;
+  const offset=parseFloat(document.getElementById('fp-offset')?.value)||0;
+
+  const assigned=_fpLetterAssignments.slice(0,_fpLength).filter(Boolean);
+  if(!assigned.length){ canvas.width=200;canvas.height=60;const ctx=canvas.getContext('2d');const g=ctx.createLinearGradient(0,0,0,60);g.addColorStop(0,bgTop);g.addColorStop(1,bgBot);ctx.fillStyle=g;ctx.fillRect(0,0,200,60); return; }
+
+  try{
+    await fpRenderToCanvas(canvas,_fpLetterAssignments.slice(0,_fpLength),size,offset,bgTop,bgBot,600,Math.round(size*2));
+  }catch(e){ /* ignore preview errors */ }
+}
+
+// Core engine: replicates ImageText.cs layout exactly
+// Returns a canvas with the result drawn on it
+async function fpRenderToCanvas(targetCanvas, letterNames, size, characterOffset, bgTop, bgBot, canvasW, canvasH){
+  // Load all images (only the assigned ones)
+  const imageCache={};
+  const uniqueNames=[...new Set(letterNames.filter(Boolean))];
+  await Promise.all(uniqueNames.map(name=>{
+    const entry=state.inputFiles.find(f=>f.name===name);
+    if(!entry) return Promise.resolve();
+    return new Promise((resolve,reject)=>{
+      const img=new Image();
+      img.onload=()=>{ imageCache[name]=img; resolve(); };
+      img.onerror=()=>reject(new Error('Failed to load '+name));
+      img.src=entry.url;
+    });
+  }));
+
+  // --- Layout pass (mirrors ImageText.cs SetText) ---
+  let totalWidth=0, totalHeight=0;
+  const letterLayouts=[]; // {img, drawW, drawH, x (before centering)}
+
+  for(let i=0;i<letterNames.length;i++){
+    const name=letterNames[i];
+    if(!name || !imageCache[name]){
+      // missing letter → skip (gameobject.SetActive(false) in engine)
+      letterLayouts.push(null);
+      continue;
+    }
+    const img=imageCache[name];
+    const scale=size/img.naturalHeight;
+    const drawW=img.naturalWidth*scale;
+    const drawH=img.naturalHeight*scale; // = size
+    const x=totalWidth + characterOffset*i;
+    letterLayouts.push({img,drawW,drawH,x});
+    totalWidth+=drawW;
+    totalHeight=Math.max(totalHeight,drawH);
+  }
+
+  // Center: shift all letters left by totalWidth/2
+  const centeredLayouts=letterLayouts.map(l=>{
+    if(!l) return null;
+    return {...l, x: l.x - totalWidth/2};
+  });
+
+  // Scale-down to fit if needed (mirrors the container scale logic in engine)
+  let containerScale=1;
+  if(totalWidth>canvasW || totalHeight>canvasH){
+    containerScale=Math.min(canvasW/totalWidth, canvasH/totalHeight);
+  }
+
+  // Draw
+  targetCanvas.width=canvasW;
+  targetCanvas.height=canvasH;
+  const ctx=targetCanvas.getContext('2d');
+
+  // Gradient background
+  const grad=ctx.createLinearGradient(0,0,0,canvasH);
+  grad.addColorStop(0,bgTop);
+  grad.addColorStop(1,bgBot);
+  ctx.fillStyle=grad;
+  ctx.fillRect(0,0,canvasW,canvasH);
+
+  // Draw letters, centered in the canvas
+  const originX=canvasW/2;
+  const originY=canvasH/2;
+  ctx.save();
+  ctx.translate(originX, originY);
+  ctx.scale(containerScale, containerScale);
+  for(const l of centeredLayouts){
+    if(!l) continue;
+    // In engine: pivot is (0, 0.5) so x is left edge, y is vertical center
+    ctx.drawImage(l.img, l.x, -l.drawH/2, l.drawW, l.drawH);
+  }
+  ctx.restore();
+
+  return targetCanvas;
+}
+
+const ToolFontPreview={
+  meta:{id:'fontpreview',label:'Image Font Preview',small:'simulate engine text layout',icon:'&#128441;&#65039;',needsMagick:false,batchMode:true,
+    desc:'Simulates how the ImageText engine component will stitch sprite images into a word. Assign a PNG to each letter position, set size and character offset to match your Unity config, then hit RUN to export the preview.'},
+  settingsHTML(){return`
+    <!-- Engine params -->
+    <div class="fp-controls-row">
+      <div class="field">
+        <label>Letter Size (px)</label>
+        <input type="number" id="fp-size" value="100" min="1" max="2048" oninput="fpUpdatePreview()">
+      </div>
+      <div class="field">
+        <label>Character Offset</label>
+        <input type="number" id="fp-offset" value="0" step="0.5" oninput="fpUpdatePreview()">
+      </div>
+      <div class="field">
+        <label>Canvas Width (px)</label>
+        <input type="number" id="fp-canvas-w" value="800" min="64" max="4096" oninput="fpUpdatePreview()">
+      </div>
+    </div>
+
+    <!-- Background gradient pickers -->
+    <div class="fp-gradient-row">
+      <div class="fp-color-field">
+        <label>Background — Top</label>
+        <div class="fp-color-swatch" onclick="document.getElementById('fp-bg-top-picker').click()">
+          <div class="fp-color-dot" id="fp-bg-top-dot" style="background:#1a1a2e"></div>
+          <span class="fp-color-val" id="fp-bg-top-val">#1a1a2e</span>
+        </div>
+        <input type="color" id="fp-bg-top-picker" class="fp-color-input" value="#1a1a2e"
+          oninput="fpColorChange('fp-bg-top','fp-bg-top-dot','fp-bg-top-val',this.value)">
+        <input type="hidden" id="fp-bg-top" value="#1a1a2e">
+      </div>
+      <div class="fp-color-field">
+        <label>Background — Bottom</label>
+        <div class="fp-color-swatch" onclick="document.getElementById('fp-bg-bot-picker').click()">
+          <div class="fp-color-dot" id="fp-bg-bot-dot" style="background:#16213e"></div>
+          <span class="fp-color-val" id="fp-bg-bot-val">#16213e</span>
+        </div>
+        <input type="color" id="fp-bg-bot-picker" class="fp-color-input" value="#16213e"
+          oninput="fpColorChange('fp-bg-bot','fp-bg-bot-dot','fp-bg-bot-val',this.value)">
+        <input type="hidden" id="fp-bg-bot" value="#16213e">
+      </div>
+    </div>
+
+    <!-- Letter sequence builder -->
+    <div class="fp-letter-builder">
+      <div class="fp-letter-builder-header">
+        <span>Letter sequence</span>
+        <div class="fp-length-row">
+          <label>Length</label>
+          <input type="number" id="fp-length-input" value="${_fpLength}" min="1" max="32"
+            oninput="fpSetLength(this.value)">
+        </div>
+      </div>
+      <div class="fp-letter-list" id="fp-letter-list">
+        <div style="font-family:var(--font-mono);font-size:.68rem;color:#444;padding:.5rem;text-align:center">
+          Load PNG files first, then configure the sequence above.
+        </div>
+      </div>
+    </div>
+
+    <!-- Live preview -->
+    <div class="fp-preview-panel">
+      <div class="fp-preview-label">live preview</div>
+      <div class="fp-preview-canvas-wrap">
+        <canvas id="fpPreviewCanvas" width="200" height="60"
+          style="max-width:100%;max-height:80px;border-radius:4px;display:block"></canvas>
+      </div>
+    </div>`;},
+
+  outName(){ return 'font_preview.png'; },
+
+  async run(_u,_n,_f,allFiles){
+    const size=parseInt(document.getElementById('fp-size')?.value)||100;
+    const offset=parseFloat(document.getElementById('fp-offset')?.value)||0;
+    const canvasW=parseInt(document.getElementById('fp-canvas-w')?.value)||800;
+    const canvasH=Math.round(size*2.5);
+    const bgTop=document.getElementById('fp-bg-top')?.value||'#1a1a2e';
+    const bgBot=document.getElementById('fp-bg-bot')?.value||'#16213e';
+    const letters=_fpLetterAssignments.slice(0,_fpLength);
+
+    if(!letters.some(Boolean)) throw new Error('No letters assigned — assign at least one PNG to a letter slot');
+
+    const offscreen=document.createElement('canvas');
+    await fpRenderToCanvas(offscreen,letters,size,offset,bgTop,bgBot,canvasW,canvasH);
+
+    return new Promise((resolve,reject)=>{
+      offscreen.toBlob(b=>b?resolve(b):reject(new Error('toBlob failed')),'image/png');
+    });
+  }
+};
+
+function fpColorChange(hiddenId,dotId,valId,hex){
+  document.getElementById(hiddenId).value=hex;
+  document.getElementById(dotId).style.background=hex;
+  document.getElementById(valId).textContent=hex;
+  fpUpdatePreview();
+}
+</script>
+
+<!-- ═══ app.js ═══ -->
+<script>
+const TOOLS=[ToolCrop,ToolBlur,ToolWebp,ToolRgba,ToolFontPreview];
+
+/* Build UI */
+(function(){
+  const tabsEl=document.getElementById('toolTabs'),settingsEl=document.getElementById('settingsBody');
+  const actionRow=settingsEl.querySelector('.action-row');
+  TOOLS.forEach(tool=>{
+    const {id,label,small,icon,desc}=tool.meta;
+    const btn=document.createElement('button');
+    btn.className='tool-tab'; btn.id='tab-'+id;
+    btn.innerHTML=`<span class="icon">${icon}</span><span class="label">${label}<small>${small}</small></span>`;
+    btn.addEventListener('click',()=>switchTool(id));
+    tabsEl.appendChild(btn);
+    const sec=document.createElement('div');
+    sec.className='tool-section'; sec.id='section-'+id;
+    sec.innerHTML=`<p class="tool-desc">${desc}</p>${tool.settingsHTML()}`;
+    settingsEl.insertBefore(sec,actionRow);
+  });
+  switchTool('crop');
+})();
+
+function switchTool(id){
+  state.currentTool=id;
+  const tool=TOOLS.find(t=>t.meta.id===id);
+  document.querySelectorAll('.tool-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tool-section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('tab-'+id)?.classList.add('active');
+  document.getElementById('section-'+id)?.classList.add('active');
+  document.getElementById('toolName').textContent=tool?.meta.label||id;
+  if(id==='rgba') rgbaRender();
+  if(id==='fontpreview') fpRenderLetterList();
+  if(id==='crop') cropUpdateModeHint();
+
+  // Font Preview has no per-file processing — override run button check
+  if(id==='fontpreview'){
+    document.getElementById('runBtn').disabled=false;
+  } else {
+    updateRunBtn();
+  }
+}
+
+/* File drop */
+const dropzone=document.getElementById('dropzone'),fileInput=document.getElementById('fileInput');
+dropzone.addEventListener('dragover',e=>{e.preventDefault();dropzone.classList.add('drag-over');});
+dropzone.addEventListener('dragleave',()=>dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop',e=>{
+  e.preventDefault(); dropzone.classList.remove('drag-over');
+  addFiles([...e.dataTransfer.files].filter(f=>f.type==='image/png'||f.name.endsWith('.png')));
+});
+fileInput.addEventListener('change',()=>{addFiles([...fileInput.files]);fileInput.value='';});
+
+function addFiles(files){
+  for(const f of files){ if(state.inputFiles.find(x=>x.name===f.name)) continue; state.inputFiles.push({name:f.name,file:f,url:URL.createObjectURL(f)}); }
+  renderFileList(); updateRunBtn();
+  // If font preview active, re-enable run immediately
+  if(state.currentTool==='fontpreview') document.getElementById('runBtn').disabled=false;
+}
+function removeFile(name){
+  const idx=state.inputFiles.findIndex(x=>x.name===name);
+  if(idx!==-1){URL.revokeObjectURL(state.inputFiles[idx].url);state.inputFiles.splice(idx,1);}
+  renderFileList(); updateRunBtn();
+  if(state.currentTool==='fontpreview') document.getElementById('runBtn').disabled=false;
+}
+
+document.getElementById('clearBtn').addEventListener('click',clearResults);
+document.getElementById('dlAllBtn').addEventListener('click',downloadAll);
+
+document.getElementById('runBtn').addEventListener('click',async()=>{
+  const tool=TOOLS.find(t=>t.meta.id===state.currentTool);
+
+  // Font preview doesn't need input files to start
+  if(state.currentTool!=='fontpreview' && !state.inputFiles.length) return;
+
+  clearLog(); state.outputFiles.forEach(f=>URL.revokeObjectURL(f.url)); state.outputFiles=[];
+  document.getElementById('resultsArea').innerHTML='<div class="empty-state">processing\u2026</div>';
+  document.getElementById('resultCount').textContent='0 files';
+  document.getElementById('dlBar').style.display='none';
+  const btn=document.getElementById('runBtn'); btn.disabled=true;
+  log(`Running ${tool.meta.label}`+(state.inputFiles.length?` on ${state.inputFiles.length} file(s)`:''),'info');
+  try{
+    if(tool.meta.batchMode){
+      document.getElementById('progressLabel').textContent='compositing\u2026';
+      const blob=await tool.run(null,null,null,state.inputFiles),outname=tool.outName();
+      state.outputFiles.push({name:outname,blob,url:URL.createObjectURL(blob)});
+      log(`\u2713 \u2192 ${outname}`,'ok');
+      document.getElementById('progressLabel').textContent='done \u2014 1 file';
+    } else {
+      for(let i=0;i<state.inputFiles.length;i++){
+        const {name,file}=state.inputFiles[i];
+        document.getElementById('progressLabel').textContent=`${i+1} / ${state.inputFiles.length}`;
+        try{
+          const uint8=new Uint8Array(await file.arrayBuffer()),blob=await tool.run(uint8,name,file),outname=tool.outName(name);
+          state.outputFiles.push({name:outname,blob,url:URL.createObjectURL(blob)});
+          log(`\u2713 ${name} \u2192 ${outname}`,'ok');
+        }catch(e){ log(`\u2717 ${name}: ${e.message||e}`,'err'); }
+      }
+      document.getElementById('progressLabel').textContent=`done \u2014 ${state.outputFiles.length} file(s)`;
+    }
+  }catch(e){ log(`\u2717 ${e.message||e}`,'err'); }
+  btn.disabled=false;
+  if(state.currentTool==='fontpreview') btn.disabled=false;
+  renderResults();
+});
+</script>
+
+<!-- ═══ WASM loader — type="module" required for import * syntax ═══ -->
+<script type="module">
+  import * as Magick from 'https://knicknic.github.io/wasm-imagemagick/magickApi.js';
+  window._Magick = Magick;
+  state.magickReady = true;
+  setBadge('ready', 'wasm ready');
+  updateRunBtn();
+  clearLog();
+  log('ImageMagick WASM loaded \u2014 no local install needed', 'info');
+  log('Drop PNG files on the left, choose a tool and hit RUN.', 'info');
+</script>
+
 </body>
 </html>
