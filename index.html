@@ -449,7 +449,7 @@ const ToolBlur={
     desc:'Applies directional motion blur — edges fade to transparent so the blur blends naturally with surroundings.'},
   settingsHTML(){return`<div class="field-row">
     <div class="field"><label>Radius</label><input type="number" id="blur-radius" value="0" min="0" max="50"></div>
-    <div class="field"><label>Sigma (strength)</label><input type="number" id="blur-sigma" value="20" min="1" max="100"></div>
+    <div class="field"><label>Sigma (strength)</label><input type="number" id="blur-sigma" value="12" min="1" max="100"></div>
     </div><div class="field-row">
     <div class="field"><label>Angle &mdash; <span id="blur-angle-val" style="color:var(--accent)">90&deg;</span></label>
       <input type="range" id="blur-angle" value="90" min="0" max="360" oninput="document.getElementById('blur-angle-val').textContent=this.value+'&deg;'"></div>
@@ -457,7 +457,7 @@ const ToolBlur={
     </div>`;},
   outName(n){return n.replace(/\.png$/i,'')+'_blur.png';},
   async run(uint8){
-    const radius=document.getElementById('blur-radius').value||'0',sigma=document.getElementById('blur-sigma').value||'20',
+    const radius=document.getElementById('blur-radius').value||'0',sigma=document.getElementById('blur-sigma').value||'12',
           angle=document.getElementById('blur-angle').value||'90',feather=document.getElementById('blur-feather').value||'5';
     const blurArg=`${radius}x${sigma}+${angle}`,fresh=async b=>new Uint8Array(await b.arrayBuffer());
     const r1=await window._Magick.Call([{name:'input.png',content:uint8}],['convert','input.png','-motion-blur',blurArg,'blurred.png']);
@@ -862,15 +862,16 @@ const _sm={
   blurredCanvases:{},
   _blurSig:null,
   config:{
-    reelCount:5,rowCount:4,
-    symbolW:200,symbolH:200,symbolScale:1.0,
+    reelCount:5,rowCount:3,
+    symbolW:120,symbolH:120,symbolScale:1.0,
     boardScale:1.0,boardOffX:0,boardOffY:0,
     displayW:1920,displayH:1080,
     spinDirection:1,
-    spinDuration:1200,stopOffset:220,spinSpeed:60,
+    spinDuration:2500,stopOffset:280,spinSpeed:60,
     spinAccelMs:150,
     blurDelay:0,
-    blurSigma:20,blurEdgeFeather:5,
+    blurEnabled:true,
+    blurSigma:12,blurEdgeFeather:5,
   },
   reels:[],spinning:false,animFrame:null,canvas:null,
 };
@@ -957,7 +958,7 @@ on('filesChanged',()=>{
 // angle=90 (vertical, matching spin direction), radius=0 always
 async function smMakeBlurWasm(img, cellW, cellH, symScale){
   const c = _sm.config;
-  const sigma   = c.blurSigma      || 20;
+  const sigma   = c.blurSigma      || 12;
   const feather = c.blurEdgeFeather || 5;
   // Draw symbol (at symScale) centred in cell onto a temp canvas → uint8
   const tmp = document.createElement('canvas'); tmp.width=cellW; tmp.height=cellH;
@@ -1072,7 +1073,6 @@ function smDraw(){
     const rx=rx0+r*c.symbolW;
     ctx.save();
     ctx.beginPath(); ctx.rect(rx,ry0,c.symbolW,reelAreaH); ctx.clip();
-    ctx.fillStyle='rgba(0,0,0,0.28)'; ctx.fillRect(rx,ry0,c.symbolW,reelAreaH);
     const pixMod=reel.scrollY%c.symbolH;
     if(c.spinDirection===1){
       const bottomIdx=Math.floor(reel.scrollY/c.symbolH);
@@ -1181,29 +1181,32 @@ async function smLaunch(){
   const runBtn=document.getElementById('runBtn');
 
   // ── Blur signature: sigma + feather + ordered symbol names ──
-  const blurSig = [c.blurSigma, c.blurEdgeFeather, c.symbolScale,
-    ..._sm.symbolAssignments.map(s=>s.name||'')].join('|');
-
-  if(blurSig === _sm._blurSig && Object.keys(_sm.blurredCanvases).length){
-    log('\u2713 Blur cache valid \u2014 skipping re-process','info');
+  if(!c.blurEnabled){
+    _sm.blurredCanvases={}; _sm._blurSig=null;
+    log('\u2014 Blur disabled \u2014 skipping pre-process','info');
   } else {
-    // Disable run button during build
-    if(runBtn){ runBtn.disabled=true; runBtn.innerHTML='\u29D7 building\u2026'; }
-    _sm.blurredCanvases={};
-    const symsToDo=_sm.symbolAssignments.filter(s=>s.img);
-    log(`\u29D7 Building blurred symbols (${symsToDo.length}) via ImageMagick\u2026`,'info');
-    for(let i=0;i<_sm.symbolAssignments.length;i++){
-      const sym=_sm.symbolAssignments[i];
-      if(!sym.img) continue;
-      try{
-        log(`  processing symbol ${i+1}: ${sym.name||'?'}`,'');
-        _sm.blurredCanvases[i]=await smMakeBlurWasm(sym.img,c.symbolW,c.symbolH,c.symbolScale);
-      }catch(e){
-        log(`  \u2717 symbol ${i+1} blur failed: ${e.message}`,'err');
+    const blurSig = [c.blurSigma, c.blurEdgeFeather, c.symbolScale,
+      ..._sm.symbolAssignments.map(s=>s.name||'')].join('|');
+    if(blurSig === _sm._blurSig && Object.keys(_sm.blurredCanvases).length){
+      log('\u2713 Blur cache valid \u2014 skipping re-process','info');
+    } else {
+      if(runBtn){ runBtn.disabled=true; runBtn.innerHTML='\u29D7 building\u2026'; }
+      _sm.blurredCanvases={};
+      const symsToDo=_sm.symbolAssignments.filter(s=>s.img);
+      log(`\u29D7 Building blurred symbols (${symsToDo.length}) via ImageMagick\u2026`,'info');
+      for(let i=0;i<_sm.symbolAssignments.length;i++){
+        const sym=_sm.symbolAssignments[i];
+        if(!sym.img) continue;
+        try{
+          log(`  processing symbol ${i+1}: ${sym.name||'?'}`,'');
+          _sm.blurredCanvases[i]=await smMakeBlurWasm(sym.img,c.symbolW,c.symbolH,c.symbolScale);
+        }catch(e){
+          log(`  \u2717 symbol ${i+1} blur failed: ${e.message}`,'err');
+        }
       }
+      _sm._blurSig = blurSig;
+      log('\u2713 Blur pre-processing done','ok');
     }
-    _sm._blurSig = blurSig;
-    log('\u2713 Blur pre-processing done','ok');
   }
 
   const area=document.getElementById('resultsArea');
@@ -1367,6 +1370,11 @@ const ToolSlotMachine={
     <div style="height:1px;background:var(--border)"></div>
 
     <!-- ── Blur settings ── -->
+    <label style="display:flex;align-items:center;gap:.55rem;cursor:pointer;font-family:var(--font-mono);font-size:.7rem;color:var(--muted);user-select:none">
+      <input type="checkbox" id="sm-blur-enabled" ${c.blurEnabled?'checked':''} onchange="smCfg('blurEnabled',this.checked?1:0)"
+        style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer">
+      Enable motion blur (requires rebuild)
+    </label>
     ${fi('sm-blur-delay','Blur start delay (ms after spin)',c.blurDelay,0,5000,10,"smCfg('blurDelay',this.value)")}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
       ${fi('sm-blur-sigma','Sigma / strength',c.blurSigma,1,100,1,"smCfg('blurSigma',this.value)")}
