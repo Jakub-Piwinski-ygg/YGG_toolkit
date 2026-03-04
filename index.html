@@ -667,7 +667,7 @@ async function fpUpdatePreview(){
   if(!assigned.length){ canvas.width=200;canvas.height=60;const ctx=canvas.getContext('2d');const g=ctx.createLinearGradient(0,0,0,60);g.addColorStop(0,bgTop);g.addColorStop(1,bgBot);ctx.fillStyle=g;ctx.fillRect(0,0,200,60); return; }
 
   try{
-    await fpRenderToCanvas(canvas,_fpLetterAssignments.slice(0,_fpLength),size,offset,bgTop,bgBot,600,Math.round(size*2));
+    await fpRenderToCanvas(canvas,_fpLetterAssignments.slice(0,_fpLength),size,offset,bgTop,bgBot,1800,Math.round(size*4));
   }catch(e){ /* ignore preview errors */ }
 }
 
@@ -815,7 +815,7 @@ const ToolFontPreview={
       <div class="fp-preview-label">live preview</div>
       <div class="fp-preview-canvas-wrap">
         <canvas id="fpPreviewCanvas" width="200" height="60"
-          style="max-width:100%;max-height:80px;border-radius:4px;display:block"></canvas>
+          style="max-width:100%;max-height:600px;border-radius:4px;display:block"></canvas>
       </div>
     </div>`;},
 
