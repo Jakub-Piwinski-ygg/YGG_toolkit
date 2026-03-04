@@ -159,7 +159,8 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
         <span class="subtitle-link" onclick="switchTool('blur')">blur</span> ·
         <span class="subtitle-link" onclick="switchTool('webp')">convert</span> ·
         <span class="subtitle-link" onclick="switchTool('rgba')">rgba mask</span> ·
-        <span class="subtitle-link" onclick="switchTool('fontpreview')">font preview</span>
+        <span class="subtitle-link" onclick="switchTool('fontpreview')">font preview</span> ·
+        <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span>
       </span>
     </div>
   </div>
@@ -330,7 +331,7 @@ function replaceFilesWithOutput(){
   state.inputFiles = newFiles;
   renderFileList();
   updateRunBtn();
-  if(state.currentTool === 'fontpreview') document.getElementById('runBtn').disabled = false;
+  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine') document.getElementById('runBtn').disabled = false;
   log(`\u2713 ${newFiles.length} output file${newFiles.length!==1?'s':''} loaded as input`, 'ok');
 }
 
@@ -348,7 +349,7 @@ function restartToolkit(){
   renderFileList();
   switchTool(state.currentTool);
   updateRunBtn();
-  if(state.currentTool === 'fontpreview') document.getElementById('runBtn').disabled = false;
+  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine') document.getElementById('runBtn').disabled = false;
   clearLog();
   log('\u2014 restarted \u2014 loaded files preserved \u2014', 'info');
 }
@@ -448,7 +449,7 @@ const ToolBlur={
     desc:'Applies directional motion blur — edges fade to transparent so the blur blends naturally with surroundings.'},
   settingsHTML(){return`<div class="field-row">
     <div class="field"><label>Radius</label><input type="number" id="blur-radius" value="0" min="0" max="50"></div>
-    <div class="field"><label>Sigma (strength)</label><input type="number" id="blur-sigma" value="12" min="1" max="100"></div>
+    <div class="field"><label>Sigma (strength)</label><input type="number" id="blur-sigma" value="20" min="1" max="100"></div>
     </div><div class="field-row">
     <div class="field"><label>Angle &mdash; <span id="blur-angle-val" style="color:var(--accent)">90&deg;</span></label>
       <input type="range" id="blur-angle" value="90" min="0" max="360" oninput="document.getElementById('blur-angle-val').textContent=this.value+'&deg;'"></div>
@@ -456,7 +457,7 @@ const ToolBlur={
     </div>`;},
   outName(n){return n.replace(/\.png$/i,'')+'_blur.png';},
   async run(uint8){
-    const radius=document.getElementById('blur-radius').value||'0',sigma=document.getElementById('blur-sigma').value||'12',
+    const radius=document.getElementById('blur-radius').value||'0',sigma=document.getElementById('blur-sigma').value||'20',
           angle=document.getElementById('blur-angle').value||'90',feather=document.getElementById('blur-feather').value||'5';
     const blurArg=`${radius}x${sigma}+${angle}`,fresh=async b=>new Uint8Array(await b.arrayBuffer());
     const r1=await window._Magick.Call([{name:'input.png',content:uint8}],['convert','input.png','-motion-blur',blurArg,'blurred.png']);
@@ -849,9 +850,538 @@ function fpColorChange(hiddenId,dotId,valId,hex){
 }
 </script>
 
+<!-- ═══ tools/slotmachine.js ═══ -->
+<script>
+const _sm={
+  numSymbols:6,
+  symbolAssignments:Array.from({length:6},()=>({name:null,img:null})),
+  bg:        {name:null,img:null,scale:1.0,offX:0,offY:0},
+  frameBack: {name:null,img:null,scale:1.0,offX:0,offY:0},
+  frameFront:{name:null,img:null,scale:1.0,offX:0,offY:0},
+  hud:       {name:null,img:null,scale:1.0,offX:0,offY:0},
+  blurredCanvases:{},
+  _blurSig:null,
+  config:{
+    reelCount:5,rowCount:4,
+    symbolW:200,symbolH:200,symbolScale:1.0,
+    boardScale:1.0,boardOffX:0,boardOffY:0,
+    displayW:1920,displayH:1080,
+    spinDirection:1,
+    spinDuration:1200,stopOffset:220,spinSpeed:60,
+    spinAccelMs:150,
+    blurDelay:0,
+    blurSigma:20,blurEdgeFeather:5,
+  },
+  reels:[],spinning:false,animFrame:null,canvas:null,
+};
+
+/* ── Config helpers ──────────────────────────────────────── */
+function smCfg(key,val){ const n=parseFloat(val); if(!isNaN(n)) _sm.config[key]=n; }
+function smSetLayerImg(layer,name){
+  _sm[layer].name=name||null; _sm[layer].img=null;
+  if(!name) return;
+  const entry=state.inputFiles.find(f=>f.name===name); if(!entry) return;
+  const img=new Image(); img.onload=()=>{ _sm[layer].img=img; }; img.src=entry.url;
+}
+function smLayerCfg(layer,key,val){
+  const n=parseFloat(val); if(!isNaN(n)) _sm[layer][key]=n;
+  // sync slider<->number for scale
+  if(key==='scale'){
+    const sl=document.getElementById(layer+'-scale-slider'),nm=document.getElementById(layer+'-scale-num');
+    const v=Math.min(3,Math.max(0,n));
+    if(sl&&parseFloat(sl.value)!==v) sl.value=v;
+    if(nm&&parseFloat(nm.value)!==n) nm.value=n;
+  }
+}
+
+function smUpdateCalc(){
+  const c=_sm.config;
+  const bw=Math.round(c.symbolW*c.reelCount), bh=Math.round(c.symbolH*c.rowCount);
+  const sbw=Math.round(bw*c.boardScale), sbh=Math.round(bh*c.boardScale);
+  const el=document.getElementById('sm-calc');
+  if(el) el.textContent='Board: '+bw+'\xd7'+bh+' px  \u2192  \xd7'+c.boardScale.toFixed(2)+' = '+sbw+'\xd7'+sbh+' px  \u00b7  Canvas: '+c.displayW+'\xd7'+c.displayH+' px';
+}
+
+/* ── Symbol library ──────────────────────────────────────── */
+function smSetNumSymbols(n){
+  _sm.numSymbols=Math.max(1,Math.min(20,parseInt(n)||1));
+  while(_sm.symbolAssignments.length<_sm.numSymbols) _sm.symbolAssignments.push({name:null,img:null});
+  while(_sm.symbolAssignments.length>_sm.numSymbols) _sm.symbolAssignments.pop();
+  smRenderSymbolGrid();
+}
+function smRenderSymbolGrid(){
+  const el=document.getElementById('sm-symbol-grid'); if(!el) return;
+  if(!_sm.symbolAssignments.length||!state.inputFiles.length){
+    el.innerHTML='<div style="font-family:var(--font-mono);font-size:.68rem;color:#444;padding:.5rem;text-align:center;grid-column:span 2">Load PNG files first, then assign symbols here.</div>';
+    return;
+  }
+  el.innerHTML=_sm.symbolAssignments.map((sym,i)=>{
+    const thumb=sym.img
+      ?`<img src="${sym.img.src}" style="width:28px;height:28px;object-fit:contain;border-radius:2px;border:1px solid var(--border);background:#111;flex-shrink:0">`
+      :'<div style="width:28px;height:28px;border:1px solid var(--border);border-radius:2px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:.65rem;color:#333;flex-shrink:0">?</div>';
+    const opts='<option value="">&mdash;</option>'+
+      state.inputFiles.map(f=>`<option value="${esc(f.name)}"${f.name===sym.name?' selected':''}>${esc(f.name)}</option>`).join('');
+    return `<div style="display:grid;grid-template-columns:28px 1fr;gap:.3rem;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.25rem .4rem">
+      ${thumb}
+      <select style="background:transparent;border:none;color:var(--muted);font-family:var(--font-mono);font-size:.65rem;outline:none;cursor:pointer;width:100%"
+        onchange="smSetSymbol(${i},this.value)">${opts}</select>
+    </div>`;
+  }).join('');
+}
+function smSetSymbol(idx,name){
+  if(!name){ _sm.symbolAssignments[idx]={name:null,img:null}; smRenderSymbolGrid(); return; }
+  const entry=state.inputFiles.find(f=>f.name===name); if(!entry) return;
+  const img=new Image();
+  img.onload=()=>{ _sm.symbolAssignments[idx]={name,img}; smRenderSymbolGrid(); };
+  img.src=entry.url;
+}
+function smUpdateSelects(){
+  [['bg','sm-bg-select'],['frameBack','sm-frameback-select'],['frameFront','sm-framefront-select'],['hud','sm-hud-select']].forEach(([layer,selId])=>{
+    const sel=document.getElementById(selId); if(!sel) return;
+    sel.innerHTML='<option value="">&mdash; none &mdash;</option>'+
+      state.inputFiles.map(f=>`<option value="${esc(f.name)}"${f.name===_sm[layer].name?' selected':''}>${esc(f.name)}</option>`).join('');
+  });
+}
+on('filesChanged',()=>{
+  for(let i=0;i<_sm.symbolAssignments.length;i++){
+    const a=_sm.symbolAssignments[i];
+    if(a.name&&!state.inputFiles.find(f=>f.name===a.name)) _sm.symbolAssignments[i]={name:null,img:null};
+  }
+  for(const layer of ['bg','frameBack','frameFront','hud']){
+    if(_sm[layer].name&&!state.inputFiles.find(f=>f.name===_sm[layer].name)){_sm[layer].name=null;_sm[layer].img=null;}
+  }
+  if(state.currentTool==='slotmachine'){ smRenderSymbolGrid(); smUpdateSelects(); }
+});
+
+/* ── Motion-blur via ImageMagick WASM (same pipeline as ToolBlur) ────────── */
+// angle=90 (vertical, matching spin direction), radius=0 always
+async function smMakeBlurWasm(img, cellW, cellH, symScale){
+  const c = _sm.config;
+  const sigma   = c.blurSigma      || 20;
+  const feather = c.blurEdgeFeather || 5;
+  // Draw symbol (at symScale) centred in cell onto a temp canvas → uint8
+  const tmp = document.createElement('canvas'); tmp.width=cellW; tmp.height=cellH;
+  const tctx = tmp.getContext('2d');
+  const sw = img.naturalWidth*symScale, sh = img.naturalHeight*symScale;
+  tctx.drawImage(img, cellW/2-sw/2, cellH/2-sh/2, sw, sh);
+  const uint8 = await new Promise(res=>{
+    tmp.toBlob(b=>b.arrayBuffer().then(ab=>res(new Uint8Array(ab))),'image/png');
+  });
+
+  const blurArg = `0x${sigma}+90`;
+  const fresh   = async b => new Uint8Array(await b.arrayBuffer());
+
+  const r1 = await window._Magick.Call([{name:'input.png',content:uint8}],
+    ['convert','input.png','-motion-blur',blurArg,'blurred.png']);
+  if(!r1||!r1.length) throw new Error('Motion blur failed');
+  const blurred = r1[0].blob;
+
+  const r2 = await window._Magick.Call([{name:'blurred.png',content:await fresh(blurred)}],
+    ['convert','blurred.png','-alpha','off','-fill','white','-colorize','100',
+     '-shave',`${feather}x${feather}`,'-bordercolor','black','-border',`${feather}x${feather}`,
+     '-blur',`0x${feather}`,'-level','20%,80%','mask.png']);
+  if(!r2||!r2.length) throw new Error('Mask failed');
+  const mask = r2[0].blob;
+
+  const r3 = await window._Magick.Call([{name:'blurred.png',content:await fresh(blurred)}],
+    ['convert','blurred.png','-alpha','extract','orig_alpha.png']);
+  if(!r3||!r3.length) throw new Error('Alpha extract failed');
+  const alpha = r3[0].blob;
+
+  const r4 = await window._Magick.Call(
+    [{name:'orig_alpha.png',content:await fresh(alpha)},{name:'mask.png',content:await fresh(mask)}],
+    ['convert','orig_alpha.png','mask.png','-compose','Multiply','-composite','combined_alpha.png']);
+  if(!r4||!r4.length) throw new Error('Alpha multiply failed');
+  const cAlpha = r4[0].blob;
+
+  const r5 = await window._Magick.Call(
+    [{name:'blurred.png',content:await fresh(blurred)},{name:'combined_alpha.png',content:await fresh(cAlpha)}],
+    ['convert','blurred.png','combined_alpha.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
+  if(!r5||!r5.length) throw new Error('Final composite failed');
+
+  // Return as an HTMLImageElement ready to drawImage
+  return new Promise((resolve,reject)=>{
+    const url = URL.createObjectURL(r5[0].blob);
+    const out  = new Image();
+    out.onload  = ()=>{ resolve(out); };
+    out.onerror = ()=>reject(new Error('Could not load blurred image'));
+    out.src = url;
+  });
+}
+
+/* ── Reel helpers ────────────────────────────────────────── */
+function smValidIndices(){ return _sm.symbolAssignments.map((s,i)=>s.img?i:-1).filter(i=>i>=0); }
+function smRandIdx(v){ const vi=v||smValidIndices(); return vi[Math.floor(Math.random()*vi.length)]; }
+function smBuildStrip(len){ const v=smValidIndices(),strip=[]; for(let i=0;i<len;i++) strip.push(smRandIdx(v)); return strip; }
+function smInitReels(){
+  const c=_sm.config, INIT=Math.max(64,c.rowCount*14); _sm.reels=[];
+  for(let r=0;r<c.reelCount;r++)
+    _sm.reels.push({strip:smBuildStrip(INIT),scrollY:0,speed:0,state:'idle',stopScrollY:0});
+}
+function smExtendStrip(reel,needed){
+  const v=smValidIndices();
+  while(reel.strip.length<=needed+28) reel.strip.push(smRandIdx(v));
+}
+
+/* ── Drawing helpers ─────────────────────────────────────── */
+function smDrawLayer(ctx,layer,W,H){
+  const L=_sm[layer]; if(!L||!L.img) return;
+  const dw=L.img.naturalWidth*L.scale, dh=L.img.naturalHeight*L.scale;
+  ctx.drawImage(L.img, W/2-dw/2+L.offX, H/2-dh/2+L.offY, dw, dh);
+}
+function smDrawSymInCell(ctx,symIdx,cellX,cellY,cellW,cellH,isBlurred,reelSpinStart){
+  const sym=_sm.symbolAssignments[symIdx]; if(!sym||!sym.img) return;
+  const c=_sm.config;
+  const delayPast=c.blurDelay<=0||(performance.now()-(reelSpinStart||0))>=c.blurDelay;
+  if(isBlurred&&delayPast&&_sm.blurredCanvases[symIdx]){
+    ctx.drawImage(_sm.blurredCanvases[symIdx],cellX,cellY,cellW,cellH); return;
+  }
+  const sc=c.symbolScale;
+  const sw=sym.img.naturalWidth*sc, sh=sym.img.naturalHeight*sc;
+  ctx.drawImage(sym.img, cellX+cellW/2-sw/2, cellY+cellH/2-sh/2, sw, sh);
+}
+
+/* ── Main draw ───────────────────────────────────────────── */
+function smDraw(){
+  const c=_sm.config, canvas=_sm.canvas; if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const W=c.displayW, H=c.displayH;
+  const reelAreaW=c.symbolW*c.reelCount, reelAreaH=c.symbolH*c.rowCount;
+
+  ctx.clearRect(0,0,W,H);
+
+  /* 1 — Background */
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
+  if(_sm.bg.img){ smDrawLayer(ctx,'bg',W,H); }
+  else { const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#12121f'); g.addColorStop(1,'#060609'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
+  ctx.restore();
+
+  /* 2 — Frame BACK */
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
+  smDrawLayer(ctx,'frameBack',W,H);
+  ctx.restore();
+
+  /* 3 — Board (reels) */
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
+  ctx.translate(W/2+c.boardOffX, H/2+c.boardOffY);
+  ctx.scale(c.boardScale,c.boardScale);
+  const rx0=-reelAreaW/2, ry0=-reelAreaH/2;
+  for(let r=0;r<_sm.reels.length&&r<c.reelCount;r++){
+    const reel=_sm.reels[r];
+    const isBlurred=reel.state==='spinning'||reel.state==='decelerating';
+    const rx=rx0+r*c.symbolW;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(rx,ry0,c.symbolW,reelAreaH); ctx.clip();
+    ctx.fillStyle='rgba(0,0,0,0.28)'; ctx.fillRect(rx,ry0,c.symbolW,reelAreaH);
+    const pixMod=reel.scrollY%c.symbolH;
+    if(c.spinDirection===1){
+      const bottomIdx=Math.floor(reel.scrollY/c.symbolH);
+      for(let row=-1;row<=c.rowCount;row++){
+        const sp=((bottomIdx-row)%reel.strip.length+reel.strip.length)%reel.strip.length;
+        const sy=ry0+row*c.symbolH+pixMod;
+        if(sy+c.symbolH<ry0||sy>ry0+reelAreaH) continue;
+        smDrawSymInCell(ctx,reel.strip[sp],rx,sy,c.symbolW,c.symbolH,isBlurred,reel.spinStartTime||0);
+      }
+    } else {
+      const topIdx=Math.floor(reel.scrollY/c.symbolH);
+      for(let row=-1;row<=c.rowCount;row++){
+        const sp=((topIdx+row)%reel.strip.length+reel.strip.length)%reel.strip.length;
+        const sy=ry0+row*c.symbolH-pixMod;
+        if(sy+c.symbolH<ry0||sy>ry0+reelAreaH) continue;
+        smDrawSymInCell(ctx,reel.strip[sp],rx,sy,c.symbolW,c.symbolH,isBlurred,reel.spinStartTime||0);
+      }
+    }
+    if(r>0){ ctx.strokeStyle='rgba(0,0,0,0.5)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(rx+0.75,ry0); ctx.lineTo(rx+0.75,ry0+reelAreaH); ctx.stroke(); }
+    ctx.restore();
+  }
+  const midY=ry0+Math.floor(c.rowCount/2)*c.symbolH;
+  ctx.strokeStyle='rgba(255,118,46,0.18)'; ctx.lineWidth=2;
+  ctx.strokeRect(rx0+1,midY+1,reelAreaW-2,c.symbolH-2);
+  ctx.strokeStyle='rgba(255,118,46,0.06)'; ctx.lineWidth=1;
+  ctx.strokeRect(rx0,ry0,reelAreaW,reelAreaH);
+  ctx.restore();
+
+  /* 4 — Frame FRONT */
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
+  smDrawLayer(ctx,'frameFront',W,H);
+  ctx.restore();
+
+  /* 5 — HUD overlay */
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,H); ctx.clip();
+  smDrawLayer(ctx,'hud',W,H);
+  ctx.restore();
+}
+
+/* ── Spin logic ──────────────────────────────────────────── */
+function smSpin(){
+  if(_sm.spinning) return;
+  if(!smValidIndices().length){ log('\u2717 Assign at least one symbol','err'); return; }
+  if(!_sm.canvas){ log('\u2717 Launch machine first','err'); return; }
+  _sm.spinning=true; smUpdateSpinBtn(false);
+  const c=_sm.config;
+  const now=performance.now();
+  for(const reel of _sm.reels){ reel.state='spinning'; reel.speed=0; reel.spinStartTime=now; }
+  for(let r=0;r<_sm.reels.length;r++) setTimeout(()=>smStopReel(r), c.spinDuration+r*c.stopOffset);
+  if(_sm.animFrame) cancelAnimationFrame(_sm.animFrame);
+  smAnimLoop();
+}
+function smStopReel(r){
+  const reel=_sm.reels[r]; if(!reel||reel.state==='stopped') return;
+  const c=_sm.config;
+  const extra=(3+Math.floor(Math.random()*4))*c.symbolH;
+  const rawTarget=reel.scrollY+reel.speed*30+extra;
+  reel.stopScrollY=Math.ceil(rawTarget/c.symbolH)*c.symbolH;
+  smExtendStrip(reel,Math.floor(reel.stopScrollY/c.symbolH)+c.rowCount+8);
+  reel.state='decelerating';
+}
+function smAnimLoop(){
+  if(!_sm.canvas) return;
+  const c=_sm.config; let anyActive=false;
+  for(const reel of _sm.reels){
+    if(reel.state==='idle'||reel.state==='stopped') continue;
+    anyActive=true;
+    if(reel.state==='spinning'){
+      const elapsed=performance.now()-(reel.spinStartTime||0);
+      const accelFrac=c.spinAccelMs>0?Math.min(1,elapsed/c.spinAccelMs):1;
+      reel.speed=c.spinSpeed*accelFrac;
+      reel.scrollY+=reel.speed;
+      smExtendStrip(reel,Math.floor(reel.scrollY/c.symbolH)+c.rowCount+8);
+    } else if(reel.state==='decelerating'){
+      const remaining=reel.stopScrollY-reel.scrollY;
+      if(remaining<=0.5){
+        reel.scrollY=reel.stopScrollY; reel.speed=0; reel.state='stopped';
+        if(_sm.reels.every(r2=>r2.state==='stopped'||r2.state==='idle')){ _sm.spinning=false; smUpdateSpinBtn(true); }
+        continue;
+      }
+      const ts=Math.max(1.2,remaining/20);
+      reel.speed=reel.speed*0.88+ts*0.12; reel.speed=Math.max(reel.speed,1.2);
+      reel.scrollY+=reel.speed;
+      if(reel.scrollY>=reel.stopScrollY){
+        reel.scrollY=reel.stopScrollY; reel.speed=0; reel.state='stopped';
+        if(_sm.reels.every(r2=>r2.state==='stopped'||r2.state==='idle')){ _sm.spinning=false; smUpdateSpinBtn(true); }
+      }
+    }
+  }
+  smDraw();
+  if(anyActive) _sm.animFrame=requestAnimationFrame(smAnimLoop);
+}
+function smUpdateSpinBtn(enabled){
+  const btn=document.getElementById('sm-spin-btn'); if(!btn) return;
+  btn.disabled=!enabled;
+  btn.innerHTML=enabled?'\ud83c\udfb0\u2002 SPIN':'\u23f3\u2002 spinning\u2026';
+}
+
+/* ── Launch ──────────────────────────────────────────────── */
+async function smLaunch(){
+  const c=_sm.config;
+  const valid=smValidIndices();
+  if(!valid.length){ log('\u2717 Assign at least one symbol first','err'); return; }
+  if(!state.magickReady){ log('\u2717 ImageMagick WASM not ready yet','err'); return; }
+  smUpdateCalc();
+  const runBtn=document.getElementById('runBtn');
+
+  // ── Blur signature: sigma + feather + ordered symbol names ──
+  const blurSig = [c.blurSigma, c.blurEdgeFeather, c.symbolScale,
+    ..._sm.symbolAssignments.map(s=>s.name||'')].join('|');
+
+  if(blurSig === _sm._blurSig && Object.keys(_sm.blurredCanvases).length){
+    log('\u2713 Blur cache valid \u2014 skipping re-process','info');
+  } else {
+    // Disable run button during build
+    if(runBtn){ runBtn.disabled=true; runBtn.innerHTML='\u29D7 building\u2026'; }
+    _sm.blurredCanvases={};
+    const symsToDo=_sm.symbolAssignments.filter(s=>s.img);
+    log(`\u29D7 Building blurred symbols (${symsToDo.length}) via ImageMagick\u2026`,'info');
+    for(let i=0;i<_sm.symbolAssignments.length;i++){
+      const sym=_sm.symbolAssignments[i];
+      if(!sym.img) continue;
+      try{
+        log(`  processing symbol ${i+1}: ${sym.name||'?'}`,'');
+        _sm.blurredCanvases[i]=await smMakeBlurWasm(sym.img,c.symbolW,c.symbolH,c.symbolScale);
+      }catch(e){
+        log(`  \u2717 symbol ${i+1} blur failed: ${e.message}`,'err');
+      }
+    }
+    _sm._blurSig = blurSig;
+    log('\u2713 Blur pre-processing done','ok');
+  }
+
+  const area=document.getElementById('resultsArea');
+  area.innerHTML='';
+  if(_sm.animFrame) cancelAnimationFrame(_sm.animFrame);
+  _sm.spinning=false;
+
+  const wrap=document.createElement('div');
+  wrap.style.cssText='display:flex;flex-direction:column;align-items:center;gap:1rem;padding:1.25rem';
+  wrap.style.cursor='pointer';
+  wrap.addEventListener('click', e=>{ if(!_sm.spinning) smSpin(); });
+
+  const canvas=document.createElement('canvas');
+  canvas.width=c.displayW; canvas.height=c.displayH;
+  canvas.style.cssText='max-width:100%;border-radius:8px;border:1px solid var(--border);display:block;box-shadow:0 6px 40px rgba(0,0,0,.6)';
+  canvas.title='Click to spin';
+
+  const controls=document.createElement('div');
+  controls.style.cssText='display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;justify-content:center';
+  controls.addEventListener('click', e=>e.stopPropagation());
+
+  const spinBtn=document.createElement('button');
+  spinBtn.id='sm-spin-btn'; spinBtn.className='btn btn-primary';
+  spinBtn.style.cssText='font-size:.88rem;padding:.6rem 2.2rem;letter-spacing:.06em;min-width:150px';
+  spinBtn.innerHTML='\ud83c\udfb0\u2002 SPIN';
+  spinBtn.addEventListener('click', e=>{ e.stopPropagation(); smSpin(); });
+
+  const hint=document.createElement('span');
+  hint.style.cssText='font-family:var(--font-mono);font-size:.6rem;color:#444';
+  hint.textContent='or click anywhere in the preview';
+
+  controls.appendChild(spinBtn); controls.appendChild(hint);
+  wrap.appendChild(canvas); wrap.appendChild(controls);
+  area.appendChild(wrap);
+
+  document.getElementById('resultCount').textContent='live preview';
+  document.getElementById('dlBar').style.display='none';
+  _sm.canvas=canvas; smInitReels(); smDraw();
+  log('\ud83c\udfb0 Machine ready \u2014 click anywhere to spin!','ok');
+
+  if(runBtn){ runBtn.disabled=false; runBtn.innerHTML='\ud83c\udfb0 BUILD MACHINE'; }
+}
+
+/* ── Settings HTML ───────────────────────────────────────── */
+const ToolSlotMachine={
+  meta:{
+    id:'slotmachine',label:'Slot Machine',small:'spin & preview simulator',
+    icon:'\ud83c\udfb0',needsMagick:false,batchMode:false,isSlotMachine:true,
+    desc:'Preview a slot machine with your own symbols, background, frames and HUD. Hit <strong>BUILD MACHINE</strong> to preprocess blur via ImageMagick WASM, then click anywhere to spin.'
+  },
+  settingsHTML(){
+    const c=_sm.config;
+    // Compact number input
+    const fi=(id,lbl,val,min,max,step,cb)=>
+      `<div class="field"><label>${lbl}</label><input type="number" id="${id}" value="${val}" min="${min}" max="${max}" step="${step||1}" style="font-size:.74rem;padding:.3rem .45rem" oninput="${cb}"></div>`;
+    // Slider with live readout
+    const fr=(id,lbl,val,min,max,step,spanId,cb)=>
+      `<div class="field"><label>${lbl} &mdash; <span id="${spanId}" style="color:var(--accent)">${val}</span></label>
+       <input type="range" id="${id}" value="${val}" min="${min}" max="${max}" step="${step}" style="accent-color:var(--accent)" oninput="${cb}"></div>`;
+    // Layer block: image picker + scale slider+number + offX + offY
+    const layerBlock=(layer,title,selId)=>{
+      const L=_sm[layer];
+      const scaleSliderMax=3;
+      const opts='<option value="">&mdash; none &mdash;</option>'+
+        state.inputFiles.map(f=>`<option value="${esc(f.name)}"${f.name===L.name?' selected':''}>${esc(f.name)}</option>`).join('');
+      return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.55rem .7rem;display:flex;flex-direction:column;gap:.45rem">
+        <span style="font-family:var(--font-mono);font-size:.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">${title}</span>
+        <select id="${selId}" onchange="smSetLayerImg('${layer}',this.value)"
+          style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.7rem;padding:.35rem .45rem;border-radius:4px;outline:none;width:100%">${opts}</select>
+        <div style="display:flex;align-items:center;gap:.4rem">
+          <label style="font-family:var(--font-mono);font-size:.6rem;color:var(--muted);white-space:nowrap;min-width:38px">Scale</label>
+          <input type="range" id="${layer}-scale-slider" value="${Math.min(scaleSliderMax,L.scale)}" min="0" max="${scaleSliderMax}" step="0.01"
+            style="flex:1;accent-color:var(--accent);cursor:pointer"
+            oninput="smLayerCfg('${layer}','scale',this.value)">
+          <input type="number" id="${layer}-scale-num" value="${L.scale}" min="0" max="20" step="0.05"
+            style="width:54px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.7rem;padding:.28rem .4rem;border-radius:4px;outline:none"
+            oninput="smLayerCfg('${layer}','scale',this.value)">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem">
+          ${fi(layer+'-offx','Off X',L.offX,-9999,9999,1,"smLayerCfg('"+layer+"','offX',this.value)")}
+          ${fi(layer+'-offy','Off Y',L.offY,-9999,9999,1,"smLayerCfg('"+layer+"','offY',this.value)")}
+        </div>
+      </div>`;
+    };
+    const bw=Math.round(c.symbolW*c.reelCount), bh=Math.round(c.symbolH*c.rowCount);
+    const sbw=Math.round(bw*c.boardScale), sbh=Math.round(bh*c.boardScale);
+    return `
+    <!-- ── Symbol library ── -->
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem">
+      <span style="font-family:var(--font-mono);font-size:.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Symbol library</span>
+      <div style="display:flex;align-items:center;gap:.4rem">
+        <label style="font-family:var(--font-mono);font-size:.63rem;color:var(--muted)">Count</label>
+        <input type="number" id="sm-num-symbols" value="${_sm.numSymbols}" min="1" max="20"
+          style="width:52px;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.76rem;padding:.28rem .45rem;border-radius:4px;outline:none"
+          oninput="smSetNumSymbols(this.value)">
+      </div>
+    </div>
+    <div id="sm-symbol-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;max-height:200px;overflow-y:auto">
+      <div style="font-family:var(--font-mono);font-size:.65rem;color:#444;padding:.5rem;text-align:center;grid-column:span 2">Load PNG files first.</div>
+    </div>
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- ── Layers: background full-width, then 2-col for frames, then 2-col for board/HUD ── -->
+    ${layerBlock('bg','Background','sm-bg-select')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.55rem">
+      ${layerBlock('frameBack','Frame — Behind','sm-frameback-select')}
+      ${layerBlock('frameFront','Frame — Front','sm-framefront-select')}
+    </div>
+    ${layerBlock('hud','HUD Overlay (topmost)','sm-hud-select')}
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- ── Reel grid ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:.5rem">
+      ${fi('sm-reel-count','Reels',c.reelCount,1,9,1,"smCfg('reelCount',this.value);smUpdateCalc()")}
+      ${fi('sm-row-count','Rows',c.rowCount,1,8,1,"smCfg('rowCount',this.value);smUpdateCalc()")}
+      ${fi('sm-sym-w','Cell W',c.symbolW,16,512,1,"smCfg('symbolW',this.value);smUpdateCalc()")}
+      ${fi('sm-sym-h','Cell H',c.symbolH,16,512,1,"smCfg('symbolH',this.value);smUpdateCalc()")}
+    </div>
+    ${fr('sm-sym-scale','Symbol scale in cell',c.symbolScale.toFixed(2),0,3,0.01,'sm-sym-scale-val',
+      "smCfg('symbolScale',parseFloat(this.value));document.getElementById('sm-sym-scale-val').textContent=parseFloat(this.value).toFixed(2)")}
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- ── Canvas + board transform ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+      ${fi('sm-disp-w','Canvas W (px)',c.displayW,200,3840,1,"smCfg('displayW',this.value);smUpdateCalc()")}
+      ${fi('sm-disp-h','Canvas H (px)',c.displayH,200,2160,1,"smCfg('displayH',this.value);smUpdateCalc()")}
+    </div>
+    ${fr('sm-board-scale','Board scale',c.boardScale.toFixed(2),0,3,0.01,'sm-board-scale-val',
+      "smCfg('boardScale',parseFloat(this.value));document.getElementById('sm-board-scale-val').textContent=parseFloat(this.value).toFixed(2);smUpdateCalc()")}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+      ${fi('sm-board-offx','Board offset X',c.boardOffX,-4000,4000,1,"smCfg('boardOffX',this.value)")}
+      ${fi('sm-board-offy','Board offset Y',c.boardOffY,-4000,4000,1,"smCfg('boardOffY',this.value)")}
+    </div>
+    <div id="sm-calc" style="font-family:var(--font-mono);font-size:.62rem;color:var(--accent2);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.35rem .65rem">
+      Board: ${bw}&times;${bh} px &rarr; &times;${c.boardScale.toFixed(2)} = ${sbw}&times;${sbh} px &middot; Canvas: ${c.displayW}&times;${c.displayH} px
+    </div>
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- ── Spin settings ── -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+      <div class="field"><label>Spin direction</label>
+        <select id="sm-spin-dir" onchange="smCfg('spinDirection',parseInt(this.value))"
+          style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.76rem;padding:.3rem .45rem;border-radius:4px;outline:none;width:100%">
+          <option value="1" ${c.spinDirection===1?'selected':''}>&#8595; Down</option>
+          <option value="-1" ${c.spinDirection===-1?'selected':''}>&#8593; Up</option>
+        </select>
+      </div>
+      ${fi('sm-spin-dur','Spin duration (ms)',c.spinDuration,300,15000,100,"smCfg('spinDuration',this.value)")}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+      ${fi('sm-stop-offset','Stop offset/reel (ms)',c.stopOffset,0,3000,50,"smCfg('stopOffset',this.value)")}
+      ${fi('sm-spin-accel','Accel ramp (ms, 0=instant)',c.spinAccelMs,0,2000,10,"smCfg('spinAccelMs',this.value)")}
+    </div>
+    ${fr('sm-spin-speed','Spin speed (px/frame)',c.spinSpeed,5,200,1,'sm-spin-speed-val',
+      "smCfg('spinSpeed',this.value);document.getElementById('sm-spin-speed-val').textContent=this.value")}
+
+    <div style="height:1px;background:var(--border)"></div>
+
+    <!-- ── Blur settings ── -->
+    ${fi('sm-blur-delay','Blur start delay (ms after spin)',c.blurDelay,0,5000,10,"smCfg('blurDelay',this.value)")}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem">
+      ${fi('sm-blur-sigma','Sigma / strength',c.blurSigma,1,100,1,"smCfg('blurSigma',this.value)")}
+      ${fi('sm-blur-feather','Edge feather (px)',c.blurEdgeFeather,0,100,1,"smCfg('blurEdgeFeather',this.value)")}
+    </div>`;
+  },
+  outName(){ return 'slot_preview.png'; },
+  async run(){ smLaunch(); },
+};
+</script>
+
+
 <!-- ═══ app.js ═══ -->
 <script>
-const TOOLS=[ToolCrop,ToolBlur,ToolWebp,ToolRgba,ToolFontPreview];
+const TOOLS=[ToolCrop,ToolBlur,ToolWebp,ToolRgba,ToolFontPreview,ToolSlotMachine];
 
 /* Build UI */
 (function(){
@@ -883,12 +1413,15 @@ function switchTool(id){
   if(id==='rgba') rgbaRender();
   if(id==='fontpreview') fpRenderLetterList();
   if(id==='crop') cropUpdateModeHint();
+  if(id==='slotmachine'){ smRenderSymbolGrid(); smUpdateSelects(); }
 
-  // Font Preview has no per-file processing — override run button check
+  const runBtn=document.getElementById('runBtn');
   if(id==='fontpreview'){
-    document.getElementById('runBtn').disabled=false;
+    runBtn.disabled=false; runBtn.innerHTML='&#9654; RUN';
+  } else if(id==='slotmachine'){
+    runBtn.disabled=false; runBtn.innerHTML='🎰 BUILD MACHINE';
   } else {
-    updateRunBtn();
+    runBtn.innerHTML='&#9654; RUN'; updateRunBtn();
   }
 }
 
@@ -905,14 +1438,14 @@ fileInput.addEventListener('change',()=>{addFiles([...fileInput.files]);fileInpu
 function addFiles(files){
   for(const f of files){ if(state.inputFiles.find(x=>x.name===f.name)) continue; state.inputFiles.push({name:f.name,file:f,url:URL.createObjectURL(f)}); }
   renderFileList(); updateRunBtn();
-  // If font preview active, re-enable run immediately
-  if(state.currentTool==='fontpreview') document.getElementById('runBtn').disabled=false;
+  // If font preview or slot machine active, re-enable run immediately
+  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine') document.getElementById('runBtn').disabled=false;
 }
 function removeFile(name){
   const idx=state.inputFiles.findIndex(x=>x.name===name);
   if(idx!==-1){URL.revokeObjectURL(state.inputFiles[idx].url);state.inputFiles.splice(idx,1);}
   renderFileList(); updateRunBtn();
-  if(state.currentTool==='fontpreview') document.getElementById('runBtn').disabled=false;
+  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine') document.getElementById('runBtn').disabled=false;
 }
 
 document.getElementById('clearBtn').addEventListener('click',clearResults);
@@ -920,6 +1453,9 @@ document.getElementById('dlAllBtn').addEventListener('click',downloadAll);
 
 document.getElementById('runBtn').addEventListener('click',async()=>{
   const tool=TOOLS.find(t=>t.meta.id===state.currentTool);
+
+  // Slot machine: delegate entirely to smLaunch
+  if(tool?.meta.isSlotMachine){ clearLog(); await tool.run(); return; }
 
   // Font preview doesn't need input files to start
   if(state.currentTool!=='fontpreview' && !state.inputFiles.length) return;
