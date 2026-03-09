@@ -156,9 +156,11 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
       <h1>YGG&nbsp;&nbsp;&nbsp;TOOLKIT</h1>
       <span class="subtitle">
         <span class="subtitle-link" onclick="switchTool('crop')">crop</span> ·
-        <span class="subtitle-link" onclick="switchTool('blur')">blur</span> ·
+        <span class="subtitle-link" onclick="switchTool('scaler')">scaler</span> ·
         <span class="subtitle-link" onclick="switchTool('webp')">convert</span> ·
+        <span class="subtitle-link" onclick="switchTool('blur')">blur</span> ·
         <span class="subtitle-link" onclick="switchTool('rgba')">rgba mask</span> ·
+        <span class="subtitle-link" onclick="switchTool('greyalpha')">grey→alpha</span> ·
         <span class="subtitle-link" onclick="switchTool('fontpreview')">font preview</span> ·
         <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span>
       </span>
@@ -170,6 +172,7 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
       <span id="wasmStatus">loading wasm…</span>
     </div>
     <button class="restart-btn" title="Restart toolkit — loaded files are preserved" onclick="restartToolkit()">&#8635; restart</button>
+    <button class="restart-btn" title="Full reset — clears all loaded files too" onclick="hardResetToolkit()" style="color:#ff6b47;border-color:rgba(255,107,71,.35)">&#8635; reset all</button>
   </div>
 </header>
 
@@ -335,7 +338,22 @@ function replaceFilesWithOutput(){
   log(`\u2713 ${newFiles.length} output file${newFiles.length!==1?'s':''} loaded as input`, 'ok');
 }
 
-// ── Restart toolkit (preserve loaded files) ───────────────────────────────────
+// ── Hard reset (clear everything including loaded files) ──────────────────────
+function hardResetToolkit(){
+  state.outputFiles.forEach(f => URL.revokeObjectURL(f.url));
+  state.inputFiles.forEach(f => URL.revokeObjectURL(f.url));
+  state.outputFiles = [];
+  state.inputFiles = [];
+  document.getElementById('resultsArea').innerHTML = '<div class="empty-state">processed images will appear here</div>';
+  document.getElementById('resultCount').textContent = '0 files';
+  document.getElementById('dlBar').style.display = 'none';
+  document.getElementById('progressLabel').textContent = '';
+  renderFileList();
+  switchTool(state.currentTool);
+  updateRunBtn();
+  clearLog();
+  log('\u2014 full reset \u2014 all files cleared \u2014', 'info');
+}
 function restartToolkit(){
   const savedFiles = [...state.inputFiles];
   // Revoke output URLs
@@ -518,7 +536,7 @@ const CH_HINT={R:'e.g. Metallic',G:'e.g. Roughness',B:'e.g. AO',A:'e.g. Height'}
 
 function rgbaRender(){
   const el=document.getElementById('rgba-slots'); if(!el) return;
-  el.innerHTML=['R','G','B','A'].map(ch=>{
+  el.innerHTML=['R','G','B'].map(ch=>{
     const col=CH_COLOR[ch],file=_slots[ch];
     const opts=`<option value="">&#8212; none / zero fill &#8212;</option>`+
       state.inputFiles.map(f=>`<option value="${esc(f.name)}"${file===f.name?' selected':''}>${esc(f.name)}</option>`).join('');
@@ -541,7 +559,7 @@ function rgbaRender(){
 }
 function rgbaSetSlot(ch,val){ _slots[ch]=val||null; rgbaRender(); }
 on('filesChanged',()=>{
-  for(const ch of ['R','G','B','A']) if(_slots[ch]&&!state.inputFiles.find(f=>f.name===_slots[ch])) _slots[ch]=null;
+  for(const ch of ['R','G','B']) if(_slots[ch]&&!state.inputFiles.find(f=>f.name===_slots[ch])) _slots[ch]=null;
   rgbaRender();
 });
 
@@ -584,7 +602,7 @@ const ToolRgba={
     const ctx=canvas.getContext('2d'),out=ctx.createImageData(refW,refH),data=out.data;
     for(let i=0;i<refW*refH;i++){
       data[i*4]=ch.R?ch.R.grey[i]:0; data[i*4+1]=ch.G?ch.G.grey[i]:0;
-      data[i*4+2]=ch.B?ch.B.grey[i]:0; data[i*4+3]=ch.A?ch.A.grey[i]:255;
+      data[i*4+2]=ch.B?ch.B.grey[i]:0; data[i*4+3]=255;
     }
     ctx.putImageData(out,0,0);
     return new Promise((resolve,reject)=>{ canvas.toBlob(b=>b?resolve(b):reject(new Error('toBlob failed')),'image/png'); });
@@ -1387,9 +1405,153 @@ const ToolSlotMachine={
 </script>
 
 
+<!-- ═══ tools/greyalpha.js ═══ -->
+<script>
+async function gtaUpdatePreview(){
+  const el=document.getElementById('gta-preview-info'); if(!el) return;
+  if(!state.inputFiles.length){ el.textContent='load a greyscale PNG to preview'; return; }
+  const scale=parseFloat(document.getElementById('gta-scale')?.value)||1.0;
+  el.textContent=`Alpha = luminance × ${scale.toFixed(1)}  ·  clamped to 0–255`;
+}
+on('filesChanged',()=>{ if(state.currentTool==='greyalpha') gtaUpdatePreview(); });
+
+const ToolGreyToAlpha={
+  meta:{id:'greyalpha',label:'Grey to Alpha',small:'luminance → alpha channel',icon:'◑',needsMagick:false,batchMode:false,
+    desc:'Converts a greyscale texture so that its luminance becomes the alpha channel. The RGB output channels are set to white (or kept original). Bright pixels → opaque; dark pixels → transparent. Use the scale slider to amplify or reduce the effect (0 = fully transparent, 1 = 1:1, 10 = tenfold).'},
+  settingsHTML(){return`
+    <div class="field-row">
+      <div class="field">
+        <label>Alpha Scale &mdash; <span id="gta-scale-val" style="color:var(--accent)">1.0</span></label>
+        <input type="range" id="gta-scale" value="1.0" min="0" max="10" step="0.1"
+          oninput="document.getElementById('gta-scale-val').textContent=parseFloat(this.value).toFixed(1);gtaUpdatePreview()">
+      </div>
+      <div class="field">
+        <label>Output RGB</label>
+        <select id="gta-rgb-mode" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+          <option value="white">White (255, 255, 255)</option>
+          <option value="original">Keep original colours</option>
+        </select>
+      </div>
+    </div>
+    <div id="gta-preview-info" style="font-family:var(--font-mono);font-size:.65rem;color:var(--accent2);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.35rem .65rem">
+      load a greyscale PNG to preview
+    </div>`;},
+  outName(n){return n.replace(/\.png$/i,'')+'_alpha.png';},
+  async run(uint8,name,file){
+    const scale=parseFloat(document.getElementById('gta-scale').value)||1.0;
+    const keepRGB=document.getElementById('gta-rgb-mode').value==='original';
+    return new Promise((resolve,reject)=>{
+      const img=new Image(),url=URL.createObjectURL(file);
+      img.onload=()=>{
+        URL.revokeObjectURL(url);
+        const c=document.createElement('canvas');
+        c.width=img.naturalWidth; c.height=img.naturalHeight;
+        const ctx=c.getContext('2d');
+        ctx.drawImage(img,0,0);
+        const imgData=ctx.getImageData(0,0,c.width,c.height);
+        const d=imgData.data;
+        for(let i=0;i<d.length;i+=4){
+          const lum=0.2126*d[i]+0.7152*d[i+1]+0.0722*d[i+2];
+          const alpha=Math.min(255,Math.max(0,Math.round(lum*scale)));
+          if(!keepRGB){d[i]=255;d[i+1]=255;d[i+2]=255;}
+          d[i+3]=alpha;
+        }
+        ctx.putImageData(imgData,0,0);
+        c.toBlob(b=>b?resolve(b):reject(new Error('toBlob failed')),'image/png');
+      };
+      img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Image load failed'));};
+      img.src=url;
+    });
+  }
+};
+</script>
+
+<!-- ═══ tools/scaler.js ═══ -->
+<script>
+async function scalerUpdatePreview(){
+  const el=document.getElementById('scaler-preview-info'); if(!el) return;
+  if(!state.inputFiles.length){el.textContent='load files to see size preview';return;}
+  try{
+    const first=state.inputFiles[0];
+    const dims=await getImageDimensions(new Uint8Array(await first.file.arrayBuffer()));
+    const factor=parseFloat(document.getElementById('scaler-factor')?.value)||1.0;
+    const longestEdge=parseInt(document.getElementById('scaler-longest')?.value)||0;
+    let nw,nh;
+    if(longestEdge>0){
+      const longest=Math.max(dims.w,dims.h);
+      const s=longestEdge/longest;
+      nw=Math.round(dims.w*s); nh=Math.round(dims.h*s);
+    } else {
+      nw=Math.round(dims.w*factor); nh=Math.round(dims.h*factor);
+    }
+    el.textContent=`First image: ${dims.w}\xd7${dims.h} px \u2192 ${Math.max(1,nw)}\xd7${Math.max(1,nh)} px`;
+  }catch(e){/* ignore */}
+}
+on('filesChanged',()=>{if(state.currentTool==='scaler') scalerUpdatePreview();});
+
+const ToolScaler={
+  meta:{id:'scaler',label:'Image Scaler',small:'scale canvas + image together',icon:'⤡',needsMagick:true,batchMode:false,
+    desc:'Scales image and canvas together using ImageMagick WASM for high-quality resampling. Choose from multiple filter algorithms \u2014 Lanczos is the best general-purpose choice; Mitchell is great for mixed content; Point gives nearest-neighbour (pixel-art). Enter a scale factor or set a longest-edge target in pixels.'},
+  settingsHTML(){return`
+    <div class="field-row">
+      <div class="field">
+        <label>Scale Factor</label>
+        <input type="number" id="scaler-factor" value="1.0" min="0.01" max="20" step="0.01"
+          oninput="scalerUpdatePreview()">
+      </div>
+      <div class="field">
+        <label>Longest edge override (px)</label>
+        <input type="number" id="scaler-longest" value="" min="1" max="16384" placeholder="\u2014 use factor \u2014"
+          oninput="scalerUpdatePreview()">
+      </div>
+    </div>
+    <div class="field">
+      <label>Resampling filter</label>
+      <select id="scaler-filter" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+        <option value="Lanczos"   selected>Lanczos — sharpest, best for photos &amp; icons</option>
+        <option value="Mitchell">Mitchell — smooth, great for mixed content</option>
+        <option value="Catrom">Catmull-Rom — sharp edges, slight ringing</option>
+        <option value="Cubic">Cubic — smoother than Catmull-Rom</option>
+        <option value="Triangle">Triangle (Bilinear) — fast, mild softening</option>
+        <option value="Box">Box (Nearest) — pixel-art / hard edges</option>
+        <option value="Gaussian">Gaussian — very soft, good for blur-down</option>
+        <option value="Hermite">Hermite — preserves edges well</option>
+      </select>
+    </div>
+    <div id="scaler-preview-info" style="font-family:var(--font-mono);font-size:.65rem;color:var(--accent2);background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.35rem .65rem">
+      load files to see size preview
+    </div>`;},
+  outName(n){return n.replace(/\.png$/i,'')+'_scaled.png';},
+  async run(uint8,name,file){
+    const factor=parseFloat(document.getElementById('scaler-factor').value)||1.0;
+    const longestEdge=parseInt(document.getElementById('scaler-longest').value)||0;
+    const filter=document.getElementById('scaler-filter').value||'Lanczos';
+
+    // Get source dims via ImageMagick identify (or derive from blob)
+    const dims=await getImageDimensions(uint8);
+    let nw,nh;
+    if(longestEdge>0){
+      const longest=Math.max(dims.w,dims.h);
+      const s=longestEdge/longest;
+      nw=Math.round(dims.w*s); nh=Math.round(dims.h*s);
+    } else {
+      nw=Math.round(dims.w*factor); nh=Math.round(dims.h*factor);
+    }
+    nw=Math.max(1,nw); nh=Math.max(1,nh);
+
+    const r=await window._Magick.Call(
+      [{name:'input.png',content:uint8}],
+      ['convert','input.png','-filter',filter,'-resize',`${nw}x${nh}!`,'+repage','output.png']
+    );
+    if(!r||!r.length) throw new Error('No output from ImageMagick');
+    return r[0].blob;
+  }
+};
+</script>
+
 <!-- ═══ app.js ═══ -->
 <script>
-const TOOLS=[ToolCrop,ToolBlur,ToolWebp,ToolRgba,ToolFontPreview,ToolSlotMachine];
+const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine];
 
 /* Build UI */
 (function(){
@@ -1422,6 +1584,8 @@ function switchTool(id){
   if(id==='fontpreview') fpRenderLetterList();
   if(id==='crop') cropUpdateModeHint();
   if(id==='slotmachine'){ smRenderSymbolGrid(); smUpdateSelects(); }
+  if(id==='greyalpha') gtaUpdatePreview();
+  if(id==='scaler') scalerUpdatePreview();
 
   const runBtn=document.getElementById('runBtn');
   if(id==='fontpreview'){
