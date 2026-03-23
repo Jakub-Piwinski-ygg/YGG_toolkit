@@ -162,7 +162,8 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
         <span class="subtitle-link" onclick="switchTool('rgba')">rgba mask</span> ·
         <span class="subtitle-link" onclick="switchTool('greyalpha')">grey→alpha</span> ·
         <span class="subtitle-link" onclick="switchTool('fontpreview')">font preview</span> ·
-        <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span>
+        <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span> ·
+        <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span>
       </span>
     </div>
   </div>
@@ -334,7 +335,7 @@ function replaceFilesWithOutput(){
   state.inputFiles = newFiles;
   renderFileList();
   updateRunBtn();
-  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine') document.getElementById('runBtn').disabled = false;
+  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine' || state.currentTool === 'paylines') document.getElementById('runBtn').disabled = false;
   log(`\u2713 ${newFiles.length} output file${newFiles.length!==1?'s':''} loaded as input`, 'ok');
 }
 
@@ -367,7 +368,7 @@ function restartToolkit(){
   renderFileList();
   switchTool(state.currentTool);
   updateRunBtn();
-  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine') document.getElementById('runBtn').disabled = false;
+  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine' || state.currentTool === 'paylines') document.getElementById('runBtn').disabled = false;
   clearLog();
   log('\u2014 restarted \u2014 loaded files preserved \u2014', 'info');
 }
@@ -1549,9 +1550,225 @@ const ToolScaler={
 };
 </script>
 
+<!-- ═══ tools/paylines.js ═══ -->
+<script>
+const _pl = {
+  numPaylines: 10,
+  cols: 5,
+  rows: 4,
+  lineSymbol: '🟠',
+  emptySymbol: '⚪️',
+  grids: [],
+};
+
+function plInit(keepExisting) {
+  const newGrids = [];
+  for (let p = 0; p < _pl.numPaylines; p++) {
+    const ex = keepExisting ? _pl.grids[p] : null;
+    const grid = [];
+    for (let r = 0; r < _pl.rows; r++) {
+      const row = [];
+      for (let c = 0; c < _pl.cols; c++) {
+        row.push(ex && ex[r] ? (ex[r][c] || false) : false);
+      }
+      grid.push(row);
+    }
+    newGrids.push(grid);
+  }
+  _pl.grids = newGrids;
+}
+
+function plToggleCell(p, r, c) {
+  _pl.grids[p][r][c] = !_pl.grids[p][r][c];
+  const el = document.getElementById(`plc-${p}-${r}-${c}`);
+  if (el) el.textContent = _pl.grids[p][r][c] ? '🟠' : '⚪️';
+  plUpdateOutput();
+}
+
+function plClearPayline(p) {
+  for (let r = 0; r < _pl.rows; r++)
+    for (let c = 0; c < _pl.cols; c++) {
+      _pl.grids[p][r][c] = false;
+      const el = document.getElementById(`plc-${p}-${r}-${c}`);
+      if (el) el.textContent = '⚪️';
+    }
+  plUpdateOutput();
+}
+
+function plRenderGrids() {
+  const el = document.getElementById('pl-grids-area');
+  if (!el) return;
+  el.innerHTML = _pl.grids.map((grid, p) => {
+    const rows = grid.map((row, r) =>
+      `<div style="display:flex;gap:1px">${row.map((cell, c) =>
+        `<span id="plc-${p}-${r}-${c}" onclick="plToggleCell(${p},${r},${c})"
+          style="cursor:pointer;font-size:1.05rem;line-height:1.15;user-select:none;display:inline-block;transition:transform .07s"
+          onmousedown="this.style.transform='scale(.82)'" onmouseup="this.style.transform=''" onmouseleave="this.style.transform=''"
+          title="Row ${r+1}, Col ${c+1}">${cell ? '🟠' : '⚪️'}</span>`
+      ).join('')}</div>`
+    ).join('');
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+              padding:.45rem .55rem;display:inline-flex;flex-direction:column;align-items:center;gap:.2rem;
+              transition:border-color .15s" onmouseover="this.style.borderColor='#3a3a44'" onmouseout="this.style.borderColor='var(--border)'">
+      <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:.35rem;margin-bottom:.05rem">
+        <span style="font-family:var(--font-mono);font-size:.58rem;color:#555;min-width:20px">#${p+1}</span>
+        <span onclick="plClearPayline(${p})" title="Clear payline"
+          style="font-family:var(--font-mono);font-size:.55rem;color:#383838;cursor:pointer;padding:.05rem .3rem;border-radius:2px;transition:color .1s;line-height:1"
+          onmouseover="this.style.color='var(--accent3)'" onmouseout="this.style.color='#383838'">✕</span>
+      </div>
+      ${rows}
+    </div>`;
+  }).join('');
+}
+
+function plUpdateOutput() {
+  const el = document.getElementById('pl-output');
+  if (!el) return;
+  const line  = _pl.lineSymbol  || '🟠';
+  const empty = _pl.emptySymbol || '⚪️';
+  const parts = _pl.grids.map(grid =>
+    grid.map(row => row.map(cell => cell ? line : empty).join('')).join('\n')
+  );
+  el.value = parts.join('\n\n');
+}
+
+function plCopyOutput() {
+  const el = document.getElementById('pl-output');
+  if (!el) return;
+  navigator.clipboard.writeText(el.value).then(() => {
+    const btn = document.getElementById('pl-copy-btn');
+    if (btn) { btn.textContent = '✓ Copied!'; btn.style.color='#4cff88'; setTimeout(()=>{ btn.textContent='⎘ Copy'; btn.style.color=''; }, 1600); }
+  }).catch(() => { el.select(); document.execCommand('copy'); });
+}
+
+function plParseImport() {
+  const importEl = document.getElementById('pl-import-text');
+  if (!importEl) return;
+  const text = importEl.value.trim();
+  if (!text) { log('⚠ Paste text into the import field first','err'); return; }
+  const line  = _pl.lineSymbol;
+  const empty = _pl.emptySymbol;
+  if (!line || !empty) { log('⚠ Set Line and Empty symbols before parsing','err'); return; }
+
+  const blocks = text.split(/\n[ \t]*\n+/).map(b => b.trim()).filter(Boolean);
+  let parsed = 0;
+
+  for (let p = 0; p < Math.min(blocks.length, _pl.numPaylines); p++) {
+    const rows = blocks[p].split('\n');
+    for (let r = 0; r < Math.min(rows.length, _pl.rows); r++) {
+      let rowText = rows[r];
+      let col = 0, pos = 0;
+      while (pos < rowText.length && col < _pl.cols) {
+        if (rowText.startsWith(line, pos)) {
+          _pl.grids[p][r][col] = true;
+          pos += line.length; col++;
+        } else if (rowText.startsWith(empty, pos)) {
+          _pl.grids[p][r][col] = false;
+          pos += empty.length; col++;
+        } else {
+          pos++;
+        }
+      }
+    }
+    parsed++;
+  }
+
+  if (parsed) {
+    plRenderGrids();
+    plUpdateOutput();
+    log(`✓ Parsed ${parsed} payline${parsed!==1?'s':''} from import`, 'ok');
+    importEl.value = '';
+  } else {
+    log('✗ Nothing matched — check your Line/Empty symbols match the pasted text', 'err');
+  }
+}
+
+async function plLaunch() {
+  _pl.numPaylines = Math.max(1, parseInt(document.getElementById('pl-num')?.value)  || 10);
+  _pl.cols        = Math.max(1, parseInt(document.getElementById('pl-cols')?.value) || 5);
+  _pl.rows        = Math.max(1, parseInt(document.getElementById('pl-rows')?.value) || 4);
+  _pl.lineSymbol  = document.getElementById('pl-line-sym')?.value  || '🟠';
+  _pl.emptySymbol = document.getElementById('pl-empty-sym')?.value || '⚪️';
+
+  plInit(true);
+
+  const area = document.getElementById('resultsArea');
+  area.innerHTML = `
+    <div style="padding:1rem;display:flex;flex-direction:column;gap:1rem">
+      <div id="pl-grids-area" style="display:flex;flex-wrap:wrap;gap:.55rem;align-items:flex-start"></div>
+      <div style="height:1px;background:var(--border)"></div>
+      <div style="display:flex;flex-direction:column;gap:.4rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem">
+          <span style="font-family:var(--font-mono);font-size:.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Text output</span>
+          <button id="pl-copy-btn" class="btn" onclick="plCopyOutput()" style="font-size:.6rem;padding:.22rem .6rem">⎘ Copy</button>
+        </div>
+        <textarea id="pl-output" readonly
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);
+                 font-family:var(--font-mono);font-size:.8rem;padding:.65rem .85rem;
+                 resize:vertical;min-height:130px;max-height:50vh;outline:none;
+                 line-height:1.65;width:100%;white-space:pre;overflow-wrap:normal"></textarea>
+      </div>
+      <div style="height:1px;background:var(--border)"></div>
+      <div style="display:flex;flex-direction:column;gap:.4rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.4rem">
+          <span style="font-family:var(--font-mono);font-size:.63rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em">Import &mdash; paste saved output to restore</span>
+          <button class="btn btn-replace" onclick="plParseImport()" style="font-size:.6rem;padding:.22rem .6rem">⇅ Parse</button>
+        </div>
+        <textarea id="pl-import-text"
+          placeholder="Paste previously exported payline text here, then click Parse…&#10;&#10;Symbols must match the Line / Empty symbol fields above."
+          style="background:var(--surface2);border:1px solid var(--border);border-radius:4px;
+                 color:var(--muted);font-family:var(--font-mono);font-size:.76rem;
+                 padding:.65rem .85rem;resize:vertical;min-height:80px;
+                 outline:none;line-height:1.65;width:100%;white-space:pre;overflow-wrap:normal;transition:border-color .15s"
+          onfocus="this.style.borderColor='var(--accent2)'"
+          onblur="this.style.borderColor='var(--border)'"></textarea>
+      </div>
+    </div>`;
+
+  document.getElementById('resultCount').textContent = `${_pl.numPaylines} payline${_pl.numPaylines!==1?'s':''}`;
+  document.getElementById('dlBar').style.display = 'none';
+
+  plRenderGrids();
+  plUpdateOutput();
+  log(`✓ ${_pl.numPaylines} paylines · ${_pl.cols}×${_pl.rows} — click cells to toggle`, 'ok');
+}
+
+const ToolPaylines = {
+  meta: {
+    id: 'paylines',
+    label: 'Paylines',
+    small: 'design & export payline patterns',
+    icon: '⊞',
+    needsMagick: false,
+    batchMode: false,
+    isPaylines: true,
+    desc: 'Design payline patterns for slot games. Configure the grid dimensions, number of paylines, and the output symbols (emoji or any text like Unity sprite tags). Click cells to toggle positions. Paste previous output into the import field to restore a saved state.'
+  },
+  settingsHTML() {
+    return `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.8rem">
+        <div class="field"><label>Paylines</label><input type="number" id="pl-num" value="${_pl.numPaylines}" min="1" max="200"></div>
+        <div class="field"><label>Columns</label><input type="number" id="pl-cols" value="${_pl.cols}" min="1" max="20"></div>
+        <div class="field"><label>Rows</label><input type="number" id="pl-rows" value="${_pl.rows}" min="1" max="16"></div>
+      </div>
+      <div style="height:1px;background:var(--border)"></div>
+      <div class="field-row">
+        <div class="field"><label>Line symbol</label><input type="text" id="pl-line-sym" value="${_pl.lineSymbol}" placeholder="🟠"></div>
+        <div class="field"><label>Empty symbol</label><input type="text" id="pl-empty-sym" value="${_pl.emptySymbol}" placeholder="⚪️"></div>
+      </div>
+      <div style="font-family:var(--font-mono);font-size:.62rem;color:#555;line-height:1.6;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.4rem .65rem">
+        Symbols can be any text — e.g. <span style="color:var(--accent2)">&lt;sprite name="Payline_Line"&gt;</span> for Unity rich text.
+        The visual grid always uses 🟠 / ⚪️; symbols only appear in the text output.
+      </div>`;
+  },
+  outName() { return 'paylines.txt'; },
+  async run() { await plLaunch(); }
+};
+</script>
+
 <!-- ═══ app.js ═══ -->
 <script>
-const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine];
+const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolPaylines];
 
 /* Build UI */
 (function(){
@@ -1592,6 +1809,8 @@ function switchTool(id){
     runBtn.disabled=false; runBtn.innerHTML='&#9654; RUN';
   } else if(id==='slotmachine'){
     runBtn.disabled=false; runBtn.innerHTML='🎰 BUILD MACHINE';
+  } else if(id==='paylines'){
+    runBtn.disabled=false; runBtn.innerHTML='⊞ BUILD PAYLINES';
   } else {
     runBtn.innerHTML='&#9654; RUN'; updateRunBtn();
   }
@@ -1611,13 +1830,13 @@ function addFiles(files){
   for(const f of files){ if(state.inputFiles.find(x=>x.name===f.name)) continue; state.inputFiles.push({name:f.name,file:f,url:URL.createObjectURL(f)}); }
   renderFileList(); updateRunBtn();
   // If font preview or slot machine active, re-enable run immediately
-  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine') document.getElementById('runBtn').disabled=false;
+  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine'||state.currentTool==='paylines') document.getElementById('runBtn').disabled=false;
 }
 function removeFile(name){
   const idx=state.inputFiles.findIndex(x=>x.name===name);
   if(idx!==-1){URL.revokeObjectURL(state.inputFiles[idx].url);state.inputFiles.splice(idx,1);}
   renderFileList(); updateRunBtn();
-  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine') document.getElementById('runBtn').disabled=false;
+  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine'||state.currentTool==='paylines') document.getElementById('runBtn').disabled=false;
 }
 
 document.getElementById('clearBtn').addEventListener('click',clearResults);
@@ -1628,6 +1847,9 @@ document.getElementById('runBtn').addEventListener('click',async()=>{
 
   // Slot machine: delegate entirely to smLaunch
   if(tool?.meta.isSlotMachine){ clearLog(); await tool.run(); return; }
+
+  // Paylines: delegate entirely to plLaunch
+  if(tool?.meta.isPaylines){ clearLog(); await tool.run(); return; }
 
   // Font preview doesn't need input files to start
   if(state.currentTool!=='fontpreview' && !state.inputFiles.length) return;
@@ -1660,6 +1882,7 @@ document.getElementById('runBtn').addEventListener('click',async()=>{
   }catch(e){ log(`\u2717 ${e.message||e}`,'err'); }
   btn.disabled=false;
   if(state.currentTool==='fontpreview') btn.disabled=false;
+  if(state.currentTool==='paylines'){ btn.disabled=false; btn.innerHTML='⊞ BUILD PAYLINES'; }
   renderResults();
 });
 </script>
