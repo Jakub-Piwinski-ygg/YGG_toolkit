@@ -142,6 +142,22 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .fp-preview-label{font-family:var(--font-mono);font-size:.6rem;color:#444;text-transform:uppercase;letter-spacing:.08em;padding:.4rem .7rem;border-bottom:1px solid var(--border)}
 .fp-preview-canvas-wrap{padding:.75rem;display:flex;align-items:center;justify-content:center;min-height:80px}
 #fpPreviewCanvas{border-radius:4px;max-width:100%;display:block;image-rendering:pixelated}
+/* ═══ Gradient Map Tool Styles ═══ */
+.gm-gradient-bar-wrap{position:relative;width:100%;height:42px;margin:0;user-select:none}
+.gm-gradient-bar{width:100%;height:28px;border-radius:4px;border:1px solid var(--border);cursor:crosshair;position:relative;overflow:hidden}
+.gm-gradient-canvas{width:100%;height:100%;display:block;border-radius:3px}
+.gm-stop{position:absolute;bottom:-2px;width:14px;height:14px;border-radius:50%;border:2px solid #fff;cursor:grab;transform:translateX(-50%);box-shadow:0 1px 4px rgba(0,0,0,.5);z-index:2;transition:box-shadow .12s}
+.gm-stop:hover,.gm-stop.active{box-shadow:0 0 0 2px var(--accent),0 1px 6px rgba(0,0,0,.6)}
+.gm-stop.edge{cursor:default;opacity:.85}
+.gm-stops-track{position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none}
+.gm-stops-track .gm-stop{pointer-events:auto}
+.gm-controls{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-top:.1rem}
+.gm-color-edit{display:flex;align-items:center;gap:.45rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.3rem .55rem;cursor:pointer;transition:border-color .15s}
+.gm-color-edit:hover{border-color:#444}
+.gm-color-dot-lg{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.12);flex-shrink:0}
+.gm-color-hex{font-family:var(--font-mono);font-size:.72rem;color:var(--muted)}
+.gm-preset-btn{font-family:var(--font-mono);font-size:.6rem;padding:.25rem .55rem;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .12s}
+.gm-preset-btn:hover{border-color:var(--accent2);color:var(--accent2)}
 </style>
 </head>
 <body>
@@ -159,10 +175,12 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
         <span class="subtitle-link" onclick="switchTool('scaler')">scaler</span> ·
         <span class="subtitle-link" onclick="switchTool('webp')">convert</span> ·
         <span class="subtitle-link" onclick="switchTool('blur')">blur</span> ·
+        <span class="subtitle-link" onclick="switchTool('gaussblur')">gaussian</span> ·
         <span class="subtitle-link" onclick="switchTool('rgba')">rgba mask</span> ·
         <span class="subtitle-link" onclick="switchTool('greyalpha')">grey→alpha</span> ·
         <span class="subtitle-link" onclick="switchTool('fontpreview')">font preview</span> ·
         <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span> ·
+        <span class="subtitle-link" onclick="switchTool('gradientmap')">gradient map</span> ·
         <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span>
       </span>
     </div>
@@ -497,6 +515,114 @@ const ToolBlur={
       ['convert','blurred.png','combined_alpha.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
     if(!r5||!r5.length) throw new Error('Final composite failed');
     return r5[0].blob;
+  }
+};
+</script>
+
+<!-- ═══ tools/gaussblur.js ═══ -->
+<script>
+const ToolGaussBlur={
+  meta:{id:'gaussblur',label:'Gaussian Blur',small:'uniform soft blur',icon:'🔘',needsMagick:true,batchMode:false,
+    desc:'Applies a standard Gaussian blur uniformly across the image. Adjust <em>sigma</em> to control blur strength and <em>radius</em> to set the kernel size (0 = auto from sigma). Optionally feather edges to transparent for compositing.'},
+  settingsHTML(){return`<div class="field-row">
+    <div class="field"><label>Radius (0 = auto)</label><input type="number" id="gauss-radius" value="0" min="0" max="100"></div>
+    <div class="field"><label>Sigma (strength) &mdash; <span id="gauss-sigma-val" style="color:var(--accent)">4</span></label>
+      <input type="range" id="gauss-sigma" value="4" min="0.1" max="80" step="0.1"
+        oninput="document.getElementById('gauss-sigma-val').textContent=parseFloat(this.value).toFixed(1)"></div>
+    </div>
+    <div class="field-row">
+    <div class="field"><label>Edge feather (0 = none)</label><input type="number" id="gauss-feather" value="0" min="0" max="200"></div>
+    <div class="field"><label>Alpha handling</label>
+      <select id="gauss-alpha" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+        <option value="keep">Keep original alpha</option>
+        <option value="blur" selected>Blur alpha too</option>
+      </select></div>
+    </div>`;},
+  outName(n){return n.replace(/\.png$/i,'')+'_gblur.png';},
+  async run(uint8){
+    const radius=parseInt(document.getElementById('gauss-radius').value)||0;
+    const sigma=parseFloat(document.getElementById('gauss-sigma').value)||4;
+    const feather=parseInt(document.getElementById('gauss-feather').value)||0;
+    const alphaMode=document.getElementById('gauss-alpha').value;
+    const blurArg=`${radius}x${sigma}`;
+    const fresh=async b=>new Uint8Array(await b.arrayBuffer());
+
+    if(alphaMode==='keep'){
+      // Blur RGB only, preserve original alpha
+      const uint8copy=uint8.slice();
+      // 1. Extract alpha
+      const rA=await window._Magick.Call([{name:'input.png',content:uint8}],
+        ['convert','input.png','-alpha','extract','alpha.png']);
+      if(!rA||!rA.length) throw new Error('Alpha extract failed');
+      const alpha=rA[0].blob;
+      // 2. Blur the full image (use copy — original buffer is detached)
+      const rB=await window._Magick.Call([{name:'input.png',content:uint8copy}],
+        ['convert','input.png','-blur',blurArg,'blurred.png']);
+      if(!rB||!rB.length) throw new Error('Gaussian blur failed');
+      const blurred=rB[0].blob;
+
+      if(feather>0){
+        // Build feathered mask from original alpha
+        const rM=await window._Magick.Call([{name:'alpha.png',content:await fresh(alpha)}],
+          ['convert','alpha.png','-shave',`${feather}x${feather}`,'-bordercolor','black','-border',`${feather}x${feather}`,
+           '-blur',`0x${feather}`,'-level','20%,80%','mask.png']);
+        if(!rM||!rM.length) throw new Error('Feather mask failed');
+        const mask=rM[0].blob;
+        const rMul=await window._Magick.Call(
+          [{name:'alpha.png',content:await fresh(alpha)},{name:'mask.png',content:await fresh(mask)}],
+          ['convert','alpha.png','mask.png','-compose','Multiply','-composite','combined.png']);
+        if(!rMul||!rMul.length) throw new Error('Alpha multiply failed');
+        const cAlpha=rMul[0].blob;
+        // 3. Re-apply combined alpha
+        const rF=await window._Magick.Call(
+          [{name:'blurred.png',content:await fresh(blurred)},{name:'combined.png',content:await fresh(cAlpha)}],
+          ['convert','blurred.png','combined.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
+        if(!rF||!rF.length) throw new Error('Final composite failed');
+        return rF[0].blob;
+      } else {
+        // Re-apply original alpha unchanged
+        const rF=await window._Magick.Call(
+          [{name:'blurred.png',content:await fresh(blurred)},{name:'alpha.png',content:await fresh(alpha)}],
+          ['convert','blurred.png','alpha.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
+        if(!rF||!rF.length) throw new Error('Final composite failed');
+        return rF[0].blob;
+      }
+    } else {
+      // Blur everything including alpha
+      if(feather>0){
+        const rB=await window._Magick.Call([{name:'input.png',content:uint8}],
+          ['convert','input.png','-blur',blurArg,'blurred.png']);
+        if(!rB||!rB.length) throw new Error('Gaussian blur failed');
+        const blurred=rB[0].blob;
+        // Feather edges
+        const rM=await window._Magick.Call([{name:'blurred.png',content:await fresh(blurred)}],
+          ['convert','blurred.png','-alpha','extract',
+           '-shave',`${feather}x${feather}`,'-bordercolor','black','-border',`${feather}x${feather}`,
+           '-blur',`0x${feather}`,'-level','20%,80%','mask.png']);
+        if(!rM||!rM.length) throw new Error('Feather mask failed');
+        const mask=rM[0].blob;
+        const rA=await window._Magick.Call([{name:'blurred.png',content:await fresh(blurred)}],
+          ['convert','blurred.png','-alpha','extract','orig_a.png']);
+        if(!rA||!rA.length) throw new Error('Alpha extract failed');
+        const origA=rA[0].blob;
+        const rMul=await window._Magick.Call(
+          [{name:'orig_a.png',content:await fresh(origA)},{name:'mask.png',content:await fresh(mask)}],
+          ['convert','orig_a.png','mask.png','-compose','Multiply','-composite','combined.png']);
+        if(!rMul||!rMul.length) throw new Error('Alpha multiply failed');
+        const cAlpha=rMul[0].blob;
+        const rF=await window._Magick.Call(
+          [{name:'blurred.png',content:await fresh(blurred)},{name:'combined.png',content:await fresh(cAlpha)}],
+          ['convert','blurred.png','combined.png','-alpha','copy','-compose','CopyOpacity','-composite','output.png']);
+        if(!rF||!rF.length) throw new Error('Final composite failed');
+        return rF[0].blob;
+      } else {
+        // Simple full blur
+        const r=await window._Magick.Call([{name:'input.png',content:uint8}],
+          ['convert','input.png','-blur',blurArg,'output.png']);
+        if(!r||!r.length) throw new Error('Gaussian blur failed');
+        return r[0].blob;
+      }
+    }
   }
 };
 </script>
@@ -1766,9 +1892,289 @@ const ToolPaylines = {
 };
 </script>
 
+<!-- ═══ tools/gradientmap.js ═══ -->
+<script>
+const _gm = {
+  // Each stop: { pos: 0..1, color: '#rrggbb' }
+  stops: [
+    { pos: 0, color: '#000000' },
+    { pos: 1, color: '#ffffff' }
+  ],
+  activeStop: 0,
+  dragging: null,
+};
+
+const GM_PRESETS = {
+  'B → W':         [{ pos:0, color:'#000000' },{ pos:1, color:'#ffffff' }],
+  'Warm':          [{ pos:0, color:'#1a0a00' },{ pos:.3, color:'#8b2500' },{ pos:.6, color:'#ff8c00' },{ pos:1, color:'#fffde0' }],
+  'Cool':          [{ pos:0, color:'#020024' },{ pos:.35, color:'#0d47a1' },{ pos:.7, color:'#00bcd4' },{ pos:1, color:'#e0f7fa' }],
+  'Sunset':        [{ pos:0, color:'#1a0533' },{ pos:.25, color:'#6a1b9a' },{ pos:.5, color:'#e53935' },{ pos:.75, color:'#ff9800' },{ pos:1, color:'#fff9c4' }],
+  'Duotone Cyan':  [{ pos:0, color:'#0d0d0d' },{ pos:1, color:'#00e5ff' }],
+  'Duotone Gold':  [{ pos:0, color:'#1a1200' },{ pos:1, color:'#ffd700' }],
+  'Heat':          [{ pos:0, color:'#000004' },{ pos:.25, color:'#420a68' },{ pos:.5, color:'#dd513a' },{ pos:.75, color:'#fca50a' },{ pos:1, color:'#fcffa4' }],
+  'Vintage':       [{ pos:0, color:'#2b1f0e' },{ pos:.3, color:'#6b4226' },{ pos:.6, color:'#c2956a' },{ pos:1, color:'#f5e6c8' }],
+};
+
+function gmSortStops(){ _gm.stops.sort((a,b)=>a.pos-b.pos); }
+
+function gmHexToRgb(hex){
+  return { r:parseInt(hex.slice(1,3),16), g:parseInt(hex.slice(3,5),16), b:parseInt(hex.slice(5,7),16) };
+}
+
+function gmSampleGradient(t){
+  const stops = _gm.stops;
+  if(stops.length===1) return gmHexToRgb(stops[0].color);
+  if(t<=stops[0].pos) return gmHexToRgb(stops[0].color);
+  if(t>=stops[stops.length-1].pos) return gmHexToRgb(stops[stops.length-1].color);
+  for(let i=0;i<stops.length-1;i++){
+    if(t>=stops[i].pos && t<=stops[i+1].pos){
+      const range=stops[i+1].pos-stops[i].pos;
+      const frac=range===0?0:(t-stops[i].pos)/range;
+      const c0=gmHexToRgb(stops[i].color), c1=gmHexToRgb(stops[i+1].color);
+      return {
+        r:Math.round(c0.r+(c1.r-c0.r)*frac),
+        g:Math.round(c0.g+(c1.g-c0.g)*frac),
+        b:Math.round(c0.b+(c1.b-c0.b)*frac),
+      };
+    }
+  }
+  return gmHexToRgb(stops[stops.length-1].color);
+}
+
+// Build a 256-entry LUT for fast pixel processing
+function gmBuildLUT(){
+  const lut=new Uint8Array(256*3);
+  for(let i=0;i<256;i++){
+    const c=gmSampleGradient(i/255);
+    lut[i*3]=c.r; lut[i*3+1]=c.g; lut[i*3+2]=c.b;
+  }
+  return lut;
+}
+
+function gmDrawBar(){
+  const canvas=document.getElementById('gm-bar-canvas'); if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const w=canvas.width=canvas.offsetWidth, h=canvas.height=canvas.offsetHeight;
+  const grad=ctx.createLinearGradient(0,0,w,0);
+  for(const s of _gm.stops) grad.addColorStop(Math.max(0,Math.min(1,s.pos)),s.color);
+  ctx.fillStyle=grad; ctx.fillRect(0,0,w,h);
+}
+
+function gmRenderStops(){
+  const track=document.getElementById('gm-stops-track'); if(!track) return;
+  track.innerHTML=_gm.stops.map((s,i)=>{
+    const isEdge=(i===0||i===_gm.stops.length-1)&&(_gm.stops.length>2?false:true);
+    // edge stops (first/last) are always draggable to allow repositioning, but pos 0 and 1 can't be removed
+    return `<div class="gm-stop${i===_gm.activeStop?' active':''}"
+      style="left:${s.pos*100}%;background:${s.color}"
+      data-idx="${i}"
+      onmousedown="gmStartDrag(event,${i})"
+      ondblclick="gmRemoveStop(${i})"
+      title="Pos: ${(s.pos*100).toFixed(0)}%"></div>`;
+  }).join('');
+  // Update color editor
+  gmUpdateColorEditor();
+}
+
+function gmUpdateColorEditor(){
+  const dot=document.getElementById('gm-active-dot');
+  const hex=document.getElementById('gm-active-hex');
+  const posEl=document.getElementById('gm-active-pos');
+  if(!dot||!hex) return;
+  const s=_gm.stops[_gm.activeStop];
+  if(!s) return;
+  dot.style.background=s.color;
+  hex.textContent=s.color;
+  if(posEl) posEl.textContent=(s.pos*100).toFixed(0)+'%';
+}
+
+function gmSelectStop(idx){
+  _gm.activeStop=Math.max(0,Math.min(idx,_gm.stops.length-1));
+  gmRenderStops();
+}
+
+function gmStartDrag(e,idx){
+  e.preventDefault();
+  gmSelectStop(idx);
+  const bar=document.getElementById('gm-bar-canvas');
+  const rect=bar.getBoundingClientRect();
+  const startX=e.clientX;
+  let dragging=false;
+
+  function onMove(ev){
+    if(!dragging){
+      // Only start actual drag after 4px movement
+      if(Math.abs(ev.clientX-startX)<4) return;
+      dragging=true;
+      _gm.dragging=idx;
+    }
+    const x=Math.max(0,Math.min(1,(ev.clientX-rect.left)/rect.width));
+    // Keep reference to the stop object before sorting
+    const stopObj=_gm.stops[_gm.dragging];
+    stopObj.pos=x;
+    gmSortStops();
+    _gm.dragging=_gm.stops.indexOf(stopObj);
+    if(_gm.dragging<0) _gm.dragging=_gm.stops.findIndex(s=>Math.abs(s.pos-x)<0.001);
+    _gm.activeStop=_gm.dragging;
+    gmDrawBar(); gmRenderStops();
+  }
+  function onUp(){
+    _gm.dragging=null;
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+  }
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onUp);
+}
+
+function gmAddStopAt(e){
+  const bar=document.getElementById('gm-bar-canvas'); if(!bar) return;
+  // Don't add if clicked on an existing stop handle
+  if(e.target.classList.contains('gm-stop')) return;
+  const rect=bar.getBoundingClientRect();
+  const pos=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  const col=gmSampleGradient(pos);
+  const hex='#'+[col.r,col.g,col.b].map(v=>v.toString(16).padStart(2,'0')).join('');
+  _gm.stops.push({pos,color:hex});
+  gmSortStops();
+  _gm.activeStop=_gm.stops.findIndex(s=>Math.abs(s.pos-pos)<0.001);
+  gmDrawBar(); gmRenderStops();
+}
+
+function gmRemoveStop(idx){
+  if(_gm.stops.length<=1) return; // need at least 1 stop
+  _gm.stops.splice(idx,1);
+  _gm.activeStop=Math.min(_gm.activeStop,_gm.stops.length-1);
+  gmDrawBar(); gmRenderStops();
+}
+function gmRemoveActive(){
+  gmRemoveStop(_gm.activeStop);
+}
+
+function gmChangeActiveColor(hex){
+  if(!_gm.stops[_gm.activeStop]) return;
+  _gm.stops[_gm.activeStop].color=hex;
+  gmDrawBar(); gmRenderStops();
+}
+
+function gmLoadPreset(name){
+  const p=GM_PRESETS[name]; if(!p) return;
+  _gm.stops=p.map(s=>({...s}));
+  _gm.activeStop=0;
+  gmDrawBar(); gmRenderStops();
+}
+
+function gmInitUI(){
+  setTimeout(()=>{ gmDrawBar(); gmRenderStops(); },50);
+  // Redraw on window resize
+  window.addEventListener('resize',()=>{ if(state.currentTool==='gradientmap') gmDrawBar(); });
+}
+
+const ToolGradientMap={
+  meta:{id:'gradientmap',label:'Gradient Map',small:'map luminance to colours',icon:'🌈',needsMagick:false,batchMode:false,
+    desc:'Maps the luminance of each pixel to a user-defined colour gradient — just like Photoshop\'s Gradient Map adjustment. Click the gradient bar to add colour stops, drag to reposition, select and press ✕ to remove. Alpha channel is preserved.'},
+  settingsHTML(){
+    const presetBtns=Object.keys(GM_PRESETS).map(k=>
+      `<button class="gm-preset-btn" onclick="gmLoadPreset('${k}')">${k}</button>`
+    ).join('');
+    return `
+    <!-- Gradient bar with stops -->
+    <div class="gm-gradient-bar-wrap" id="gm-bar-wrap">
+      <div class="gm-gradient-bar" onclick="gmAddStopAt(event)">
+        <canvas class="gm-gradient-canvas" id="gm-bar-canvas"></canvas>
+        <div class="gm-stops-track" id="gm-stops-track"></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:.3rem;flex-wrap:wrap;font-family:var(--font-mono);font-size:.58rem;color:#444">
+      <span>click bar to add stop</span><span>·</span><span>drag to move</span><span>·</span><span>click stop to select, then ✕ to remove</span>
+    </div>
+
+    <!-- Active stop editor -->
+    <div class="gm-controls">
+      <div class="gm-color-edit" onclick="document.getElementById('gm-color-picker').click()">
+        <div class="gm-color-dot-lg" id="gm-active-dot" style="background:#000"></div>
+        <span class="gm-color-hex" id="gm-active-hex">#000000</span>
+        <span style="font-family:var(--font-mono);font-size:.58rem;color:#444;margin-left:.15rem" id="gm-active-pos">0%</span>
+      </div>
+      <input type="color" id="gm-color-picker" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none"
+        oninput="gmChangeActiveColor(this.value)">
+      <span style="font-family:var(--font-mono);font-size:.58rem;color:#555">${_gm.stops.length} stops</span>
+      <button class="btn" onclick="gmRemoveActive()" style="font-size:.58rem;padding:.2rem .55rem;color:var(--accent3);border-color:rgba(255,107,71,.3);margin-left:auto" title="Remove selected stop (min 2)">✕ remove stop</button>
+    </div>
+
+    <!-- Presets -->
+    <div style="display:flex;align-items:center;gap:.35rem;flex-wrap:wrap">
+      <span style="font-family:var(--font-mono);font-size:.6rem;color:var(--muted);margin-right:.15rem">Presets</span>
+      ${presetBtns}
+    </div>
+
+    <!-- Options -->
+    <div class="field-row">
+      <div class="field">
+        <label>Luminance formula</label>
+        <select id="gm-lum-mode" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+          <option value="rec709" selected>Rec. 709 (0.2126R + 0.7152G + 0.0722B)</option>
+          <option value="avg">Average ((R+G+B) / 3)</option>
+          <option value="lightness">Lightness ((max+min) / 2)</option>
+          <option value="maxrgb">Max channel (desaturate)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Alpha handling</label>
+        <select id="gm-alpha" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+          <option value="keep" selected>Preserve original alpha</option>
+          <option value="full">Force fully opaque</option>
+        </select>
+      </div>
+    </div>`;
+  },
+  outName(n){return n.replace(/\.png$/i,'')+'_gmap.png';},
+  async run(uint8,name,file){
+    const lumMode=document.getElementById('gm-lum-mode')?.value||'rec709';
+    const alphaMode=document.getElementById('gm-alpha')?.value||'keep';
+    const lut=gmBuildLUT();
+
+    return new Promise((resolve,reject)=>{
+      const img=new Image(), url=URL.createObjectURL(file);
+      img.onload=()=>{
+        URL.revokeObjectURL(url);
+        const c=document.createElement('canvas');
+        c.width=img.naturalWidth; c.height=img.naturalHeight;
+        const ctx=c.getContext('2d');
+        ctx.drawImage(img,0,0);
+        const imgData=ctx.getImageData(0,0,c.width,c.height);
+        const d=imgData.data;
+        for(let i=0;i<d.length;i+=4){
+          const r=d[i],g=d[i+1],b=d[i+2];
+          let lum;
+          switch(lumMode){
+            case 'avg':      lum=Math.round((r+g+b)/3); break;
+            case 'lightness':lum=Math.round((Math.max(r,g,b)+Math.min(r,g,b))/2); break;
+            case 'maxrgb':   lum=Math.max(r,g,b); break;
+            default:         lum=Math.round(0.2126*r+0.7152*g+0.0722*b); break;
+          }
+          lum=Math.max(0,Math.min(255,lum));
+          d[i]  =lut[lum*3];
+          d[i+1]=lut[lum*3+1];
+          d[i+2]=lut[lum*3+2];
+          if(alphaMode==='full') d[i+3]=255;
+          // else keep original alpha untouched
+        }
+        ctx.putImageData(imgData,0,0);
+        c.toBlob(bl=>bl?resolve(bl):reject(new Error('toBlob failed')),'image/png');
+      };
+      img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Image load failed'));};
+      img.src=url;
+    });
+  }
+};
+
+on('toolSwitched',()=>{ if(state.currentTool==='gradientmap') gmInitUI(); });
+</script>
+
 <!-- ═══ app.js ═══ -->
 <script>
-const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolPaylines];
+const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines];
 
 /* Build UI */
 (function(){
@@ -1803,6 +2209,7 @@ function switchTool(id){
   if(id==='slotmachine'){ smRenderSymbolGrid(); smUpdateSelects(); }
   if(id==='greyalpha') gtaUpdatePreview();
   if(id==='scaler') scalerUpdatePreview();
+  if(id==='gradientmap') gmInitUI();
 
   const runBtn=document.getElementById('runBtn');
   if(id==='fontpreview'){
