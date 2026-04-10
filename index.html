@@ -158,6 +158,43 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .gm-color-hex{font-family:var(--font-mono);font-size:.72rem;color:var(--muted)}
 .gm-preset-btn{font-family:var(--font-mono);font-size:.6rem;padding:.25rem .55rem;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .12s}
 .gm-preset-btn:hover{border-color:var(--accent2);color:var(--accent2)}
+
+/* ═══ Asset Browser Styles ═══ */
+.ab-breadcrumb{display:flex;align-items:center;gap:.15rem;flex-wrap:wrap;font-family:var(--font-mono);font-size:.68rem;padding:.5rem .75rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;min-height:32px}
+.ab-crumb{color:var(--accent2);cursor:pointer;padding:.1rem .25rem;border-radius:2px;transition:background .12s}
+.ab-crumb:hover{background:rgba(71,200,255,.1)}
+.ab-crumb-sep{color:#333;user-select:none}
+.ab-crumb-current{color:var(--text);cursor:default}
+.ab-grid{display:grid;gap:.6rem;padding:.75rem}
+.ab-grid.folders{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.ab-grid.images{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.ab-grid.sounds{grid-template-columns:1fr}
+.ab-folder-card{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.6rem .75rem;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:.6rem;font-family:var(--font-mono);font-size:.72rem;color:var(--text)}
+.ab-folder-card:hover{border-color:var(--accent2);background:rgba(71,200,255,.04)}
+.ab-folder-card .folder-icon{font-size:1.15rem;flex-shrink:0}
+.ab-folder-card .folder-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.ab-folder-card .folder-count{color:#555;font-size:.6rem;flex-shrink:0}
+.ab-image-card{background:var(--surface2);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:pointer;transition:border-color .15s;display:flex;flex-direction:column}
+.ab-image-card:hover{border-color:var(--accent2)}
+.ab-image-card img{width:100%;height:110px;object-fit:contain;background:#0a0a0a;display:block}
+.ab-image-card .img-label{padding:.3rem .5rem;font-family:var(--font-mono);font-size:.58rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:.3rem}
+.ab-image-card .img-label .dl-icon{cursor:pointer;color:#444;transition:color .12s;flex-shrink:0;font-size:.7rem}
+.ab-image-card .img-label .dl-icon:hover{color:var(--accent)}
+.ab-sound-row{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .75rem;display:grid;grid-template-columns:1fr auto auto;gap:.6rem;align-items:center;transition:border-color .15s}
+.ab-sound-row:hover{border-color:var(--accent2)}
+.ab-sound-name{font-family:var(--font-mono);font-size:.72rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ab-sound-row audio{height:32px;max-width:320px;width:100%}
+.ab-sound-dl{cursor:pointer;color:#555;font-family:var(--font-mono);font-size:.65rem;padding:.25rem .5rem;border:1px solid var(--border);border-radius:3px;transition:all .12s;background:transparent;white-space:nowrap}
+.ab-sound-dl:hover{border-color:var(--accent);color:var(--accent)}
+.ab-empty{font-family:var(--font-mono);font-size:.75rem;color:#444;text-align:center;padding:2rem}
+.ab-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;animation:abFadeIn .15s ease}
+.ab-lightbox img{max-width:92vw;max-height:90vh;border-radius:6px;box-shadow:0 8px 60px rgba(0,0,0,.7);object-fit:contain}
+.ab-lightbox-info{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:.72rem;color:var(--muted);background:var(--surface);border:1px solid var(--border);padding:.4rem 1rem;border-radius:4px;z-index:10000;display:flex;align-items:center;gap:.8rem}
+@keyframes abFadeIn{from{opacity:0}to{opacity:1}}
+.ab-search{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.76rem;padding:.45rem .7rem;border-radius:4px;outline:none;width:100%;transition:border-color .15s}
+.ab-search:focus{border-color:var(--accent2)}
+.ab-search::placeholder{color:#444}
+.ab-status-bar{display:flex;align-items:center;justify-content:space-between;gap:.5rem;font-family:var(--font-mono);font-size:.6rem;color:#555;padding:.3rem .75rem;border-top:1px solid var(--border);flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -181,7 +218,9 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
         <span class="subtitle-link" onclick="switchTool('fontpreview')">font preview</span> ·
         <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span> ·
         <span class="subtitle-link" onclick="switchTool('gradientmap')">gradient map</span> ·
-        <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span>
+        <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span> ·
+        <span class="subtitle-link" onclick="switchTool('soundbrowser')">sounds</span> ·
+        <span class="subtitle-link" onclick="switchTool('artbrowser')">art</span>
       </span>
     </div>
   </div>
@@ -353,7 +392,7 @@ function replaceFilesWithOutput(){
   state.inputFiles = newFiles;
   renderFileList();
   updateRunBtn();
-  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine' || state.currentTool === 'paylines') document.getElementById('runBtn').disabled = false;
+  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine' || state.currentTool === 'paylines' || state.currentTool === 'soundbrowser' || state.currentTool === 'artbrowser') document.getElementById('runBtn').disabled = false;
   log(`\u2713 ${newFiles.length} output file${newFiles.length!==1?'s':''} loaded as input`, 'ok');
 }
 
@@ -386,7 +425,7 @@ function restartToolkit(){
   renderFileList();
   switchTool(state.currentTool);
   updateRunBtn();
-  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine' || state.currentTool === 'paylines') document.getElementById('runBtn').disabled = false;
+  if(state.currentTool === 'fontpreview' || state.currentTool === 'slotmachine' || state.currentTool === 'paylines' || state.currentTool === 'soundbrowser' || state.currentTool === 'artbrowser') document.getElementById('runBtn').disabled = false;
   clearLog();
   log('\u2014 restarted \u2014 loaded files preserved \u2014', 'info');
 }
@@ -2172,9 +2211,409 @@ const ToolGradientMap={
 on('toolSwitched',()=>{ if(state.currentTool==='gradientmap') gmInitUI(); });
 </script>
 
+<!-- ═══ shared/github-browser.js ═══ -->
+<script>
+const _gh = {
+  owner: '',
+  repo: '',
+  branch: 'main',
+  tree: null,        // full tree array from API
+  treeTS: 0,         // timestamp of last fetch
+  loading: false,
+  error: null,
+};
+
+// ── Fetch entire repo tree in one API call ──
+async function ghFetchTree(force){
+  const owner = _gh.owner;
+  const repo  = _gh.repo;
+  const branch= _gh.branch || 'main';
+  if(!owner||!repo){ _gh.error='Enter owner and repo name'; return null; }
+
+  // Cache for 5 min unless forced
+  if(!force && _gh.tree && (Date.now()-_gh.treeTS)<300000 && _gh.owner===owner && _gh.repo===repo && _gh.branch===branch){
+    return _gh.tree;
+  }
+
+  _gh.loading=true; _gh.error=null;
+  try{
+    const url=`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`;
+    const resp=await fetch(url);
+    if(!resp.ok){
+      if(resp.status===404) throw new Error('Repo not found — check owner/repo/branch');
+      if(resp.status===403) throw new Error('Rate limited — wait a minute or add a token');
+      throw new Error(`GitHub API error ${resp.status}`);
+    }
+    const data=await resp.json();
+    _gh.tree=data.tree||[];
+    _gh.treeTS=Date.now();
+    // Save config to localStorage
+    try{ localStorage.setItem('ygg_gh_config',JSON.stringify({owner,repo,branch})); }catch(e){}
+    return _gh.tree;
+  }catch(e){
+    _gh.error=e.message; return null;
+  }finally{
+    _gh.loading=false;
+  }
+}
+
+// Load saved config
+try{
+  const saved=JSON.parse(localStorage.getItem('ygg_gh_config')||'{}');
+  if(saved.owner) _gh.owner=saved.owner;
+  if(saved.repo)  _gh.repo=saved.repo;
+  if(saved.branch) _gh.branch=saved.branch;
+}catch(e){}
+
+// ── Get items under a prefix path ──
+function ghListDir(prefix, tree, typeFilter){
+  if(!tree) return {folders:[],files:[]};
+  const norm = prefix ? prefix.replace(/\/$/,'')+'/' : '';
+  const folders=new Set(), files=[];
+
+  for(const item of tree){
+    if(!item.path.startsWith(norm)) continue;
+    const rest=item.path.slice(norm.length);
+    if(!rest) continue;
+
+    const slashIdx=rest.indexOf('/');
+    if(slashIdx!==-1){
+      // Has sub-path → it's inside a subfolder
+      const folderName=rest.slice(0,slashIdx);
+      folders.add(folderName);
+    } else if(item.type==='blob'){
+      // Direct file in this directory
+      if(!typeFilter || typeFilter(item.path)){
+        files.push({ name:rest, path:item.path, size:item.size||0 });
+      }
+    }
+  }
+  // Count items in each folder
+  const folderList=[...folders].sort().map(name=>{
+    const fp=norm+name+'/';
+    let count=0;
+    for(const item of tree){
+      if(item.type==='blob' && item.path.startsWith(fp)){
+        if(!typeFilter || typeFilter(item.path)) count++;
+      }
+    }
+    return {name,path:norm+name,count};
+  });
+  files.sort((a,b)=>a.name.localeCompare(b.name));
+  return {folders:folderList, files};
+}
+
+function ghRawUrl(path){
+  return `https://raw.githubusercontent.com/${encodeURIComponent(_gh.owner)}/${encodeURIComponent(_gh.repo)}/${encodeURIComponent(_gh.branch)}/${path}`;
+}
+
+function ghFormatSize(bytes){
+  if(!bytes) return '';
+  if(bytes<1024) return bytes+'B';
+  if(bytes<1048576) return (bytes/1024).toFixed(0)+'KB';
+  return (bytes/1048576).toFixed(1)+'MB';
+}
+
+// Shared settings HTML for repo config
+function ghRepoSettingsHTML(){
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.8rem">
+    <div class="field"><label>GitHub owner</label><input type="text" id="gh-owner" value="${esc(_gh.owner)}" placeholder="your-org" oninput="_gh.owner=this.value.trim()"></div>
+    <div class="field"><label>Repository</label><input type="text" id="gh-repo" value="${esc(_gh.repo)}" placeholder="game-assets" oninput="_gh.repo=this.value.trim()"></div>
+    <div class="field"><label>Branch</label><input type="text" id="gh-branch" value="${esc(_gh.branch)}" placeholder="main" oninput="_gh.branch=this.value.trim()"></div>
+  </div>`;
+}
+</script>
+
+<!-- ═══ tools/soundbrowser.js ═══ -->
+<script>
+const _sb = { currentPath:'SOUNDS', searchQuery:'' };
+const SOUND_EXTS=/\.(wav|mp3|ogg|flac|aac|m4a|wma|opus|aiff|aif)$/i;
+
+function sbIsSound(path){ return SOUND_EXTS.test(path); }
+
+function sbRenderBreadcrumb(path){
+  const parts=path.split('/').filter(Boolean);
+  let html='';
+  let built='';
+  for(let i=0;i<parts.length;i++){
+    built+=(i?'/':'')+parts[i];
+    const p=built;
+    if(i<parts.length-1){
+      html+=`<span class="ab-crumb" onclick="sbNavigate('${esc(p)}')">${esc(parts[i])}</span><span class="ab-crumb-sep">/</span>`;
+    } else {
+      html+=`<span class="ab-crumb ab-crumb-current">${esc(parts[i])}</span>`;
+    }
+  }
+  return html;
+}
+
+function sbNavigate(path){
+  _sb.currentPath=path;
+  sbRenderView();
+}
+
+function sbRenderView(){
+  const area=document.getElementById('resultsArea');
+  if(!_gh.tree){ area.innerHTML='<div class="ab-empty">Click SCAN REPOSITORY to load the file tree</div>'; return; }
+
+  const listing=ghListDir(_sb.currentPath, _gh.tree, sbIsSound);
+  const q=_sb.searchQuery.toLowerCase();
+  let files=listing.files;
+  let folders=listing.folders;
+  if(q){
+    // Global search: find all matching files under root
+    files=[];
+    for(const item of _gh.tree){
+      if(item.type==='blob' && item.path.startsWith('SOUNDS/') && sbIsSound(item.path) && item.path.toLowerCase().includes(q)){
+        files.push({name:item.path.split('/').pop(), path:item.path, size:item.size||0, fullPath:item.path});
+      }
+    }
+    folders=[];
+  }
+
+  let html=`<div style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">`;
+  // Search
+  html+=`<input class="ab-search" type="text" placeholder="Search all sounds…" value="${esc(_sb.searchQuery)}"
+    oninput="_sb.searchQuery=this.value;sbRenderView()" onfocus="this.select()">`;
+  // Breadcrumb
+  if(!q) html+=`<div class="ab-breadcrumb">${sbRenderBreadcrumb(_sb.currentPath)}</div>`;
+  // Folders
+  if(folders.length){
+    html+=`<div class="ab-grid folders">`;
+    for(const f of folders){
+      html+=`<div class="ab-folder-card" onclick="sbNavigate('${esc(f.path)}')">
+        <span class="folder-icon">📁</span>
+        <span class="folder-label">${esc(f.name)}</span>
+        <span class="folder-count">${f.count} sound${f.count!==1?'s':''}</span>
+      </div>`;
+    }
+    html+=`</div>`;
+  }
+  // Files
+  if(files.length){
+    html+=`<div class="ab-grid sounds">`;
+    for(const f of files){
+      const rawUrl=ghRawUrl(f.path);
+      const displayName=q&&f.fullPath?f.fullPath.replace(/^SOUNDS\//,''):f.name;
+      const ext=f.name.split('.').pop().toUpperCase();
+      html+=`<div class="ab-sound-row">
+        <div style="display:flex;flex-direction:column;gap:.15rem;overflow:hidden">
+          <span class="ab-sound-name" title="${esc(f.path)}">${esc(displayName)}</span>
+          <span style="font-family:var(--font-mono);font-size:.55rem;color:#444">${ext} ${ghFormatSize(f.size)}</span>
+        </div>
+        <audio controls preload="none" src="${esc(rawUrl)}" style="height:32px;max-width:320px"></audio>
+        <button class="ab-sound-dl" onclick="event.stopPropagation();triggerDl('${esc(rawUrl)}','${esc(f.name)}')" title="Download">↓</button>
+      </div>`;
+    }
+    html+=`</div>`;
+  }
+  if(!folders.length && !files.length){
+    html+=`<div class="ab-empty">${q?'No sounds match "'+esc(q)+'"':'No sound files in this folder'}</div>`;
+  }
+  // Status
+  html+=`<div class="ab-status-bar"><span>${folders.length} folder${folders.length!==1?'s':''} · ${files.length} file${files.length!==1?'s':''}</span></div>`;
+  html+=`</div>`;
+  area.innerHTML=html;
+  document.getElementById('resultCount').textContent=files.length+' sound'+(files.length!==1?'s':'');
+  document.getElementById('dlBar').style.display='none';
+}
+
+async function sbScan(){
+  clearLog(); log('Scanning repository…','info');
+  const tree=await ghFetchTree(true);
+  if(!tree){ log('✗ '+(_gh.error||'Failed to fetch tree'),'err'); sbRenderView(); return; }
+  // Count sounds
+  let count=0;
+  for(const item of tree) if(item.type==='blob' && item.path.startsWith('SOUNDS/') && sbIsSound(item.path)) count++;
+  log(`✓ Found ${count} sound file${count!==1?'s':''} in SOUNDS/`,'ok');
+  _sb.currentPath='SOUNDS'; _sb.searchQuery='';
+  sbRenderView();
+}
+
+const ToolSoundBrowser={
+  meta:{
+    id:'soundbrowser',label:'Sound Browser',small:'browse & preview game SFX',
+    icon:'🔊',needsMagick:false,batchMode:false,isBrowser:true,
+    desc:'Browse all sound effects and music from your GitHub asset repository. Organise files under <code>SOUNDS/</code> with subfolders per game (e.g. <code>SOUNDS/GameName/SFX/</code>). Supports WAV, MP3, OGG, FLAC and more.'
+  },
+  settingsHTML(){
+    return ghRepoSettingsHTML()+`
+    <div class="field">
+      <label>Root folder</label>
+      <input type="text" id="sb-root" value="SOUNDS" placeholder="SOUNDS" disabled
+        style="opacity:.6;cursor:not-allowed">
+      <span style="font-family:var(--font-mono);font-size:.58rem;color:#555;margin-top:.15rem;display:block">
+        Put your audio files under <code>SOUNDS/</code> in the repo — subfolders for each game, then SFX / MUSIC inside.
+      </span>
+    </div>`;
+  },
+  outName(){ return ''; },
+  async run(){ await sbScan(); }
+};
+</script>
+
+<!-- ═══ tools/artbrowser.js ═══ -->
+<script>
+const _ab = { currentPath:'ART', searchQuery:'' };
+const IMG_EXTS=/\.(png|jpg|jpeg|webp|gif|svg|bmp|tga|psd|tiff|tif|ico)$/i;
+const IMG_PREVIEWABLE=/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i;
+
+function abIsImage(path){ return IMG_EXTS.test(path); }
+function abCanPreview(path){ return IMG_PREVIEWABLE.test(path); }
+
+function abRenderBreadcrumb(path){
+  const parts=path.split('/').filter(Boolean);
+  let html='', built='';
+  for(let i=0;i<parts.length;i++){
+    built+=(i?'/':'')+parts[i];
+    const p=built;
+    if(i<parts.length-1){
+      html+=`<span class="ab-crumb" onclick="abNavigate('${esc(p)}')">${esc(parts[i])}</span><span class="ab-crumb-sep">/</span>`;
+    } else {
+      html+=`<span class="ab-crumb ab-crumb-current">${esc(parts[i])}</span>`;
+    }
+  }
+  return html;
+}
+
+function abNavigate(path){
+  _ab.currentPath=path;
+  abRenderView();
+}
+
+function abOpenLightbox(rawUrl, name){
+  const existing=document.querySelector('.ab-lightbox');
+  if(existing) existing.remove();
+  const lb=document.createElement('div');
+  lb.className='ab-lightbox';
+  lb.onclick=()=>lb.remove();
+  lb.innerHTML=`<img src="${rawUrl}" alt="${esc(name)}">`;
+  const info=document.createElement('div');
+  info.className='ab-lightbox-info';
+  info.innerHTML=`<span>${esc(name)}</span><button class="ab-sound-dl" onclick="event.stopPropagation();triggerDl('${esc(rawUrl)}','${esc(name)}')" style="font-size:.62rem">↓ Download</button>`;
+  lb.appendChild(info);
+  document.body.appendChild(lb);
+  // ESC to close
+  const escHandler=(e)=>{ if(e.key==='Escape'){lb.remove();document.removeEventListener('keydown',escHandler);} };
+  document.addEventListener('keydown',escHandler);
+}
+
+function abRenderView(){
+  const area=document.getElementById('resultsArea');
+  if(!_gh.tree){ area.innerHTML='<div class="ab-empty">Click SCAN REPOSITORY to load the file tree</div>'; return; }
+
+  const listing=ghListDir(_ab.currentPath, _gh.tree, abIsImage);
+  const q=_ab.searchQuery.toLowerCase();
+  let files=listing.files;
+  let folders=listing.folders;
+  if(q){
+    files=[];
+    for(const item of _gh.tree){
+      if(item.type==='blob' && item.path.startsWith('ART/') && abIsImage(item.path) && item.path.toLowerCase().includes(q)){
+        files.push({name:item.path.split('/').pop(), path:item.path, size:item.size||0, fullPath:item.path});
+      }
+    }
+    folders=[];
+  }
+
+  let html=`<div style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">`;
+  // Search
+  html+=`<input class="ab-search" type="text" placeholder="Search all images…" value="${esc(_ab.searchQuery)}"
+    oninput="_ab.searchQuery=this.value;abRenderView()" onfocus="this.select()">`;
+  // Breadcrumb
+  if(!q) html+=`<div class="ab-breadcrumb">${abRenderBreadcrumb(_ab.currentPath)}</div>`;
+  // Folders
+  if(folders.length){
+    html+=`<div class="ab-grid folders">`;
+    for(const f of folders){
+      html+=`<div class="ab-folder-card" onclick="abNavigate('${esc(f.path)}')">
+        <span class="folder-icon">📁</span>
+        <span class="folder-label">${esc(f.name)}</span>
+        <span class="folder-count">${f.count} file${f.count!==1?'s':''}</span>
+      </div>`;
+    }
+    html+=`</div>`;
+  }
+  // Files
+  if(files.length){
+    html+=`<div class="ab-grid images">`;
+    for(const f of files){
+      const rawUrl=ghRawUrl(f.path);
+      const canPrev=abCanPreview(f.name);
+      const displayName=q&&f.fullPath?f.fullPath.replace(/^ART\//,''):f.name;
+      const ext=f.name.split('.').pop().toUpperCase();
+      if(canPrev){
+        html+=`<div class="ab-image-card" onclick="abOpenLightbox('${esc(rawUrl)}','${esc(f.name)}')" title="${esc(f.path)}">
+          <img src="${esc(rawUrl)}" alt="${esc(f.name)}" loading="lazy" onerror="this.style.display='none'">
+          <div class="img-label">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(displayName)}">${esc(displayName)}</span>
+            <span class="dl-icon" onclick="event.stopPropagation();triggerDl('${esc(rawUrl)}','${esc(f.name)}')" title="Download">↓</span>
+          </div>
+        </div>`;
+      } else {
+        // Non-previewable image format (PSD, TGA, etc)
+        html+=`<div class="ab-image-card" onclick="triggerDl('${esc(rawUrl)}','${esc(f.name)}')" title="${esc(f.path)}">
+          <div style="width:100%;height:110px;background:#0a0a0a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.3rem">
+            <span style="font-size:1.4rem;opacity:.25">🖼️</span>
+            <span style="font-family:var(--font-mono);font-size:.55rem;color:#444">${ext}</span>
+          </div>
+          <div class="img-label">
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(displayName)}">${esc(displayName)}</span>
+            <span style="font-size:.55rem;color:#555">${ghFormatSize(f.size)}</span>
+          </div>
+        </div>`;
+      }
+    }
+    html+=`</div>`;
+  }
+  if(!folders.length && !files.length){
+    html+=`<div class="ab-empty">${q?'No images match "'+esc(q)+'"':'No image files in this folder'}</div>`;
+  }
+  // Status
+  html+=`<div class="ab-status-bar"><span>${folders.length} folder${folders.length!==1?'s':''} · ${files.length} file${files.length!==1?'s':''}</span></div>`;
+  html+=`</div>`;
+  area.innerHTML=html;
+  document.getElementById('resultCount').textContent=files.length+' image'+(files.length!==1?'s':'');
+  document.getElementById('dlBar').style.display='none';
+}
+
+async function abScan(){
+  clearLog(); log('Scanning repository…','info');
+  const tree=await ghFetchTree(true);
+  if(!tree){ log('✗ '+(_gh.error||'Failed to fetch tree'),'err'); abRenderView(); return; }
+  let count=0;
+  for(const item of tree) if(item.type==='blob' && item.path.startsWith('ART/') && abIsImage(item.path)) count++;
+  log(`✓ Found ${count} image file${count!==1?'s':''} in ART/`,'ok');
+  _ab.currentPath='ART'; _ab.searchQuery='';
+  abRenderView();
+}
+
+const ToolArtBrowser={
+  meta:{
+    id:'artbrowser',label:'Art Browser',small:'browse & preview game art',
+    icon:'🎨',needsMagick:false,batchMode:false,isBrowser:true,
+    desc:'Browse all game art from your GitHub asset repository. Organise files under <code>ART/</code> with subfolders per game. Supports PNG, JPG, WebP, GIF, SVG and more. Click an image to view full-size; non-previewable formats (PSD, TGA) show a download card.'
+  },
+  settingsHTML(){
+    return ghRepoSettingsHTML()+`
+    <div class="field">
+      <label>Root folder</label>
+      <input type="text" id="ab-root" value="ART" placeholder="ART" disabled
+        style="opacity:.6;cursor:not-allowed">
+      <span style="font-family:var(--font-mono);font-size:.58rem;color:#555;margin-top:.15rem;display:block">
+        Put your images under <code>ART/</code> in the repo — subfolders for each game / category.
+      </span>
+    </div>`;
+  },
+  outName(){ return ''; },
+  async run(){ await abScan(); }
+};
+</script>
+
 <!-- ═══ app.js ═══ -->
 <script>
-const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines];
+const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines,ToolSoundBrowser,ToolArtBrowser];
 
 /* Build UI */
 (function(){
@@ -2218,9 +2657,14 @@ function switchTool(id){
     runBtn.disabled=false; runBtn.innerHTML='🎰 BUILD MACHINE';
   } else if(id==='paylines'){
     runBtn.disabled=false; runBtn.innerHTML='⊞ BUILD PAYLINES';
+  } else if(id==='soundbrowser'){
+    runBtn.disabled=false; runBtn.innerHTML='🔊 SCAN REPOSITORY';
+  } else if(id==='artbrowser'){
+    runBtn.disabled=false; runBtn.innerHTML='🎨 SCAN REPOSITORY';
   } else {
     runBtn.innerHTML='&#9654; RUN'; updateRunBtn();
   }
+  emit('toolSwitched');
 }
 
 /* File drop */
@@ -2237,13 +2681,13 @@ function addFiles(files){
   for(const f of files){ if(state.inputFiles.find(x=>x.name===f.name)) continue; state.inputFiles.push({name:f.name,file:f,url:URL.createObjectURL(f)}); }
   renderFileList(); updateRunBtn();
   // If font preview or slot machine active, re-enable run immediately
-  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine'||state.currentTool==='paylines') document.getElementById('runBtn').disabled=false;
+  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine'||state.currentTool==='paylines'||state.currentTool==='soundbrowser'||state.currentTool==='artbrowser') document.getElementById('runBtn').disabled=false;
 }
 function removeFile(name){
   const idx=state.inputFiles.findIndex(x=>x.name===name);
   if(idx!==-1){URL.revokeObjectURL(state.inputFiles[idx].url);state.inputFiles.splice(idx,1);}
   renderFileList(); updateRunBtn();
-  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine'||state.currentTool==='paylines') document.getElementById('runBtn').disabled=false;
+  if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine'||state.currentTool==='paylines'||state.currentTool==='soundbrowser'||state.currentTool==='artbrowser') document.getElementById('runBtn').disabled=false;
 }
 
 document.getElementById('clearBtn').addEventListener('click',clearResults);
@@ -2257,6 +2701,9 @@ document.getElementById('runBtn').addEventListener('click',async()=>{
 
   // Paylines: delegate entirely to plLaunch
   if(tool?.meta.isPaylines){ clearLog(); await tool.run(); return; }
+
+  // Browser tools: delegate to scan
+  if(tool?.meta.isBrowser){ clearLog(); await tool.run(); return; }
 
   // Font preview doesn't need input files to start
   if(state.currentTool!=='fontpreview' && !state.inputFiles.length) return;
