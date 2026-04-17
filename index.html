@@ -158,6 +158,67 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .gm-color-hex{font-family:var(--font-mono);font-size:.72rem;color:var(--muted)}
 .gm-preset-btn{font-family:var(--font-mono);font-size:.6rem;padding:.25rem .55rem;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:all .12s}
 .gm-preset-btn:hover{border-color:var(--accent2);color:var(--accent2)}
+
+/* ═══ Asset Browser Styles ═══ */
+.ab-breadcrumb{display:flex;align-items:center;gap:.15rem;flex-wrap:wrap;font-family:var(--font-mono);font-size:.68rem;padding:.5rem .75rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;min-height:32px}
+.ab-crumb{color:var(--accent2);cursor:pointer;padding:.1rem .25rem;border-radius:2px;transition:background .12s}
+.ab-crumb:hover{background:rgba(71,200,255,.1)}
+.ab-crumb-sep{color:#333;user-select:none}
+.ab-crumb-current{color:var(--text);cursor:default}
+.ab-grid{display:grid;gap:.6rem;padding:.75rem}
+.ab-grid.folders{grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.ab-grid.images{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+.ab-grid.sounds{grid-template-columns:1fr}
+.ab-folder-card{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.6rem .75rem;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:.6rem;font-family:var(--font-mono);font-size:.72rem;color:var(--text)}
+.ab-folder-card:hover{border-color:var(--accent2);background:rgba(71,200,255,.04)}
+.ab-folder-card .folder-icon{font-size:1.15rem;flex-shrink:0}
+.ab-folder-card .folder-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.ab-folder-card .folder-count{color:#555;font-size:.6rem;flex-shrink:0}
+.ab-image-card{background:var(--surface2);border:1px solid var(--border);border-radius:6px;overflow:hidden;cursor:pointer;transition:border-color .15s;display:flex;flex-direction:column}
+.ab-image-card:hover{border-color:var(--accent2)}
+.ab-image-card img{width:100%;height:110px;object-fit:contain;background:#0a0a0a;display:block}
+.ab-image-card .img-label{padding:.3rem .5rem;font-family:var(--font-mono);font-size:.58rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:.3rem}
+.ab-image-card .img-label .dl-icon{cursor:pointer;color:#444;transition:color .12s;flex-shrink:0;font-size:.7rem}
+.ab-image-card .img-label .dl-icon:hover{color:var(--accent)}
+.ab-sound-row{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .75rem;display:grid;grid-template-columns:1fr auto auto;gap:.6rem;align-items:center;transition:border-color .15s}
+.ab-sound-row:hover{border-color:var(--accent2)}
+.ab-sound-name{font-family:var(--font-mono);font-size:.72rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ab-sound-row audio{height:32px;max-width:320px;width:100%}
+.ab-sound-dl{cursor:pointer;color:#555;font-family:var(--font-mono);font-size:.65rem;padding:.25rem .5rem;border:1px solid var(--border);border-radius:3px;transition:all .12s;background:transparent;white-space:nowrap}
+.ab-sound-dl:hover{border-color:var(--accent);color:var(--accent)}
+.ab-empty{font-family:var(--font-mono);font-size:.75rem;color:#444;text-align:center;padding:2rem}
+.ab-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:zoom-out;animation:abFadeIn .15s ease}
+.ab-lightbox img{max-width:92vw;max-height:90vh;border-radius:6px;box-shadow:0 8px 60px rgba(0,0,0,.7);object-fit:contain}
+.ab-lightbox-info{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);font-family:var(--font-mono);font-size:.72rem;color:var(--muted);background:var(--surface);border:1px solid var(--border);padding:.4rem 1rem;border-radius:4px;z-index:10000;display:flex;align-items:center;gap:.8rem}
+@keyframes abFadeIn{from{opacity:0}to{opacity:1}}
+.ab-search{background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.76rem;padding:.45rem .7rem;border-radius:4px;outline:none;width:100%;transition:border-color .15s}
+.ab-search:focus{border-color:var(--accent2)}
+.ab-search::placeholder{color:#444}
+.ab-status-bar{display:flex;align-items:center;justify-content:space-between;gap:.5rem;font-family:var(--font-mono);font-size:.6rem;color:#555;padding:.3rem .75rem;border-top:1px solid var(--border);flex-wrap:wrap}
+
+/* ═══ Category System ═══ */
+.category-tabs{display:flex;gap:.3rem;margin-bottom:.6rem}
+.category-tab{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.55rem .6rem;cursor:pointer;transition:all .15s;font-family:var(--font-mono);font-size:.7rem;color:var(--muted);text-align:center;letter-spacing:.04em;text-transform:uppercase}
+.category-tab:hover{border-color:#444;color:var(--text)}
+.category-tab.active{border-color:var(--accent);color:var(--accent);background:#1a1208}
+.category-tab .cat-icon{display:block;font-size:1rem;margin-bottom:.15rem}
+/* ═══ Content Browser Auth ═══ */
+.cb-auth-panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.2rem;display:flex;flex-direction:column;gap:.9rem}
+.cb-auth-panel .auth-title{font-family:var(--font-display);font-size:.95rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:.5rem}
+.cb-auth-panel .auth-hint{font-family:var(--font-mono);font-size:.55rem;color:#555;line-height:1.5}
+.cb-subtabs{display:flex;gap:.3rem;margin-bottom:.3rem}
+.cb-subtab{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:.45rem .5rem;cursor:pointer;transition:all .15s;font-family:var(--font-mono);font-size:.68rem;color:var(--muted);text-align:center}
+.cb-subtab:hover{border-color:#444;color:var(--text)}
+.cb-subtab.active{border-color:var(--accent2);color:var(--accent2);background:rgba(71,200,255,.06)}
+.cb-prefix-row{display:flex;gap:.4rem;align-items:center}
+.cb-prefix-row label{font-family:var(--font-mono);font-size:.58rem;color:var(--muted);white-space:nowrap;text-transform:uppercase;letter-spacing:.06em}
+.cb-prefix-row input{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.72rem;padding:.35rem .6rem;border-radius:4px;outline:none;transition:border-color .15s}
+.cb-prefix-row input:focus{border-color:var(--accent2)}
+.cb-loading-overlay{display:flex;align-items:center;gap:.5rem;font-family:var(--font-mono);font-size:.72rem;color:var(--accent2);padding:.4rem 0}
+.cb-loading-overlay .dot{width:6px;height:6px;border-radius:50%;background:var(--accent2);animation:pulse 1s infinite}
+.cb-loading-overlay{display:flex;align-items:center;gap:.6rem;font-family:var(--font-mono);font-size:.72rem;color:var(--accent2);padding:1.5rem;justify-content:center}
+.cb-spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent2);border-radius:50%;animation:cbSpin .6s linear infinite;flex-shrink:0}
+@keyframes cbSpin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -182,7 +243,8 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
         <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span> ·
         <span class="subtitle-link" onclick="switchTool('gradientmap')">gradient map</span> ·
         <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span> ·
-        <span class="subtitle-link" onclick="switchTool('outline')">outline</span>
+        <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('sounds')">sounds</span> ·
+        <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('art')">art</span>
       </span>
     </div>
   </div>
@@ -198,16 +260,40 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 
 <div class="app-layout">
   <div class="sidebar">
-    <!-- Files first, tools below -->
-    <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
-      <span class="drop-icon">📂</span>
-      drop PNG files here<br>or click to browse
+    <div class="category-tabs">
+      <button class="category-tab active" id="cat-arttools" onclick="switchCategory('arttools')">
+        <span class="cat-icon">🎨</span>Art Tools
+      </button>
+      <button class="category-tab" id="cat-contentbrowser" onclick="switchCategory('contentbrowser')">
+        <span class="cat-icon">📁</span>Content
+      </button>
     </div>
-    <input type="file" id="fileInput" accept=".png,image/png" multiple>
-    <div class="file-list" id="fileList"></div>
-    <div id="fileCount" style="font-family:var(--font-mono);font-size:.65rem;color:#555;text-align:center"></div>
-    <div class="separator"></div>
-    <div class="tool-tabs" id="toolTabs"></div>
+    <!-- Art Tools: drop zone + file list -->
+    <div id="arttools-sidebar">
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+        <span class="drop-icon">📂</span>
+        drop PNG files here<br>or click to browse
+      </div>
+      <input type="file" id="fileInput" accept=".png,image/png" multiple>
+      <div class="file-list" id="fileList"></div>
+      <div id="fileCount" style="font-family:var(--font-mono);font-size:.65rem;color:#555;text-align:center"></div>
+      <div class="separator"></div>
+      <div class="tool-tabs" id="toolTabs"></div>
+    </div>
+    <!-- Content Browser: auth + subtabs -->
+    <div id="contentbrowser-sidebar" style="display:none;flex-direction:column;gap:.6rem">
+      <div id="cb-auth-section"></div>
+      <div id="cb-subtabs-section" style="display:none">
+        <div class="cb-subtabs">
+          <button class="cb-subtab active" id="cb-tab-sounds" onclick="cbSwitchTab('sounds')">🔊 Sounds</button>
+          <button class="cb-subtab" id="cb-tab-art" onclick="cbSwitchTab('art')">🖼️ Art</button>
+        </div>
+        <div class="cb-prefix-row" style="margin-top:.3rem">
+          <label>Prefix filter</label>
+          <input type="text" id="cb-prefix" value="" placeholder="ygg-igaming" oninput="cbPrefixChanged(this.value)">
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="main-panel">
@@ -243,7 +329,17 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 
 <!-- ═══ core/state.js ═══ -->
 <script>
-const state = { magickReady:false, currentTool:'crop', inputFiles:[], outputFiles:[] };
+const state = { magickReady:false, currentTool:'crop', currentCategory:'arttools', inputFiles:[], outputFiles:[] };
+
+// ── Content Browser shared state ──────────────────────────────────────────
+const _cb = {
+  activeTab: 'sounds',    // 'sounds' | 'art' (extensible)
+  prefix: '',  // repo name prefix filter
+  currentPath: '',
+  searchQuery: '',
+  repoView: true,
+  authenticated: false,
+};
 const _EV = {};
 function on(e,fn){ (_EV[e]=_EV[e]||[]).push(fn); }
 function emit(e,d){ (_EV[e]||[]).forEach(fn=>fn(d)); }
@@ -2173,235 +2269,851 @@ const ToolGradientMap={
 on('toolSwitched',()=>{ if(state.currentTool==='gradientmap') gmInitUI(); });
 </script>
 
-<!-- ═══ tools/outline.js ═══ -->
+<!-- ═══ shared/repo-browser.js ═══ -->
 <script>
-const ToolOutline={
-  meta:{id:'outline',label:'Outline / Stroke',small:'edge-accurate contour',icon:'🔲',needsMagick:true,batchMode:false,
-    desc:'Creates a precise outline around every opaque edge of the image using morphological dilation on the alpha channel — the same technique as Photoshop\'s Stroke (Outside). Works correctly with concavities, holes, thin features and semi-transparent edges.'},
-  settingsHTML(){return`
-    <div class="field-row">
-      <div class="field">
-        <label>Outline width (px) &mdash; <span id="ol-width-val" style="color:var(--accent)">3</span></label>
-        <input type="range" id="ol-width" value="3" min="1" max="40" step="1"
-          oninput="document.getElementById('ol-width-val').textContent=this.value">
-      </div>
-      <div class="field">
-        <label>Outline colour</label>
-        <div style="display:flex;align-items:center;gap:.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.35rem .6rem;cursor:pointer;transition:border-color .15s"
-          onclick="document.getElementById('ol-color-picker').click()" id="ol-color-swatch">
-          <div id="ol-color-dot" style="width:18px;height:18px;border-radius:3px;border:1px solid rgba(255,255,255,.12);background:#ffffff;flex-shrink:0"></div>
-          <span id="ol-color-hex" style="font-family:var(--font-mono);font-size:.72rem;color:var(--muted)">#ffffff</span>
-        </div>
-        <input type="color" id="ol-color-picker" value="#ffffff" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none"
-          oninput="document.getElementById('ol-color-dot').style.background=this.value;document.getElementById('ol-color-hex').textContent=this.value">
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Outline opacity &mdash; <span id="ol-opacity-val" style="color:var(--accent)">100%</span></label>
-        <input type="range" id="ol-opacity" value="100" min="1" max="100" step="1"
-          oninput="document.getElementById('ol-opacity-val').textContent=this.value+'%'">
-      </div>
-      <div class="field">
-        <label>Position</label>
-        <select id="ol-position" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
-          <option value="outside" selected>Outside</option>
-          <option value="center">Center</option>
-          <option value="inside">Inside</option>
-        </select>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Threshold &mdash; <span id="ol-thresh-val" style="color:var(--accent)">1%</span></label>
-        <input type="range" id="ol-threshold" value="1" min="0" max="50" step="1"
-          oninput="document.getElementById('ol-thresh-val').textContent=this.value+'%'">
-        <span style="font-family:var(--font-mono);font-size:.55rem;color:#555;display:block;margin-top:.15rem">0% = soft anti-aliased edges · higher = harder cutoff</span>
-      </div>
-      <div class="field">
-        <label>Canvas handling</label>
-        <select id="ol-canvas" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
-          <option value="expand" selected>Expand canvas by outline width</option>
-          <option value="keep">Keep original canvas (outline may clip)</option>
-        </select>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Kernel shape</label>
-        <select id="ol-kernel" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
-          <option value="Disk" selected>Disk (round, smooth)</option>
-          <option value="Square">Square (blocky, fast)</option>
-          <option value="Diamond">Diamond (45° edges)</option>
-        </select>
-      </div>
-    </div>`;},
-  outName(n){return n.replace(/\.png$/i,'')+'_outline.png';},
-  async run(uint8){
-    const width    = parseInt(document.getElementById('ol-width').value)||3;
-    const color    = document.getElementById('ol-color-picker').value||'#ffffff';
-    const opacity  = parseInt(document.getElementById('ol-opacity').value)||100;
-    const position = document.getElementById('ol-position').value||'outside';
-    const canvasMode = document.getElementById('ol-canvas').value||'expand';
-    const kernel   = document.getElementById('ol-kernel').value||'Disk';
-    const threshold= parseInt(document.getElementById('ol-threshold').value);
-    const fresh    = async b=>new Uint8Array(await b.arrayBuffer());
+const _gh = {
+  provider: 'gitlab',     // 'github' | 'gitlab' — auto-detected from token
+  baseUrl: 'https://gitlab.yggdrasil.lan',
+  owner: '',
+  repo: '',
+  branch: 'main',
+  token: '',
+  tree: null,
+  treeTS: 0,
+  loading: false,
+  error: null,
+  blobCache: {},
+  repos: [],
+  reposLoaded: false,
+};
 
-    // --- Determine dilation/erosion radii based on position ---
-    let dilateR, erodeR;
-    if(position==='outside'){
-      dilateR=width; erodeR=0;
-    } else if(position==='inside'){
-      dilateR=0; erodeR=width;
-    } else { // center
-      dilateR=Math.ceil(width/2); erodeR=Math.floor(width/2);
-    }
+// ── Auto-detect provider from token format ────────────────────────────────
+function ghDetectProvider(token){
+  if(!token) return null;
+  if(token.startsWith('glpat-')) return 'gitlab';
+  if(token.startsWith('ghp_')||token.startsWith('github_pat_')) return 'github';
+  // Fallback: old GitLab tokens are 20-char alphanumeric
+  if(/^[A-Za-z0-9_-]{20}$/.test(token)) return 'gitlab';
+  return null; // unknown — keep current
+}
 
-    // --- Expand canvas if needed (outside/center) and canvasMode=expand ---
-    let workingUint8;
-    if(canvasMode==='expand' && dilateR>0){
-      const pad = dilateR;
-      const dims = await getImageDimensions(uint8);
-      const ew = dims.w + pad*2, eh = dims.h + pad*2;
-      const padCopy = uint8.slice();
-      const rPad = await window._Magick.Call(
-        [{name:'input.png',content:padCopy}],
-        ['convert','input.png','-background','transparent','-gravity','Center',
-         '-extent',`${ew}x${eh}`,'+repage','padded.png']
-      );
-      if(!rPad||!rPad.length) throw new Error('Canvas expand failed');
-      workingUint8 = await fresh(rPad[0].blob);
-    } else {
-      workingUint8 = uint8.slice();
-    }
-
-    // --- 1. Extract alpha channel ---
-    const rAlpha = await window._Magick.Call(
-      [{name:'work.png',content:workingUint8.slice()}],
-      ['convert','work.png','-alpha','extract','alpha.png']
-    );
-    if(!rAlpha||!rAlpha.length) throw new Error('Alpha extract failed');
-    const alphaBlob = rAlpha[0].blob;
-
-    // --- 2. Dilate alpha (grow outward) ---
-    let dilatedBlob;
-    if(dilateR>0){
-      const args=['convert','alpha.png','-morphology','Dilate',`${kernel}:${dilateR}`];
-      if(threshold>0) args.push('-threshold',`${threshold}%`);
-      args.push('dilated.png');
-      const rDilate = await window._Magick.Call(
-        [{name:'alpha.png',content:await fresh(alphaBlob)}], args
-      );
-      if(!rDilate||!rDilate.length) throw new Error('Dilation failed');
-      dilatedBlob = rDilate[0].blob;
-    } else {
-      dilatedBlob = alphaBlob;
-    }
-
-    // --- 3. Erode alpha (shrink inward) for inside/center ---
-    let erodedBlob;
-    if(erodeR>0){
-      const args=['convert','alpha.png','-morphology','Erode',`${kernel}:${erodeR}`];
-      if(threshold>0) args.push('-threshold',`${threshold}%`);
-      args.push('eroded.png');
-      const rErode = await window._Magick.Call(
-        [{name:'alpha.png',content:await fresh(alphaBlob)}], args
-      );
-      if(!rErode||!rErode.length) throw new Error('Erosion failed');
-      erodedBlob = rErode[0].blob;
-    } else {
-      erodedBlob = alphaBlob;
-    }
-
-    // --- 4. Outline mask = maskA * (1 - maskB) ---
-    //   Outside: dilated * (1 - original)  → ring outside shape
-    //   Inside:  original * (1 - eroded)   → ring inside shape
-    //   Center:  dilated * (1 - eroded)    → ring straddling edge
-    // Uses Multiply + Negate (universally supported, unlike -compose Minus)
-    let maskA, maskB;
-    if(position==='outside'){
-      maskA = dilatedBlob; maskB = alphaBlob;
-    } else if(position==='inside'){
-      maskA = alphaBlob; maskB = erodedBlob;
-    } else {
-      maskA = dilatedBlob; maskB = erodedBlob;
-    }
-
-    // Step 4a: negate maskB
-    const rNeg = await window._Magick.Call(
-      [{name:'b.png',content:await fresh(maskB)}],
-      ['convert','b.png','-negate','b_neg.png']
-    );
-    if(!rNeg||!rNeg.length) throw new Error('Negate failed');
-    const negBlob = rNeg[0].blob;
-
-    // Step 4b: multiply maskA * negated maskB → outline ring
-    const rMask = await window._Magick.Call(
-      [{name:'a.png',content:await fresh(maskA)},{name:'b_neg.png',content:await fresh(negBlob)}],
-      ['convert','a.png','b_neg.png','-compose','Multiply','-composite','outline_mask.png']
-    );
-    if(!rMask||!rMask.length) throw new Error('Outline mask failed');
-    let outlineMaskBlob = rMask[0].blob;
-
-    // --- 5. Apply opacity to mask if < 100 ---
-    if(opacity<100){
-      const opFrac = (opacity/100).toFixed(4);
-      const rOp = await window._Magick.Call(
-        [{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
-        ['convert','outline_mask.png','-evaluate','Multiply',opFrac,'outline_mask_op.png']
-      );
-      if(!rOp||!rOp.length) throw new Error('Opacity multiply failed');
-      outlineMaskBlob = rOp[0].blob;
-    }
-
-    // --- 6. Create solid-colour outline layer with mask as alpha ---
-    const rColor = await window._Magick.Call(
-      [{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
-      ['convert','outline_mask.png','-fill',color,'-colorize','100','colored.png']
-    );
-    if(!rColor||!rColor.length) throw new Error('Colorize failed');
-    const coloredBlob = rColor[0].blob;
-
-    // Re-apply the outline mask as alpha onto the colored layer
-    const rApplyMask = await window._Magick.Call(
-      [{name:'colored.png',content:await fresh(coloredBlob)},{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
-      ['convert','colored.png','outline_mask.png','-alpha','copy','-compose','CopyOpacity','-composite','outline_layer.png']
-    );
-    if(!rApplyMask||!rApplyMask.length) throw new Error('Outline layer composite failed');
-    const outlineLayerBlob = rApplyMask[0].blob;
-
-    // --- 7. Composite: outline layer UNDER original ---
-    const rFinal = await window._Magick.Call(
-      [{name:'outline_layer.png',content:await fresh(outlineLayerBlob)},{name:'work.png',content:workingUint8.slice()}],
-      ['convert','outline_layer.png','work.png','-compose','Over','-composite','output.png']
-    );
-    if(!rFinal||!rFinal.length) throw new Error('Final composite failed');
-    return rFinal[0].blob;
+// ── Provider-aware API helpers ──────────────────────────────────────────────
+function ghApiBase(){
+  if(_gh.provider==='gitlab'){
+    const base=(_gh.baseUrl||'https://gitlab.yggdrasil.lan').replace(/\/$/,'');
+    const projId=encodeURIComponent(_gh.owner+'/'+_gh.repo);
+    return {base, projId, root:`${base}/api/v4/projects/${projId}`};
   }
+  return {base:'https://api.github.com', root:`https://api.github.com/repos/${encodeURIComponent(_gh.owner)}/${encodeURIComponent(_gh.repo)}`};
+}
+function ghAuthHeaders(){
+  const h={};
+  if(!_gh.token) return h;
+  if(_gh.provider==='gitlab') h['PRIVATE-TOKEN']=_gh.token;
+  else h['Authorization']='Bearer '+_gh.token;
+  return h;
+}
+function ghIsPrivate(){ return !!_gh.token; }
+
+// ── Fetch list of repos (with optional server-side search) ────────────────
+async function ghFetchRepos(searchPrefix){
+  if(!_gh.token){ _gh.error='Enter an access token first'; return null; }
+  _gh.loading=true; _gh.error=null;
+  try{
+    let repos;
+    if(_gh.provider==='gitlab') repos=await _ghFetchReposGitLab(searchPrefix);
+    else repos=await _ghFetchReposGitHub(searchPrefix);
+    _gh.repos=repos;
+    _gh.reposLoaded=true;
+    ghSaveConfig();
+    return repos;
+  }catch(e){
+    _gh.error=e.message; return null;
+  }finally{ _gh.loading=false; }
+}
+
+async function _ghFetchReposGitHub(searchPrefix){
+  const all=[]; let page=1;
+  while(true){
+    const resp=await fetch(`https://api.github.com/user/repos?per_page=100&sort=updated&page=${page}`,
+      {headers:{'Accept':'application/vnd.github+json',...ghAuthHeaders()}});
+    if(!resp.ok){
+      if(resp.status===401) throw new Error('Bad token — check your GitHub PAT');
+      throw new Error('GitHub API '+resp.status);
+    }
+    const data=await resp.json();
+    if(!data.length) break;
+    for(const r of data) all.push({
+      owner:r.owner.login, name:r.name, fullName:r.full_name,
+      description:r.description||'', updatedAt:r.updated_at,
+      defaultBranch:r.default_branch||'main', isPrivate:r.private
+    });
+    if(data.length<100) break;
+    page++;
+  }
+  // Client-side prefix filter for GitHub
+  if(searchPrefix) return all.filter(r=>r.name.startsWith(searchPrefix)||r.fullName.includes(searchPrefix));
+  return all;
+}
+
+async function _ghFetchReposGitLab(searchPrefix){
+  const base=(_gh.baseUrl||'https://gitlab.yggdrasil.lan').replace(/\/$/,'');
+  const all=[]; let page=1;
+  // Use server-side search param if prefix provided → much faster
+  const searchParam=searchPrefix?`&search=${encodeURIComponent(searchPrefix)}`:'';
+  while(true){
+    const resp=await fetch(`${base}/api/v4/projects?membership=true&min_access_level=10&per_page=100&order_by=last_activity_at${searchParam}&page=${page}`,
+      {headers:ghAuthHeaders()});
+    if(!resp.ok){
+      let body=''; try{ body=(await resp.text()).slice(0,200); }catch(e){}
+      if(resp.status===401) throw new Error('401 Unauthorized — token rejected. '+(body||'Check token copied fully and hasn\'t expired.'));
+      if(resp.status===403) throw new Error('403 Forbidden — need "read_api" or "api" scope. '+body);
+      if(resp.status===404) throw new Error('404 — check GitLab URL. Got: '+base);
+      if(resp.status===0||!resp.status) throw new Error('Network/CORS error reaching '+base);
+      throw new Error('GitLab API '+resp.status+(body?': '+body:''));
+    }
+    const data=await resp.json();
+    if(!data.length) break;
+    for(const r of data) all.push({
+      owner:r.namespace?.full_path||'', name:r.path, fullName:r.path_with_namespace,
+      description:r.description||'', updatedAt:r.last_activity_at,
+      defaultBranch:r.default_branch||'main', isPrivate:r.visibility!=='public'
+    });
+    if(data.length<100) break;
+    page++;
+  }
+  // Additional client-side startsWith filter (server search is fuzzy)
+  if(searchPrefix) return all.filter(r=>r.name.startsWith(searchPrefix));
+  return all;
+}
+
+// ── Select a repo and fetch its tree ────────────────────────────────────────
+async function ghSelectRepo(owner, repo, branch){
+  _gh.owner=owner; _gh.repo=repo; _gh.branch=branch||'main';
+  _gh.tree=null; _gh.treeTS=0; _gh.blobCache={};
+  return ghFetchTree(true);
+}
+
+// ── Fetch tree ──────────────────────────────────────────────────────────────
+async function ghFetchTree(force){
+  const owner=_gh.owner, repo=_gh.repo, branch=_gh.branch||'main';
+  if(!owner||!repo){ _gh.error='No repo selected'; return null; }
+  const cacheKey=`${_gh.provider}|${_gh.baseUrl}|${owner}|${repo}|${branch}`;
+  if(!force && _gh.tree && (Date.now()-_gh.treeTS)<300000 && _gh._cacheKey===cacheKey) return _gh.tree;
+  _gh.loading=true; _gh.error=null;
+  try{
+    let tree;
+    if(_gh.provider==='gitlab') tree=await _ghFetchTreeGitLab(branch);
+    else tree=await _ghFetchTreeGitHub(branch);
+    _gh.tree=tree; _gh.treeTS=Date.now(); _gh._cacheKey=cacheKey; _gh.blobCache={};
+    return _gh.tree;
+  }catch(e){ _gh.error=e.message; return null; }
+  finally{ _gh.loading=false; }
+}
+
+async function _ghFetchTreeGitHub(branch){
+  const api=ghApiBase();
+  const resp=await fetch(`${api.root}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+    {headers:{'Accept':'application/vnd.github+json',...ghAuthHeaders()}});
+  if(!resp.ok){
+    if(resp.status===404) throw new Error('Repo or branch not found');
+    if(resp.status===401) throw new Error('Bad token');
+    throw new Error('GitHub API '+resp.status);
+  }
+  return ((await resp.json()).tree||[]).map(i=>({path:i.path, type:i.type==='tree'?'tree':'blob', size:i.size||0}));
+}
+
+async function _ghFetchTreeGitLab(branch){
+  const api=ghApiBase();
+  let page=1, all=[];
+  while(true){
+    const resp=await fetch(`${api.root}/repository/tree?ref=${encodeURIComponent(branch)}&recursive=true&per_page=100&page=${page}`,
+      {headers:ghAuthHeaders()});
+    if(!resp.ok){
+      if(resp.status===404) throw new Error('Project or branch not found');
+      if(resp.status===401) throw new Error('Bad token');
+      throw new Error('GitLab API '+resp.status);
+    }
+    const items=await resp.json();
+    if(!items.length) break;
+    all=all.concat(items);
+    const np=resp.headers.get('x-next-page');
+    if(!np||np===''||parseInt(np)<=page) break;
+    page=parseInt(np);
+  }
+  return all.map(i=>({path:i.path, type:i.type==='tree'?'tree':'blob', size:0}));
+}
+
+// ── Save / Load config ─────────────────────────────────────────────────────
+function ghSaveConfig(){
+  try{ localStorage.setItem('ygg_gh_config',JSON.stringify({
+    provider:_gh.provider, baseUrl:_gh.baseUrl, token:_gh.token, prefix:_cb.prefix
+  })); }catch(e){}
+}
+
+try{
+  const saved=JSON.parse(localStorage.getItem('ygg_gh_config')||'{}');
+  if(saved.provider) _gh.provider=saved.provider;
+  if(saved.baseUrl)  _gh.baseUrl=saved.baseUrl;
+  if(saved.token)    _gh.token=saved.token;
+  if(saved.prefix)   _cb.prefix=saved.prefix;
+}catch(e){}
+
+// ── URL param: ?pat=TOKEN&prefix=xxx&url=xxx ────────────────────────────────
+(function(){
+  const params=new URLSearchParams(window.location.search);
+  const pat=params.get('pat');
+  if(pat){
+    _gh.token=pat;
+    const detected=ghDetectProvider(pat);
+    if(detected) _gh.provider=detected;
+    const url=params.get('url');
+    if(url) _gh.baseUrl=url;
+    const pfx=params.get('prefix');
+    if(pfx) _cb.prefix=pfx;
+    ghSaveConfig();
+    // Auto-scan on load (deferred to after DOM ready)
+    window._cbAutoScan=true;
+  }
+})();
+
+// ── Directory listing ───────────────────────────────────────────────────────
+function ghListDir(prefix, tree, typeFilter){
+  if(!tree) return {folders:[],files:[]};
+  const norm = prefix ? prefix.replace(/\/$/,'')+'/' : '';
+  const folders=new Set(), files=[];
+  for(const item of tree){
+    if(norm && !item.path.startsWith(norm)) continue;
+    if(!norm && item.type==='blob' && !item.path.includes('/') && (!typeFilter||typeFilter(item.path))){
+      files.push({name:item.path, path:item.path, size:item.size||0}); continue;
+    }
+    if(!norm && item.path.includes('/')){ folders.add(item.path.split('/')[0]); continue; }
+    const rest=item.path.slice(norm.length);
+    if(!rest) continue;
+    const si=rest.indexOf('/');
+    if(si!==-1) folders.add(rest.slice(0,si));
+    else if(item.type==='blob' && (!typeFilter||typeFilter(item.path)))
+      files.push({name:rest, path:item.path, size:item.size||0});
+  }
+  const folderList=[];
+  for(const name of [...folders].sort()){
+    const fp=(norm||'')+name+'/';
+    let count=0;
+    for(const item of tree)
+      if(item.type==='blob' && item.path.startsWith(fp) && (!typeFilter||typeFilter(item.path))) count++;
+    if(count>0) folderList.push({name, path:(norm||'')+name, count});
+  }
+  files.sort((a,b)=>a.name.localeCompare(b.name));
+  return {folders:folderList, files};
+}
+
+function ghCollapseFolders(folders, tree, typeFilter){
+  return folders.map(f=>{
+    let path=f.path, name=f.name;
+    while(true){
+      const sub=ghListDir(path, tree, typeFilter);
+      if(sub.folders.length===1 && sub.files.length===0){
+        path=sub.folders[0].path; name+='/'+sub.folders[0].name;
+      } else break;
+    }
+    return {name, path, count:f.count};
+  });
+}
+
+// ── File URLs ───────────────────────────────────────────────────────────────
+function ghRawUrl(path){
+  if(_gh.provider==='gitlab'){
+    const api=ghApiBase();
+    return `${api.root}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(_gh.branch||'main')}`;
+  }
+  return `https://raw.githubusercontent.com/${encodeURIComponent(_gh.owner)}/${encodeURIComponent(_gh.repo)}/${encodeURIComponent(_gh.branch||'main')}/${path}`;
+}
+
+async function ghAuthBlobUrl(path){
+  if(_gh.blobCache[path]) return _gh.blobCache[path];
+  let url, headers;
+  if(_gh.provider==='gitlab'){
+    const api=ghApiBase();
+    url=`${api.root}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(_gh.branch||'main')}`;
+    headers=ghAuthHeaders();
+  } else {
+    url=`https://api.github.com/repos/${encodeURIComponent(_gh.owner)}/${encodeURIComponent(_gh.repo)}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(_gh.branch||'main')}`;
+    headers={...ghAuthHeaders(), 'Accept':'application/vnd.github.raw'};
+  }
+  const resp=await fetch(url,{headers});
+  if(!resp.ok) throw new Error('Failed to fetch '+path+': '+resp.status);
+  const blob=await resp.blob();
+  const blobUrl=URL.createObjectURL(blob);
+  _gh.blobCache[path]=blobUrl;
+  return blobUrl;
+}
+
+function ghFormatSize(bytes){
+  if(!bytes) return '';
+  if(bytes<1024) return bytes+'B';
+  if(bytes<1048576) return (bytes/1024).toFixed(0)+'KB';
+  return (bytes/1048576).toFixed(1)+'MB';
+}
+
+function ghTimeAgo(iso){
+  const ms=Date.now()-new Date(iso).getTime();
+  const days=Math.floor(ms/86400000);
+  if(days<1) return 'today';
+  if(days===1) return 'yesterday';
+  if(days<30) return days+'d ago';
+  if(days<365) return Math.floor(days/30)+'mo ago';
+  return Math.floor(days/365)+'y ago';
+}
+
+// ── Strip prefix from display name ──────────────────────────────────────────
+function cbStripPrefix(name){
+  const pfx=_cb.prefix;
+  if(!pfx) return name;
+  // Strip prefix + optional separator (-, _, .)
+  if(name.startsWith(pfx)){
+    let rest=name.slice(pfx.length);
+    if(rest.startsWith('-')||rest.startsWith('_')||rest.startsWith('.')) rest=rest.slice(1);
+    return rest||name;
+  }
+  return name;
+}
+
+// ── Render repo list (shared, prefix-aware) ─────────────────────────────────
+function ghRenderRepoList(repos, onSelectName, searchId){
+  const q=(document.getElementById(searchId)?.value||'').toLowerCase();
+  const filtered=q?repos.filter(r=>{
+    const display=cbStripPrefix(r.name);
+    return (display+' '+r.fullName+' '+r.description).toLowerCase().includes(q);
+  }):repos;
+  let html=`<div style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">`;
+  html+=`<input class="ab-search" type="text" id="${searchId}" placeholder="Search repos…" value="${esc(q)}"
+    oninput="${onSelectName}FilterRepos()">`;
+  if(filtered.length){
+    html+=`<div class="ab-grid folders">`;
+    for(const r of filtered){
+      const age=r.updatedAt?ghTimeAgo(r.updatedAt):'';
+      const displayName=cbStripPrefix(r.name);
+      html+=`<div class="ab-folder-card" onclick="${onSelectName}('${esc(r.owner).replace(/'/g,"\\'")}','${esc(r.name).replace(/'/g,"\\'")}','${esc(r.defaultBranch||'main')}')"
+        style="flex-direction:column;align-items:flex-start;gap:.25rem">
+        <div style="display:flex;align-items:center;gap:.5rem;width:100%">
+          <span class="folder-icon">${r.isPrivate?'🔒':'📦'}</span>
+          <span class="folder-label" style="font-weight:500">${esc(displayName)}</span>
+        </div>
+        ${r.description?`<span style="font-family:var(--font-mono);font-size:.55rem;color:#555;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">${esc(r.description)}</span>`:''}
+        ${age?`<span style="font-family:var(--font-mono);font-size:.5rem;color:#333">${age}</span>`:''}
+      </div>`;
+    }
+    html+=`</div>`;
+  } else {
+    html+=`<div class="ab-empty">${q?'No repos match "'+esc(q)+'"':'No repos found'}</div>`;
+  }
+  html+=`<div class="ab-status-bar"><span>${filtered.length} of ${repos.length} repo${repos.length!==1?'s':''}</span></div></div>`;
+  return html;
+}
+
+// ── Category switching ──────────────────────────────────────────────────────
+function switchCategory(cat){
+  state.currentCategory=cat;
+  document.querySelectorAll('.category-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('cat-'+cat)?.classList.add('active');
+  const artSidebar=document.getElementById('arttools-sidebar');
+  const cbSidebar=document.getElementById('contentbrowser-sidebar');
+  if(cat==='arttools'){
+    artSidebar.style.display='';
+    cbSidebar.style.display='none';
+    // Restore last art tool
+    if(!TOOLS.find(t=>t.meta.id===state.currentTool)||state.currentTool==='soundbrowser'||state.currentTool==='artbrowser'){
+      switchTool('crop');
+    } else {
+      switchTool(state.currentTool);
+    }
+  } else {
+    artSidebar.style.display='none';
+    cbSidebar.style.display='flex';
+    cbRenderAuth();
+    if(_cb.authenticated){
+      cbSwitchTab(_cb.activeTab);
+    }
+  }
+}
+
+// ── Auth panel rendering ────────────────────────────────────────────────────
+function cbRenderAuth(){
+  const section=document.getElementById('cb-auth-section');
+  const subtabs=document.getElementById('cb-subtabs-section');
+  if(_gh.token && !_cb.authenticated){
+    // Token exists (from localStorage or URL) — try to authenticate
+    _cb.authenticated=true;
+  }
+  if(_cb.authenticated && _gh.token){
+    // Show compact connected indicator + GitLab URL if gitlab
+    const isGL=_gh.provider==='gitlab';
+    section.innerHTML=`
+      <div class="cb-auth-panel" style="padding:.7rem .9rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+          <span style="font-family:var(--font-mono);font-size:.65rem;color:#4cff88;display:flex;align-items:center;gap:.4rem">
+            <span style="width:6px;height:6px;border-radius:50%;background:#4cff88;flex-shrink:0"></span>
+            Connected — ${_gh.provider}
+          </span>
+          <button class="btn" onclick="cbDisconnect()" style="font-size:.55rem;padding:.2rem .5rem;color:var(--accent3);border-color:rgba(255,107,71,.3)">Disconnect</button>
+        </div>
+        ${isGL?`<div class="field" style="margin-top:.4rem">
+          <label style="font-family:var(--font-mono);font-size:.55rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">GitLab URL</label>
+          <input type="text" value="${esc(_gh.baseUrl)}" placeholder="https://gitlab.yggdrasil.lan"
+            oninput="_gh.baseUrl=this.value.trim();ghSaveConfig()"
+            style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.72rem;padding:.35rem .6rem;border-radius:4px;outline:none;width:100%">
+        </div>`:''}
+      </div>`;
+    subtabs.style.display='';
+    const pfxInput=document.getElementById('cb-prefix');
+    if(pfxInput) pfxInput.value=_cb.prefix;
+    return;
+  }
+  // Show login form
+  subtabs.style.display='none';
+  section.innerHTML=`
+    <div class="cb-auth-panel">
+      <div class="auth-title">🔑 Connect to Git</div>
+      <div class="field">
+        <label>Access Token</label>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <input type="password" id="cb-token-input" value="" placeholder="glpat-… or ghp_…"
+            style="flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.76rem;padding:.5rem .7rem;border-radius:4px;outline:none">
+          <button class="btn" onclick="document.getElementById('cb-token-input').type=document.getElementById('cb-token-input').type==='password'?'text':'password'"
+            style="font-size:.58rem;padding:.35rem .5rem;white-space:nowrap">&#128065;</button>
+        </div>
+      </div>
+      <div id="cb-gitlab-url-row">
+        <div class="field">
+          <label>GitLab URL</label>
+          <input type="text" id="cb-baseurl-input" value="${esc(_gh.baseUrl)}" placeholder="https://gitlab.yggdrasil.lan">
+        </div>
+      </div>
+      <div class="auth-hint">
+        Paste a token — provider is auto-detected.<br>
+        <code>glpat-…</code> → GitLab &nbsp;|&nbsp; <code>ghp_…</code> → GitHub<br>
+        Scope: <code>read_api</code> (GitLab) or <code>Contents: Read-only</code> (GitHub)
+      </div>
+      <button class="btn btn-primary" onclick="cbConnect()" style="align-self:stretch">→ Connect</button>
+    </div>`;
+  // Live detect provider on input
+  const inp=document.getElementById('cb-token-input');
+  if(inp){
+    inp.addEventListener('input',()=>{
+      const v=inp.value.trim();
+      const det=ghDetectProvider(v);
+      const urlRow=document.getElementById('cb-gitlab-url-row');
+      if(det==='gitlab'&&urlRow) urlRow.style.display='block';
+      else if(det==='github'&&urlRow) urlRow.style.display='none';
+    });
+  }
+}
+
+function cbConnect(){
+  const inp=document.getElementById('cb-token-input');
+  if(!inp) return;
+  const token=inp.value.trim();
+  if(!token){ alert('Please enter a token'); return; }
+  const detected=ghDetectProvider(token);
+  if(detected) _gh.provider=detected;
+  _gh.token=token;
+  if(_gh.provider==='gitlab'){
+    const urlInp=document.getElementById('cb-baseurl-input');
+    if(urlInp&&urlInp.value.trim()) _gh.baseUrl=urlInp.value.trim();
+  }
+  _cb.authenticated=true;
+  ghSaveConfig();
+  cbRenderAuth();
+  cbSwitchTab(_cb.activeTab);
+  // Auto-scan repos
+  cbScanRepos();
+}
+
+function cbDisconnect(){
+  _gh.token=''; _cb.authenticated=false;
+  _gh.repos=[]; _gh.reposLoaded=false; _gh.tree=null;
+  ghSaveConfig();
+  cbRenderAuth();
+  const area=document.getElementById('resultsArea');
+  area.innerHTML='<div class="empty-state">connect to browse content</div>';
+  document.getElementById('resultCount').textContent='';
+}
+
+// ── Content browser tab switching ───────────────────────────────────────────
+function cbSwitchTab(tab){
+  _cb.activeTab=tab;
+  document.querySelectorAll('.cb-subtab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('cb-tab-'+tab)?.classList.add('active');
+  // Switch the main panel tool
+  if(tab==='sounds') switchTool('soundbrowser');
+  else if(tab==='art') switchTool('artbrowser');
+}
+
+function cbPrefixChanged(val){
+  _cb.prefix=val;
+  ghSaveConfig();
+  // Re-filter the displayed repo list if loaded
+  if(_gh.reposLoaded) cbShowFilteredRepoList();
+}
+
+// ── Scan repos with prefix ──────────────────────────────────────────────────
+async function cbScanRepos(){
+  clearLog();
+  if(_gh.reposLoaded && _gh.repos.length){
+    log('✓ '+_gh.repos.length+' repos (cached)','ok');
+    _cb.repoView=true; cbShowFilteredRepoList(); return;
+  }
+  log('Scanning repos'+((_cb.prefix)?' matching "'+_cb.prefix+'"…':'…'),'info');
+  const area=document.getElementById('resultsArea');
+  area.innerHTML='<div class="cb-loading-overlay"><div class="cb-spinner"></div>Scanning repositories…</div>';
+  document.getElementById('resultCount').textContent='scanning…';
+  const repos=await ghFetchRepos(_cb.prefix);
+  if(!repos){ log('✗ '+(_gh.error||'Failed'),'err'); area.innerHTML='<div class="ab-empty">'+esc(_gh.error||'Failed to load repos')+'</div>'; return; }
+  log('✓ '+repos.length+' repo'+(repos.length!==1?'s':'')+' found','ok');
+  _cb.repoView=true;
+  cbShowFilteredRepoList();
+}
+
+// ── Show filtered repo list (respects current prefix) ───────────────────────
+function cbShowFilteredRepoList(){
+  let repos=_gh.repos;
+  // Client-side prefix filter (in case cached repos include non-matching)
+  if(_cb.prefix) repos=repos.filter(r=>r.name.startsWith(_cb.prefix));
+  const area=document.getElementById('resultsArea');
+  area.innerHTML=ghRenderRepoList(repos, 'cbSelectRepo', 'cb-repo-search');
+  document.getElementById('resultCount').textContent=repos.length+' repos';
+  document.getElementById('dlBar').style.display='none';
+}
+
+function cbSelectRepoFilterRepos(){ cbShowFilteredRepoList(); }
+
+function cbSelectRepo(owner, name, branch){
+  _cb.repoView=false; _cb.currentPath=''; _cb.searchQuery='';
+  clearLog(); log('Loading '+cbStripPrefix(name)+'…','info');
+  const area=document.getElementById('resultsArea');
+  area.innerHTML='<div class="cb-loading-overlay"><div class="cb-spinner"></div>Loading '+esc(cbStripPrefix(name))+'…</div>';
+  document.getElementById('resultCount').textContent='loading…';
+  ghSelectRepo(owner, name, branch).then(tree=>{
+    if(!tree){ log('✗ '+(_gh.error||'Failed'),'err'); area.innerHTML='<div class="ab-empty">'+esc(_gh.error||'Failed to load tree')+'</div>'; return; }
+    const tab=_cb.activeTab;
+    let count=0;
+    if(tab==='sounds'){
+      for(const item of tree) if(item.type==='blob' && sbIsSound(item.path)) count++;
+      log('✓ '+count+' sound file'+(count!==1?'s':'')+' in '+cbStripPrefix(name),'ok');
+    } else {
+      for(const item of tree) if(item.type==='blob' && abIsImage(item.path)) count++;
+      log('✓ '+count+' image file'+(count!==1?'s':'')+' in '+cbStripPrefix(name),'ok');
+    }
+    cbRenderBrowserView();
+  });
+}
+
+function cbBackToRepos(){
+  _cb.repoView=true; _cb.searchQuery=''; _cb.currentPath='';
+  cbShowFilteredRepoList();
+}
+
+function cbNavigate(path){ _cb.currentPath=path; _cb.searchQuery=''; cbRenderBrowserView(); }
+
+// ── Render the active browser tab's file view ───────────────────────────────
+function cbRenderBrowserView(){
+  if(_cb.repoView){ cbShowFilteredRepoList(); return; }
+  if(_cb.activeTab==='sounds') sbRenderView();
+  else if(_cb.activeTab==='art') abRenderView();
+}
+
+function cbRenderBreadcrumb(){
+  const displayName=cbStripPrefix(_gh.repo);
+  let html='<span class="ab-crumb" onclick="cbBackToRepos()">← repos</span><span class="ab-crumb-sep">/</span>';
+  html+='<span class="ab-crumb" onclick="cbNavigate(\'\')" style="font-weight:500">'+esc(displayName)+'</span>';
+  if(_cb.currentPath){
+    const parts=_cb.currentPath.split('/'); let built='';
+    for(let i=0;i<parts.length;i++){
+      built+=(i?'/':'')+parts[i]; const p=built;
+      html+='<span class="ab-crumb-sep">/</span>';
+      if(i<parts.length-1) html+='<span class="ab-crumb" onclick="cbNavigate(\''+esc(p).replace(/'/g,"\\'")+'\')">'+esc(parts[i])+'</span>';
+      else html+='<span class="ab-crumb ab-crumb-current">'+esc(parts[i])+'</span>';
+    }
+  }
+  return html;
+}
+</script>
+
+<!-- ═══ tools/soundbrowser.js ═══ -->
+<script>
+const SOUND_EXTS=/\.(wav|mp3|ogg|flac|aac|m4a|wma|opus|aiff|aif)$/i;
+function sbIsSound(path){ return SOUND_EXTS.test(path); }
+
+async function sbLoadAudio(btn, path, name){
+  btn.disabled=true; btn.textContent='…';
+  try{
+    const url = ghIsPrivate() ? await ghAuthBlobUrl(path) : ghRawUrl(path);
+    const row = btn.closest('.ab-sound-row');
+    const ph = row.querySelector('.sb-audio-placeholder');
+    const audio = document.createElement('audio');
+    audio.controls=true; audio.preload='auto'; audio.src=url;
+    audio.style.cssText='height:32px;max-width:320px;width:100%';
+    ph.replaceWith(audio);
+    audio.play().catch(()=>{});
+  }catch(e){ btn.textContent='✗'; btn.style.color='var(--accent3)'; }
+}
+
+async function sbDownload(path, name){
+  try{ triggerDl(ghIsPrivate() ? await ghAuthBlobUrl(path) : ghRawUrl(path), name); }
+  catch(e){ log('✗ Download failed: '+e.message,'err'); }
+}
+
+function sbRenderView(){
+  const area=document.getElementById('resultsArea');
+  if(!_gh.tree){ area.innerHTML='<div class="ab-empty">No tree loaded</div>'; return; }
+
+  const listing=ghListDir(_cb.currentPath, _gh.tree, sbIsSound);
+  const q=_cb.searchQuery.toLowerCase();
+  let files=listing.files;
+  let folders=ghCollapseFolders(listing.folders, _gh.tree, sbIsSound);
+  if(q){
+    files=[]; folders=[];
+    for(const item of _gh.tree)
+      if(item.type==='blob' && sbIsSound(item.path) && item.path.toLowerCase().includes(q))
+        files.push({name:item.path.split('/').pop(), path:item.path, size:item.size||0, fullPath:item.path});
+  }
+
+  // Ensure persistent wrapper exists (search input survives re-renders)
+  if(!area.querySelector('#cb-browser-wrap')){
+    area.innerHTML=`<div id="cb-browser-wrap" style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">
+      <input class="ab-search" id="cb-file-search" type="text" placeholder="" value="${esc(_cb.searchQuery)}">
+      <div id="cb-browser-content"></div>
+    </div>`;
+    area.querySelector('#cb-file-search').addEventListener('input',function(){ _cb.searchQuery=this.value; cbRenderBrowserView(); });
+  }
+  const searchInp=area.querySelector('#cb-file-search');
+  searchInp.placeholder='Search all sounds in '+cbStripPrefix(_gh.repo)+'…';
+
+  const priv=ghIsPrivate();
+  let html='';
+  if(!q) html+='<div class="ab-breadcrumb">'+cbRenderBreadcrumb()+'</div>';
+  if(folders.length){
+    html+='<div class="ab-grid folders">';
+    for(const f of folders){
+      html+='<div class="ab-folder-card" onclick="cbNavigate(\''+esc(f.path).replace(/'/g,"\\'")+'\')">'
+        +'<span class="folder-icon">📁</span>'
+        +'<span class="folder-label">'+esc(f.name)+'</span>'
+        +'<span class="folder-count">'+f.count+'</span></div>';
+    }
+    html+='</div>';
+  }
+  if(files.length){
+    html+='<div class="ab-grid sounds">';
+    for(const f of files){
+      const dn=q&&f.fullPath?f.fullPath:f.name;
+      const ext=f.name.split('.').pop().toUpperCase();
+      const ep=esc(f.path).replace(/'/g,"\\'"), en=esc(f.name).replace(/'/g,"\\'");
+      if(priv){
+        html+='<div class="ab-sound-row">'
+          +'<div style="display:flex;flex-direction:column;gap:.15rem;overflow:hidden"><span class="ab-sound-name" title="'+esc(f.path)+'">'+esc(dn)+'</span>'
+          +'<span style="font-family:var(--font-mono);font-size:.55rem;color:#444">'+ext+' '+ghFormatSize(f.size)+'</span></div>'
+          +'<div class="sb-audio-placeholder" style="display:flex;align-items:center"><button class="btn" onclick="sbLoadAudio(this,\''+ep+'\',\''+en+'\')" style="font-size:.62rem;padding:.3rem .7rem;white-space:nowrap">▶ Play</button></div>'
+          +'<button class="ab-sound-dl" onclick="event.stopPropagation();sbDownload(\''+ep+'\',\''+en+'\')" title="Download">↓</button></div>';
+      } else {
+        const ru=ghRawUrl(f.path);
+        html+='<div class="ab-sound-row">'
+          +'<div style="display:flex;flex-direction:column;gap:.15rem;overflow:hidden"><span class="ab-sound-name" title="'+esc(f.path)+'">'+esc(dn)+'</span>'
+          +'<span style="font-family:var(--font-mono);font-size:.55rem;color:#444">'+ext+' '+ghFormatSize(f.size)+'</span></div>'
+          +'<audio controls preload="none" src="'+esc(ru)+'" style="height:32px;max-width:320px"></audio>'
+          +'<button class="ab-sound-dl" onclick="event.stopPropagation();triggerDl(\''+esc(ru).replace(/'/g,"\\'")+'\',\''+en+'\')" title="Download">↓</button></div>';
+      }
+    }
+    html+='</div>';
+  }
+  if(!folders.length && !files.length)
+    html+='<div class="ab-empty">'+(q?'No sounds match "'+esc(q)+'"':'No sound files here')+'</div>';
+  html+='<div class="ab-status-bar"><span>'+folders.length+' folder'+(folders.length!==1?'s':'')+' · '+files.length+' file'+(files.length!==1?'s':'')+(priv?' · 🔒':'')+'</span></div>';
+  area.querySelector('#cb-browser-content').innerHTML=html;
+  document.getElementById('resultCount').textContent=files.length+' sound'+(files.length!==1?'s':'');
+  document.getElementById('dlBar').style.display='none';
+}
+
+const ToolSoundBrowser={
+  meta:{
+    id:'soundbrowser',label:'Sound Browser',small:'browse & preview game SFX',
+    icon:'🔊',needsMagick:false,batchMode:false,isBrowser:true,
+    desc:'Browse sound effects and music across your repos. Switch to <strong>Content</strong> tab in the sidebar to connect and scan.'
+  },
+  settingsHTML(){ return ''; },
+  outName(){ return ''; },
+  async run(){ await cbScanRepos(); }
+};
+</script>
+
+<!-- ═══ tools/artbrowser.js ═══ -->
+<script>
+const IMG_EXTS=/\.(png|jpg|jpeg|webp|gif|svg|bmp|tga|psd|tiff|tif|ico)$/i;
+const IMG_PREVIEWABLE=/\.(png|jpg|jpeg|webp|gif|svg|bmp|ico)$/i;
+function abIsImage(path){ return IMG_EXTS.test(path); }
+function abCanPreview(path){ return IMG_PREVIEWABLE.test(path); }
+
+async function abOpenLightbox(path, name){
+  const existing=document.querySelector('.ab-lightbox');
+  if(existing) existing.remove();
+  try{
+    const url=ghIsPrivate() ? await ghAuthBlobUrl(path) : ghRawUrl(path);
+    const lb=document.createElement('div');
+    lb.className='ab-lightbox'; lb.onclick=()=>lb.remove();
+    lb.innerHTML='<img src="'+url+'" alt="'+esc(name)+'">';
+    const info=document.createElement('div'); info.className='ab-lightbox-info';
+    const dlBtn=document.createElement('button');
+    dlBtn.className='ab-sound-dl'; dlBtn.style.fontSize='.62rem'; dlBtn.textContent='↓ Download';
+    dlBtn.onclick=(e)=>{e.stopPropagation();triggerDl(url,name);};
+    info.innerHTML='<span>'+esc(name)+'</span>'; info.appendChild(dlBtn);
+    lb.appendChild(info); document.body.appendChild(lb);
+    const esc2=(e)=>{if(e.key==='Escape'){lb.remove();document.removeEventListener('keydown',esc2);}};
+    document.addEventListener('keydown',esc2);
+  }catch(e){ log('✗ Could not load image: '+e.message,'err'); }
+}
+
+async function abDownload(path, name){
+  try{ triggerDl(ghIsPrivate() ? await ghAuthBlobUrl(path) : ghRawUrl(path), name); }
+  catch(e){ log('✗ Download failed: '+e.message,'err'); }
+}
+
+function abSetupLazyLoad(){
+  if(!ghIsPrivate()) return;
+  const imgs=document.querySelectorAll('img[data-auth-path]');
+  if(!imgs.length) return;
+  const observer=new IntersectionObserver((entries)=>{
+    entries.forEach(async(entry)=>{
+      if(!entry.isIntersecting) return;
+      const img=entry.target; observer.unobserve(img);
+      try{ img.src=await ghAuthBlobUrl(img.dataset.authPath); }catch(e){ img.style.opacity='.15'; }
+    });
+  },{rootMargin:'200px'});
+  imgs.forEach(img=>observer.observe(img));
+}
+
+function abRenderView(){
+  const area=document.getElementById('resultsArea');
+  if(!_gh.tree){ area.innerHTML='<div class="ab-empty">No tree loaded</div>'; return; }
+
+  const listing=ghListDir(_cb.currentPath, _gh.tree, abIsImage);
+  const q=_cb.searchQuery.toLowerCase();
+  let files=listing.files;
+  let folders=ghCollapseFolders(listing.folders, _gh.tree, abIsImage);
+  if(q){
+    files=[]; folders=[];
+    for(const item of _gh.tree)
+      if(item.type==='blob' && abIsImage(item.path) && item.path.toLowerCase().includes(q))
+        files.push({name:item.path.split('/').pop(), path:item.path, size:item.size||0, fullPath:item.path});
+  }
+
+  // Ensure persistent wrapper exists (search input survives re-renders)
+  if(!area.querySelector('#cb-browser-wrap')){
+    area.innerHTML=`<div id="cb-browser-wrap" style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">
+      <input class="ab-search" id="cb-file-search" type="text" placeholder="" value="${esc(_cb.searchQuery)}">
+      <div id="cb-browser-content"></div>
+    </div>`;
+    area.querySelector('#cb-file-search').addEventListener('input',function(){ _cb.searchQuery=this.value; cbRenderBrowserView(); });
+  }
+  const searchInp=area.querySelector('#cb-file-search');
+  searchInp.placeholder='Search all images in '+cbStripPrefix(_gh.repo)+'…';
+
+  const priv=ghIsPrivate();
+  let html='';
+  if(!q) html+='<div class="ab-breadcrumb">'+cbRenderBreadcrumb()+'</div>';
+  if(folders.length){
+    html+='<div class="ab-grid folders">';
+    for(const f of folders)
+      html+='<div class="ab-folder-card" onclick="cbNavigate(\''+esc(f.path).replace(/'/g,"\\'")+'\')">'
+        +'<span class="folder-icon">📁</span><span class="folder-label">'+esc(f.name)+'</span>'
+        +'<span class="folder-count">'+f.count+'</span></div>';
+    html+='</div>';
+  }
+  if(files.length){
+    html+='<div class="ab-grid images">';
+    for(const f of files){
+      const canPrev=abCanPreview(f.name);
+      const dn=q&&f.fullPath?f.fullPath:f.name;
+      const ext=f.name.split('.').pop().toUpperCase();
+      const ep=esc(f.path).replace(/'/g,"\\'"), en=esc(f.name).replace(/'/g,"\\'");
+      if(canPrev){
+        const imgTag=priv
+          ?'<img data-auth-path="'+esc(f.path)+'" alt="'+esc(f.name)+'" loading="lazy" src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'1\' height=\'1\'%3E%3C/svg%3E" style="background:#0a0a0a">'
+          :'<img src="'+esc(ghRawUrl(f.path))+'" alt="'+esc(f.name)+'" loading="lazy" onerror="this.style.opacity=\'.15\'">';
+        html+='<div class="ab-image-card" onclick="abOpenLightbox(\''+ep+'\',\''+en+'\')" title="'+esc(f.path)+'">'
+          +imgTag
+          +'<div class="img-label"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(dn)+'">'+esc(dn)+'</span>'
+          +'<span class="dl-icon" onclick="event.stopPropagation();abDownload(\''+ep+'\',\''+en+'\')" title="Download">↓</span></div></div>';
+      } else {
+        html+='<div class="ab-image-card" onclick="abDownload(\''+ep+'\',\''+en+'\')" title="'+esc(f.path)+'">'
+          +'<div style="width:100%;height:110px;background:#0a0a0a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.3rem">'
+          +'<span style="font-size:1.4rem;opacity:.25">🖼️</span>'
+          +'<span style="font-family:var(--font-mono);font-size:.55rem;color:#444">'+ext+'</span></div>'
+          +'<div class="img-label"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(dn)+'">'+esc(dn)+'</span>'
+          +'<span style="font-size:.55rem;color:#555">'+ghFormatSize(f.size)+'</span></div></div>';
+      }
+    }
+    html+='</div>';
+  }
+  if(!folders.length && !files.length)
+    html+='<div class="ab-empty">'+(q?'No images match "'+esc(q)+'"':'No image files here')+'</div>';
+  html+='<div class="ab-status-bar"><span>'+folders.length+' folder'+(folders.length!==1?'s':'')+' · '+files.length+' file'+(files.length!==1?'s':'')+(priv?' · 🔒':'')+'</span></div>';
+  area.querySelector('#cb-browser-content').innerHTML=html;
+  document.getElementById('resultCount').textContent=files.length+' image'+(files.length!==1?'s':'');
+  document.getElementById('dlBar').style.display='none';
+  if(priv) requestAnimationFrame(abSetupLazyLoad);
+}
+
+const ToolArtBrowser={
+  meta:{
+    id:'artbrowser',label:'Art Browser',small:'browse & preview game art',
+    icon:'🎨',needsMagick:false,batchMode:false,isBrowser:true,
+    desc:'Browse game art across your repos. Switch to <strong>Content</strong> tab in the sidebar to connect and scan.'
+  },
+  settingsHTML(){ return ''; },
+  outName(){ return ''; },
+  async run(){ await cbScanRepos(); }
 };
 </script>
 
 <!-- ═══ app.js ═══ -->
 <script>
-const TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines,ToolOutline];
+const ART_TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines];
+const BROWSER_TOOLS=[ToolSoundBrowser,ToolArtBrowser];
+const TOOLS=[...ART_TOOLS,...BROWSER_TOOLS];
 
-/* Build UI */
+/* Build UI — only Art Tools get sidebar tabs */
 (function(){
   const tabsEl=document.getElementById('toolTabs'),settingsEl=document.getElementById('settingsBody');
   const actionRow=settingsEl.querySelector('.action-row');
   TOOLS.forEach(tool=>{
     const {id,label,small,icon,desc}=tool.meta;
-    const btn=document.createElement('button');
-    btn.className='tool-tab'; btn.id='tab-'+id;
-    btn.innerHTML=`<span class="icon">${icon}</span><span class="label">${label}<small>${small}</small></span>`;
-    btn.addEventListener('click',()=>switchTool(id));
-    tabsEl.appendChild(btn);
+    // Only art tools get sidebar tabs
+    if(ART_TOOLS.includes(tool)){
+      const btn=document.createElement('button');
+      btn.className='tool-tab'; btn.id='tab-'+id;
+      btn.innerHTML=`<span class="icon">${icon}</span><span class="label">${label}<small>${small}</small></span>`;
+      btn.addEventListener('click',()=>switchTool(id));
+      tabsEl.appendChild(btn);
+    }
     const sec=document.createElement('div');
     sec.className='tool-section'; sec.id='section-'+id;
-    sec.innerHTML=`<p class="tool-desc">${desc}</p>${tool.settingsHTML()}`;
+    const settingsHtml=tool.settingsHTML();
+    sec.innerHTML=`<p class="tool-desc">${desc}</p>${settingsHtml}`;
     settingsEl.insertBefore(sec,actionRow);
   });
   switchTool('crop');
+
+  // Set prefix input from state
+  const pfxInput=document.getElementById('cb-prefix');
+  if(pfxInput) pfxInput.value=_cb.prefix;
+
+  // Auto-scan if PAT was in URL
+  if(window._cbAutoScan){
+    setTimeout(()=>{
+      switchCategory('contentbrowser');
+      cbSwitchTab('sounds');
+      cbScanRepos();
+    }, 100);
+  }
 })();
 
 function switchTool(id){
@@ -2427,9 +3139,19 @@ function switchTool(id){
     runBtn.disabled=false; runBtn.innerHTML='🎰 BUILD MACHINE';
   } else if(id==='paylines'){
     runBtn.disabled=false; runBtn.innerHTML='⊞ BUILD PAYLINES';
+  } else if(id==='soundbrowser'||id==='artbrowser'){
+    runBtn.disabled=false; runBtn.innerHTML='🔍 SCAN REPOS';
+    // If repos already loaded, show them immediately
+    if(_gh.reposLoaded && _gh.repos.length){
+      if(_cb.repoView) cbShowFilteredRepoList();
+      else cbRenderBrowserView();
+    } else if(!_gh.token){
+      document.getElementById('resultsArea').innerHTML='<div class="empty-state">switch to Content tab in sidebar to connect</div>';
+    }
   } else {
     runBtn.innerHTML='&#9654; RUN'; updateRunBtn();
   }
+  emit('toolSwitched');
 }
 
 /* File drop */
@@ -2445,7 +3167,6 @@ fileInput.addEventListener('change',()=>{addFiles([...fileInput.files]);fileInpu
 function addFiles(files){
   for(const f of files){ if(state.inputFiles.find(x=>x.name===f.name)) continue; state.inputFiles.push({name:f.name,file:f,url:URL.createObjectURL(f)}); }
   renderFileList(); updateRunBtn();
-  // If font preview or slot machine active, re-enable run immediately
   if(state.currentTool==='fontpreview'||state.currentTool==='slotmachine'||state.currentTool==='paylines') document.getElementById('runBtn').disabled=false;
 }
 function removeFile(name){
@@ -2467,22 +3188,25 @@ document.getElementById('runBtn').addEventListener('click',async()=>{
   // Paylines: delegate entirely to plLaunch
   if(tool?.meta.isPaylines){ clearLog(); await tool.run(); return; }
 
+  // Browser tools: delegate to scan
+  if(tool?.meta.isBrowser){ clearLog(); await tool.run(); return; }
+
   // Font preview doesn't need input files to start
   if(state.currentTool!=='fontpreview' && !state.inputFiles.length) return;
 
   clearLog(); state.outputFiles.forEach(f=>URL.revokeObjectURL(f.url)); state.outputFiles=[];
-  document.getElementById('resultsArea').innerHTML='<div class="empty-state">processing\u2026</div>';
+  document.getElementById('resultsArea').innerHTML='<div class="empty-state">processing…</div>';
   document.getElementById('resultCount').textContent='0 files';
   document.getElementById('dlBar').style.display='none';
   const btn=document.getElementById('runBtn'); btn.disabled=true;
   log(`Running ${tool.meta.label}`+(state.inputFiles.length?` on ${state.inputFiles.length} file(s)`:''),'info');
   try{
     if(tool.meta.batchMode){
-      document.getElementById('progressLabel').textContent='compositing\u2026';
+      document.getElementById('progressLabel').textContent='compositing…';
       const blob=await tool.run(null,null,null,state.inputFiles),outname=tool.outName();
       state.outputFiles.push({name:outname,blob,url:URL.createObjectURL(blob)});
-      log(`\u2713 \u2192 ${outname}`,'ok');
-      document.getElementById('progressLabel').textContent='done \u2014 1 file';
+      log(`✓ → ${outname}`,'ok');
+      document.getElementById('progressLabel').textContent='done — 1 file';
     } else {
       for(let i=0;i<state.inputFiles.length;i++){
         const {name,file}=state.inputFiles[i];
@@ -2490,12 +3214,12 @@ document.getElementById('runBtn').addEventListener('click',async()=>{
         try{
           const uint8=new Uint8Array(await file.arrayBuffer()),blob=await tool.run(uint8,name,file),outname=tool.outName(name);
           state.outputFiles.push({name:outname,blob,url:URL.createObjectURL(blob)});
-          log(`\u2713 ${name} \u2192 ${outname}`,'ok');
-        }catch(e){ log(`\u2717 ${name}: ${e.message||e}`,'err'); }
+          log(`✓ ${name} → ${outname}`,'ok');
+        }catch(e){ log(`✗ ${name}: ${e.message||e}`,'err'); }
       }
-      document.getElementById('progressLabel').textContent=`done \u2014 ${state.outputFiles.length} file(s)`;
+      document.getElementById('progressLabel').textContent=`done — ${state.outputFiles.length} file(s)`;
     }
-  }catch(e){ log(`\u2717 ${e.message||e}`,'err'); }
+  }catch(e){ log(`✗ ${e.message||e}`,'err'); }
   btn.disabled=false;
   if(state.currentTool==='fontpreview') btn.disabled=false;
   if(state.currentTool==='paylines'){ btn.disabled=false; btn.innerHTML='⊞ BUILD PAYLINES'; }
