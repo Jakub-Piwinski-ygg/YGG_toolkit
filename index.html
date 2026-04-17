@@ -183,7 +183,7 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .ab-sound-row{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.5rem .75rem;display:grid;grid-template-columns:1fr auto auto;gap:.6rem;align-items:center;transition:border-color .15s}
 .ab-sound-row:hover{border-color:var(--accent2)}
 .ab-sound-name{font-family:var(--font-mono);font-size:.72rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ab-sound-row audio{height:32px;max-width:320px;width:100%}
+.ab-sound-row audio{height:40px;width:300px}
 .ab-sound-dl{cursor:pointer;color:#555;font-family:var(--font-mono);font-size:.65rem;padding:.25rem .5rem;border:1px solid var(--border);border-radius:3px;transition:all .12s;background:transparent;white-space:nowrap}
 .ab-sound-dl:hover{border-color:var(--accent);color:var(--accent)}
 .ab-empty{font-family:var(--font-mono);font-size:.75rem;color:#444;text-align:center;padding:2rem}
@@ -2859,7 +2859,6 @@ async function sbLoadAudio(btn, path, name){
     const ph = row.querySelector('.sb-audio-placeholder');
     const audio = document.createElement('audio');
     audio.controls=true; audio.preload='auto'; audio.src=url;
-    audio.style.cssText='height:32px;max-width:320px;width:100%';
     ph.replaceWith(audio);
     audio.play().catch(()=>{});
   }catch(e){ btn.textContent='✗'; btn.style.color='var(--accent3)'; }
@@ -2926,7 +2925,7 @@ function sbRenderView(){
         html+='<div class="ab-sound-row">'
           +'<div style="display:flex;flex-direction:column;gap:.15rem;overflow:hidden"><span class="ab-sound-name" title="'+esc(f.path)+'">'+esc(dn)+'</span>'
           +'<span style="font-family:var(--font-mono);font-size:.55rem;color:#444">'+ext+' '+ghFormatSize(f.size)+'</span></div>'
-          +'<audio controls preload="none" src="'+esc(ru)+'" style="height:32px;max-width:320px"></audio>'
+          +'<audio controls preload="none" src="'+esc(ru)+'"></audio>'
           +'<button class="ab-sound-dl" onclick="event.stopPropagation();triggerDl(\''+esc(ru).replace(/'/g,"\\'")+'\',\''+en+'\')" title="Download">↓</button></div>';
       }
     }
