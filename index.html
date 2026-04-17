@@ -2579,21 +2579,14 @@ function cbStripPrefix(name){
 }
 
 // ── Render repo list (shared, prefix-aware) ─────────────────────────────────
-function ghRenderRepoList(repos, onSelectName, searchId){
-  const q=(document.getElementById(searchId)?.value||'').toLowerCase();
-  const filtered=q?repos.filter(r=>{
-    const display=cbStripPrefix(r.name);
-    return (display+' '+r.fullName+' '+r.description).toLowerCase().includes(q);
-  }):repos;
-  let html=`<div style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">`;
-  html+=`<input class="ab-search" type="text" id="${searchId}" placeholder="Search repos…" value="${esc(q)}"
-    oninput="${onSelectName}FilterRepos()">`;
+function ghRenderRepoCards(repos, filtered, q){
+  let html='';
   if(filtered.length){
-    html+=`<div class="ab-grid folders">`;
+    html=`<div class="ab-grid folders">`;
     for(const r of filtered){
       const age=r.updatedAt?ghTimeAgo(r.updatedAt):'';
       const displayName=cbStripPrefix(r.name);
-      html+=`<div class="ab-folder-card" onclick="${onSelectName}('${esc(r.owner).replace(/'/g,"\\'")}','${esc(r.name).replace(/'/g,"\\'")}','${esc(r.defaultBranch||'main')}')"
+      html+=`<div class="ab-folder-card" onclick="cbSelectRepo('${esc(r.owner).replace(/'/g,"\\'")}','${esc(r.name).replace(/'/g,"\\'")}','${esc(r.defaultBranch||'main')}')"
         style="flex-direction:column;align-items:flex-start;gap:.25rem">
         <div style="display:flex;align-items:center;gap:.5rem;width:100%">
           <span class="folder-icon">${r.isPrivate?'🔒':'📦'}</span>
@@ -2605,9 +2598,8 @@ function ghRenderRepoList(repos, onSelectName, searchId){
     }
     html+=`</div>`;
   } else {
-    html+=`<div class="ab-empty">${q?'No repos match "'+esc(q)+'"':'No repos found'}</div>`;
+    html=`<div class="ab-empty">${q?'No repos match "'+esc(q)+'"':'No repos found'}</div>`;
   }
-  html+=`<div class="ab-status-bar"><span>${filtered.length} of ${repos.length} repo${repos.length!==1?'s':''}</span></div></div>`;
   return html;
 }
 
@@ -2780,7 +2772,21 @@ function cbShowFilteredRepoList(){
   // Client-side prefix filter (in case cached repos include non-matching)
   if(_cb.prefix) repos=repos.filter(r=>r.name.startsWith(_cb.prefix));
   const area=document.getElementById('resultsArea');
-  area.innerHTML=ghRenderRepoList(repos, 'cbSelectRepo', 'cb-repo-search');
+  // Create wrapper + input once; only update cards on subsequent calls
+  if(!document.getElementById('cb-repo-search')){
+    area.innerHTML=`<div style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">
+      <input class="ab-search" type="text" id="cb-repo-search" placeholder="Search repos…" oninput="cbSelectRepoFilterRepos()">
+      <div id="cb-repo-cards"></div>
+      <div id="cb-repo-status" class="ab-status-bar"></div>
+    </div>`;
+  }
+  const q=(document.getElementById('cb-repo-search').value||'').toLowerCase();
+  const filtered=q?repos.filter(r=>{
+    const display=cbStripPrefix(r.name);
+    return (display+' '+r.fullName+' '+r.description).toLowerCase().includes(q);
+  }):repos;
+  document.getElementById('cb-repo-cards').innerHTML=ghRenderRepoCards(repos, filtered, q);
+  document.getElementById('cb-repo-status').innerHTML=`<span>${filtered.length} of ${repos.length} repo${repos.length!==1?'s':''}</span>`;
   document.getElementById('resultCount').textContent=repos.length+' repos';
   document.getElementById('dlBar').style.display='none';
 }
