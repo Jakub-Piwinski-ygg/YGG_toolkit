@@ -2970,7 +2970,12 @@ async function abOpenLightbox(path, name){
     const dlBtn=document.createElement('button');
     dlBtn.className='ab-sound-dl'; dlBtn.style.fontSize='.62rem'; dlBtn.textContent='↓ Download';
     dlBtn.onclick=(e)=>{e.stopPropagation();triggerDl(url,name);};
-    info.innerHTML='<span>'+esc(name)+'</span>'; info.appendChild(dlBtn);
+    const sendBtn=document.createElement('button');
+    sendBtn.className='ab-sound-dl'; sendBtn.style.cssText='font-size:.62rem;color:var(--accent);border-color:rgba(255,118,46,.35)';
+    sendBtn.textContent='+ Art Tools';
+    sendBtn.onclick=(e)=>{e.stopPropagation();lb.remove();abSendToArtTools(path,name);};
+    info.innerHTML='<span>'+esc(name)+'</span>';
+    info.appendChild(sendBtn); info.appendChild(dlBtn);
     lb.appendChild(info); document.body.appendChild(lb);
     const esc2=(e)=>{if(e.key==='Escape'){lb.remove();document.removeEventListener('keydown',esc2);}};
     document.addEventListener('keydown',esc2);
@@ -2980,6 +2985,19 @@ async function abOpenLightbox(path, name){
 async function abDownload(path, name){
   try{ triggerDl(ghIsPrivate() ? await ghAuthBlobUrl(path) : ghRawUrl(path), name); }
   catch(e){ log('✗ Download failed: '+e.message,'err'); }
+}
+
+async function abSendToArtTools(path, name){
+  try{
+    const url=ghIsPrivate() ? await ghAuthBlobUrl(path) : ghRawUrl(path);
+    const resp=await fetch(url);
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const blob=await resp.blob();
+    const file=new File([blob], name, {type:blob.type||'image/png'});
+    addFiles([file]);
+    switchCategory('arttools');
+    log('✓ '+name+' → Art Tools','ok');
+  }catch(e){ log('✗ Send failed: '+e.message,'err'); }
 }
 
 function abSetupLazyLoad(){
@@ -3047,7 +3065,10 @@ function abRenderView(){
         html+='<div class="ab-image-card" onclick="abOpenLightbox(\''+ep+'\',\''+en+'\')" title="'+esc(f.path)+'">'
           +imgTag
           +'<div class="img-label"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(dn)+'">'+esc(dn)+'</span>'
-          +'<span class="dl-icon" onclick="event.stopPropagation();abDownload(\''+ep+'\',\''+en+'\')" title="Download">↓</span></div></div>';
+          +'<span style="display:flex;gap:.3rem;flex-shrink:0">'
+          +'<span class="dl-icon" onclick="event.stopPropagation();abSendToArtTools(\''+ep+'\',\''+en+'\')" title="Add to Art Tools" style="color:var(--accent)">+</span>'
+          +'<span class="dl-icon" onclick="event.stopPropagation();abDownload(\''+ep+'\',\''+en+'\')" title="Download">↓</span>'
+          +'</span></div></div>';
       } else {
         html+='<div class="ab-image-card" onclick="abDownload(\''+ep+'\',\''+en+'\')" title="'+esc(f.path)+'">'
           +'<div style="width:100%;height:110px;background:#0a0a0a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.3rem">'
