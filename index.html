@@ -243,6 +243,7 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
         <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span> ·
         <span class="subtitle-link" onclick="switchTool('gradientmap')">gradient map</span> ·
         <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span> ·
+        <span class="subtitle-link" onclick="switchTool('atlas')">atlas packer</span> ·
         <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('sounds')">sounds</span> ·
         <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('art')">art</span>
       </span>
@@ -3101,9 +3102,147 @@ const ToolArtBrowser={
 };
 </script>
 
+<!-- ═══ tools/atlas.js ═══ -->
+<script>
+function atlasUpdateModeUI(){
+  const mode=document.getElementById('atlas-mode')?.value; if(!mode) return;
+  document.getElementById('atlas-grid-fields').style.display=mode==='grid'?'grid':'none';
+  document.getElementById('atlas-tile-fields').style.display=mode==='tile'?'grid':'none';
+}
+
+const ToolAtlasPacker={
+  meta:{id:'atlas',label:'Atlas Packer',small:'pack sprites into a sheet',icon:'🗂️',needsMagick:true,batchMode:true,
+    desc:'Packs all loaded PNG sprites into a single texture atlas. <em>Grid mode</em>: set N×M cells — cell size is auto-derived from the largest sprite plus padding. <em>Tile mode</em>: set exact cell dimensions — grid is auto-computed from sprite count. Sprites can be pre-scaled with any resampling filter before packing.'},
+  settingsHTML(){return`
+    <div class="field">
+      <label>Grid mode</label>
+      <select id="atlas-mode" onchange="atlasUpdateModeUI()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+        <option value="grid">Fixed grid — N × M cells (cell size = largest sprite + padding)</option>
+        <option value="tile">Fixed tile size — specify cell W × H in px (grid auto-computed)</option>
+      </select>
+    </div>
+    <div id="atlas-grid-fields" class="field-row">
+      <div class="field"><label>Columns</label><input type="number" id="atlas-cols" value="5" min="1" max="64"></div>
+      <div class="field"><label>Rows</label><input type="number" id="atlas-rows" value="5" min="1" max="64"></div>
+    </div>
+    <div id="atlas-tile-fields" class="field-row" style="display:none">
+      <div class="field"><label>Tile width (px)</label><input type="number" id="atlas-tile-w" value="128" min="1" max="4096"></div>
+      <div class="field"><label>Tile height (px)</label><input type="number" id="atlas-tile-h" value="128" min="1" max="4096"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Scale factor</label><input type="number" id="atlas-scale" value="1.0" min="0.01" max="20" step="0.01"></div>
+      <div class="field"><label>Padding (px per side)</label><input type="number" id="atlas-padding" value="0" min="0" max="512"></div>
+    </div>
+    <div class="field">
+      <label>Resampling filter (used when scale ≠ 1.0)</label>
+      <select id="atlas-filter" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+        <option value="Lanczos" selected>Lanczos — sharpest, best for photos &amp; icons</option>
+        <option value="Mitchell">Mitchell — smooth, great for mixed content</option>
+        <option value="Catrom">Catmull-Rom — sharp edges, slight ringing</option>
+        <option value="Box">Box (Nearest) — pixel-art / hard edges</option>
+        <option value="Triangle">Triangle (Bilinear) — fast, mild softening</option>
+        <option value="Gaussian">Gaussian — very soft, good for blur-down</option>
+      </select>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Max atlas width (px)</label><input type="number" id="atlas-maxw" value="4096" min="64" max="16384"></div>
+      <div class="field"><label>Max atlas height (px)</label><input type="number" id="atlas-maxh" value="4096" min="64" max="16384"></div>
+    </div>
+    <div class="field">
+      <label>Output filename</label>
+      <input type="text" id="atlas-outname" value="atlas">
+      <span style="font-family:var(--font-mono);font-size:.6rem;color:#555;margin-top:.2rem;display:block">.png appended automatically</span>
+    </div>`;},
+  outName(){ return (document.getElementById('atlas-outname')?.value||'atlas').trim()+'.png'; },
+  async run(_,__,___,allFiles){
+    if(!allFiles.length) throw new Error('No files loaded');
+    const mode    = document.getElementById('atlas-mode').value;
+    const scale   = parseFloat(document.getElementById('atlas-scale').value)||1.0;
+    const filter  = document.getElementById('atlas-filter').value||'Lanczos';
+    const padding = Math.max(0,parseInt(document.getElementById('atlas-padding').value)||0);
+    const maxW    = parseInt(document.getElementById('atlas-maxw').value)||4096;
+    const maxH    = parseInt(document.getElementById('atlas-maxh').value)||4096;
+    const doScale = Math.abs(scale-1.0)>=0.001;
+
+    // ── 1. (Optional) scale each sprite via Magick ─────────────────────────
+    log(`Processing ${allFiles.length} sprite(s)${doScale?` — scale ×${scale} (${filter})`:''}…`,'info');
+    const sprites=[];
+    for(let i=0;i<allFiles.length;i++){
+      const {name,file}=allFiles[i];
+      document.getElementById('progressLabel').textContent=`scaling ${i+1}/${allFiles.length}`;
+      try{
+        let uint8=new Uint8Array(await file.arrayBuffer());
+        if(doScale){
+          // getImageDimensions creates a Blob internally (copies data) — uint8 stays valid
+          const orig=await getImageDimensions(uint8);
+          const nw=Math.max(1,Math.round(orig.w*scale));
+          const nh=Math.max(1,Math.round(orig.h*scale));
+          // _Magick.Call transfers uint8's ArrayBuffer to the WASM worker
+          const r=await window._Magick.Call(
+            [{name:'s.png',content:uint8}],
+            ['convert','s.png','-filter',filter,'-resize',`${nw}x${nh}!`,'+repage','o.png']
+          );
+          if(!r||!r.length) throw new Error('Magick scale returned nothing');
+          // Re-read from the scaled output blob — fresh ArrayBuffer, not transferred
+          uint8=new Uint8Array(await r[0].blob.arrayBuffer());
+        }
+        const dims=await getImageDimensions(uint8);
+        sprites.push({name,uint8,w:dims.w,h:dims.h});
+        log(`  ${name}: ${dims.w}×${dims.h}px`);
+      }catch(e){ log(`✗ ${name}: ${e.message}`,'err'); }
+    }
+    if(!sprites.length) throw new Error('All sprites failed — nothing to pack');
+
+    // ── 2. Compute layout ───────────────────────────────────────────────────
+    let cols,rows,cellW,cellH;
+    const maxSW=Math.max(...sprites.map(s=>s.w));
+    const maxSH=Math.max(...sprites.map(s=>s.h));
+
+    if(mode==='grid'){
+      cols =Math.max(1,parseInt(document.getElementById('atlas-cols').value)||5);
+      rows =Math.max(1,parseInt(document.getElementById('atlas-rows').value)||5);
+      cellW=maxSW+2*padding;
+      cellH=maxSH+2*padding;
+      if(sprites.length>cols*rows)
+        log(`⚠ ${sprites.length} sprites but only ${cols*rows} cells (${cols}×${rows}) — ${sprites.length-cols*rows} will be clipped`,'err');
+    } else {
+      cellW=Math.max(1,parseInt(document.getElementById('atlas-tile-w').value)||128);
+      cellH=Math.max(1,parseInt(document.getElementById('atlas-tile-h').value)||128);
+      cols =Math.max(1,Math.ceil(Math.sqrt(sprites.length)));
+      rows =Math.max(1,Math.ceil(sprites.length/cols));
+    }
+
+    const atlasW=cols*cellW, atlasH=rows*cellH;
+    log(`Grid: ${cols}×${rows}  Cell: ${cellW}×${cellH}px  Atlas: ${atlasW}×${atlasH}px`,'info');
+    if(atlasW>maxW||atlasH>maxH)
+      log(`⚠ Atlas (${atlasW}×${atlasH}px) exceeds max limit (${maxW}×${maxH}px)`,'err');
+
+    // ── 3. Composite all sprites in a single Magick call ────────────────────
+    // Pass every sprite as a named input; chain -geometry +x+y -composite for each.
+    // Magick.Call transfers all input ArrayBuffers — safe since we don't reuse them.
+    document.getElementById('progressLabel').textContent='compositing…';
+    const inputs=sprites.map((s,i)=>({name:`i${i}.png`,content:s.uint8}));
+    const cmd=['convert','-size',`${atlasW}x${atlasH}`,'xc:transparent','-background','none'];
+    for(let i=0;i<sprites.length;i++){
+      const col=i%cols, row=Math.floor(i/cols);
+      if(row>=rows) break; // grid mode clip
+      const x=col*cellW+Math.round((cellW-sprites[i].w)/2);
+      const y=row*cellH+Math.round((cellH-sprites[i].h)/2);
+      cmd.push(`i${i}.png`,'-geometry',`+${x}+${y}`,'-composite');
+    }
+    cmd.push('atlas.png');
+
+    const r=await window._Magick.Call(inputs,cmd);
+    if(!r||!r.length) throw new Error('Composite call returned no output');
+    log(`✓ Done — ${atlasW}×${atlasH}px atlas, ${Math.min(sprites.length,cols*rows)} sprites packed`,'ok');
+    return r[0].blob;
+  }
+};
+</script>
+
 <!-- ═══ app.js ═══ -->
 <script>
-const ART_TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines];
+const ART_TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines,ToolAtlasPacker];
 const BROWSER_TOOLS=[ToolSoundBrowser,ToolArtBrowser];
 const TOOLS=[...ART_TOOLS,...BROWSER_TOOLS];
 
