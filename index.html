@@ -293,6 +293,7 @@ mark.gs-hit{background:rgba(255,170,71,.25);color:var(--accent);padding:0 2px;bo
         <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span> ·
         <span class="subtitle-link" onclick="switchTool('gradientmap')">gradient map</span> ·
         <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span> ·
+        <span class="subtitle-link" onclick="switchTool('outline')">outline</span> ·
         <span class="subtitle-link" onclick="switchTool('atlas')">atlas packer</span> ·
         <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('sounds')">sounds</span> ·
         <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('art')">art</span>
@@ -3720,9 +3721,217 @@ const ToolAtlasPacker={
 };
 </script>
 
+<!-- ═══ tools/outline.js ═══ -->
+<script>
+const ToolOutline={
+  meta:{id:'outline',label:'Outline / Stroke',small:'edge-accurate contour',icon:'🔲',needsMagick:true,batchMode:false,
+    desc:'Creates a precise outline around every opaque edge of the image using morphological dilation on the alpha channel — the same technique as Photoshop\'s Stroke (Outside). Works correctly with concavities, holes, thin features and semi-transparent edges.'},
+  settingsHTML(){return`
+    <div class="field-row">
+      <div class="field">
+        <label>Outline width (px) &mdash; <span id="ol-width-val" style="color:var(--accent)">3</span></label>
+        <input type="range" id="ol-width" value="3" min="1" max="40" step="1"
+          oninput="document.getElementById('ol-width-val').textContent=this.value">
+      </div>
+      <div class="field">
+        <label>Outline colour</label>
+        <div style="display:flex;align-items:center;gap:.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.35rem .6rem;cursor:pointer;transition:border-color .15s"
+          onclick="document.getElementById('ol-color-picker').click()" id="ol-color-swatch">
+          <div id="ol-color-dot" style="width:18px;height:18px;border-radius:3px;border:1px solid rgba(255,255,255,.12);background:#ffffff;flex-shrink:0"></div>
+          <span id="ol-color-hex" style="font-family:var(--font-mono);font-size:.72rem;color:var(--muted)">#ffffff</span>
+        </div>
+        <input type="color" id="ol-color-picker" value="#ffffff" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none"
+          oninput="document.getElementById('ol-color-dot').style.background=this.value;document.getElementById('ol-color-hex').textContent=this.value">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Outline opacity &mdash; <span id="ol-opacity-val" style="color:var(--accent)">100%</span></label>
+        <input type="range" id="ol-opacity" value="100" min="1" max="100" step="1"
+          oninput="document.getElementById('ol-opacity-val').textContent=this.value+'%'">
+      </div>
+      <div class="field">
+        <label>Position</label>
+        <select id="ol-position" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+          <option value="outside" selected>Outside</option>
+          <option value="center">Center</option>
+          <option value="inside">Inside</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Threshold &mdash; <span id="ol-thresh-val" style="color:var(--accent)">1%</span></label>
+        <input type="range" id="ol-threshold" value="1" min="0" max="50" step="1"
+          oninput="document.getElementById('ol-thresh-val').textContent=this.value+'%'">
+        <span style="font-family:var(--font-mono);font-size:.55rem;color:#555;display:block;margin-top:.15rem">0% = soft anti-aliased edges · higher = harder cutoff</span>
+      </div>
+      <div class="field">
+        <label>Canvas handling</label>
+        <select id="ol-canvas" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+          <option value="expand" selected>Expand canvas by outline width</option>
+          <option value="keep">Keep original canvas (outline may clip)</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Kernel shape</label>
+        <select id="ol-kernel" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
+          <option value="Disk" selected>Disk (round, smooth)</option>
+          <option value="Square">Square (blocky, fast)</option>
+          <option value="Diamond">Diamond (45° edges)</option>
+        </select>
+      </div>
+    </div>`;},
+  outName(n){return n.replace(/\.png$/i,'')+'_outline.png';},
+  async run(uint8){
+    const width    = parseInt(document.getElementById('ol-width').value)||3;
+    const color    = document.getElementById('ol-color-picker').value||'#ffffff';
+    const opacity  = parseInt(document.getElementById('ol-opacity').value)||100;
+    const position = document.getElementById('ol-position').value||'outside';
+    const canvasMode = document.getElementById('ol-canvas').value||'expand';
+    const kernel   = document.getElementById('ol-kernel').value||'Disk';
+    const threshold= parseInt(document.getElementById('ol-threshold').value);
+    const fresh    = async b=>new Uint8Array(await b.arrayBuffer());
+
+    // --- Determine dilation/erosion radii based on position ---
+    let dilateR, erodeR;
+    if(position==='outside'){
+      dilateR=width; erodeR=0;
+    } else if(position==='inside'){
+      dilateR=0; erodeR=width;
+    } else { // center
+      dilateR=Math.ceil(width/2); erodeR=Math.floor(width/2);
+    }
+
+    // --- Expand canvas if needed (outside/center) and canvasMode=expand ---
+    let workingUint8;
+    if(canvasMode==='expand' && dilateR>0){
+      const pad = dilateR;
+      const dims = await getImageDimensions(uint8);
+      const ew = dims.w + pad*2, eh = dims.h + pad*2;
+      const padCopy = uint8.slice();
+      const rPad = await window._Magick.Call(
+        [{name:'input.png',content:padCopy}],
+        ['convert','input.png','-background','transparent','-gravity','Center',
+         '-extent',`${ew}x${eh}`,'+repage','padded.png']
+      );
+      if(!rPad||!rPad.length) throw new Error('Canvas expand failed');
+      workingUint8 = await fresh(rPad[0].blob);
+    } else {
+      workingUint8 = uint8.slice();
+    }
+
+    // --- 1. Extract alpha channel ---
+    const rAlpha = await window._Magick.Call(
+      [{name:'work.png',content:workingUint8.slice()}],
+      ['convert','work.png','-alpha','extract','alpha.png']
+    );
+    if(!rAlpha||!rAlpha.length) throw new Error('Alpha extract failed');
+    const alphaBlob = rAlpha[0].blob;
+
+    // --- 2. Dilate alpha (grow outward) ---
+    let dilatedBlob;
+    if(dilateR>0){
+      const args=['convert','alpha.png','-morphology','Dilate',`${kernel}:${dilateR}`];
+      if(threshold>0) args.push('-threshold',`${threshold}%`);
+      args.push('dilated.png');
+      const rDilate = await window._Magick.Call(
+        [{name:'alpha.png',content:await fresh(alphaBlob)}], args
+      );
+      if(!rDilate||!rDilate.length) throw new Error('Dilation failed');
+      dilatedBlob = rDilate[0].blob;
+    } else {
+      dilatedBlob = alphaBlob;
+    }
+
+    // --- 3. Erode alpha (shrink inward) for inside/center ---
+    let erodedBlob;
+    if(erodeR>0){
+      const args=['convert','alpha.png','-morphology','Erode',`${kernel}:${erodeR}`];
+      if(threshold>0) args.push('-threshold',`${threshold}%`);
+      args.push('eroded.png');
+      const rErode = await window._Magick.Call(
+        [{name:'alpha.png',content:await fresh(alphaBlob)}], args
+      );
+      if(!rErode||!rErode.length) throw new Error('Erosion failed');
+      erodedBlob = rErode[0].blob;
+    } else {
+      erodedBlob = alphaBlob;
+    }
+
+    // --- 4. Outline mask = maskA * (1 - maskB) ---
+    //   Outside: dilated * (1 - original)  → ring outside shape
+    //   Inside:  original * (1 - eroded)   → ring inside shape
+    //   Center:  dilated * (1 - eroded)    → ring straddling edge
+    // Uses Multiply + Negate (universally supported, unlike -compose Minus)
+    let maskA, maskB;
+    if(position==='outside'){
+      maskA = dilatedBlob; maskB = alphaBlob;
+    } else if(position==='inside'){
+      maskA = alphaBlob; maskB = erodedBlob;
+    } else {
+      maskA = dilatedBlob; maskB = erodedBlob;
+    }
+
+    // Step 4a: negate maskB
+    const rNeg = await window._Magick.Call(
+      [{name:'b.png',content:await fresh(maskB)}],
+      ['convert','b.png','-negate','b_neg.png']
+    );
+    if(!rNeg||!rNeg.length) throw new Error('Negate failed');
+    const negBlob = rNeg[0].blob;
+
+    // Step 4b: multiply maskA * negated maskB → outline ring
+    const rMask = await window._Magick.Call(
+      [{name:'a.png',content:await fresh(maskA)},{name:'b_neg.png',content:await fresh(negBlob)}],
+      ['convert','a.png','b_neg.png','-compose','Multiply','-composite','outline_mask.png']
+    );
+    if(!rMask||!rMask.length) throw new Error('Outline mask failed');
+    let outlineMaskBlob = rMask[0].blob;
+
+    // --- 5. Apply opacity to mask if < 100 ---
+    if(opacity<100){
+      const opFrac = (opacity/100).toFixed(4);
+      const rOp = await window._Magick.Call(
+        [{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
+        ['convert','outline_mask.png','-evaluate','Multiply',opFrac,'outline_mask_op.png']
+      );
+      if(!rOp||!rOp.length) throw new Error('Opacity multiply failed');
+      outlineMaskBlob = rOp[0].blob;
+    }
+
+    // --- 6. Create solid-colour outline layer with mask as alpha ---
+    const rColor = await window._Magick.Call(
+      [{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
+      ['convert','outline_mask.png','-fill',color,'-colorize','100','colored.png']
+    );
+    if(!rColor||!rColor.length) throw new Error('Colorize failed');
+    const coloredBlob = rColor[0].blob;
+
+    // Re-apply the outline mask as alpha onto the colored layer
+    const rApplyMask = await window._Magick.Call(
+      [{name:'colored.png',content:await fresh(coloredBlob)},{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
+      ['convert','colored.png','outline_mask.png','-alpha','copy','-compose','CopyOpacity','-composite','outline_layer.png']
+    );
+    if(!rApplyMask||!rApplyMask.length) throw new Error('Outline layer composite failed');
+    const outlineLayerBlob = rApplyMask[0].blob;
+
+    // --- 7. Composite: outline layer UNDER original ---
+    const rFinal = await window._Magick.Call(
+      [{name:'outline_layer.png',content:await fresh(outlineLayerBlob)},{name:'work.png',content:workingUint8.slice()}],
+      ['convert','outline_layer.png','work.png','-compose','Over','-composite','output.png']
+    );
+    if(!rFinal||!rFinal.length) throw new Error('Final composite failed');
+    return rFinal[0].blob;
+  }
+};
+</script>
+
 <!-- ═══ app.js ═══ -->
 <script>
-const ART_TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines,ToolAtlasPacker];
+const ART_TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines,ToolOutline,ToolAtlasPacker];
 const BROWSER_TOOLS=[ToolSoundBrowser,ToolArtBrowser];
 const TOOLS=[...ART_TOOLS,...BROWSER_TOOLS];
 
