@@ -1,0 +1,13 @@
+:root {
+  --bg:#0e0e0f;
+  --surface:#18181b;
+  --surface2:#1f1f24;
+  --border:#2a2a30;
+  --accent:#FF762E;
+  --accent2:#47c8ff;
+  --accent3:#ff6b47;
+  --text:#f0f0f0;
+  --muted:#888;
+  --font-mono:'DM Mono', monospace;
+  --font-display:'Syne', sans-serif;
+}
