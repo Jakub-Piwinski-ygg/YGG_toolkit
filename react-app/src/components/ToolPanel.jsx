@@ -22,8 +22,9 @@ export function ToolPanel() {
 
   const tool = ART_TOOLS.find((t) => t.meta.id === currentTool);
   const needsWasm = tool?.meta.needsMagick ?? true;
+  const needsFiles = tool?.meta.needsFiles !== false;
   const runDisabled =
-    isRunning || inputFiles.length === 0 || (needsWasm && !magickReady);
+    isRunning || (needsFiles && inputFiles.length === 0) || (needsWasm && !magickReady);
 
   const handleRun = async () => {
     const runner = getRunner(currentTool);
@@ -31,15 +32,31 @@ export function ToolPanel() {
       log(`No runner registered for ${currentTool}`, 'err');
       return;
     }
-    if (!inputFiles.length) return;
+    if (needsFiles && !inputFiles.length) return;
 
     clearLog();
     resetOutputs();
     setIsRunning(true);
-    log(`Running ${tool.meta.label} on ${inputFiles.length} file(s)`, 'info');
+    log(
+      needsFiles
+        ? `Running ${tool.meta.label} on ${inputFiles.length} file(s)`
+        : `Running ${tool.meta.label}`,
+      'info'
+    );
 
     try {
-      if (tool.meta.batchMode) {
+      if (!needsFiles) {
+        setProgressLabel('processing…');
+        const blob = await runner.run(null, null, null, inputFiles);
+        if (blob) {
+          const outname = runner.outName();
+          pushOutput({ name: outname, blob, url: URL.createObjectURL(blob) });
+          log(`✓ → ${outname}`, 'ok');
+          setProgressLabel('done — 1 file');
+        } else {
+          setProgressLabel('done');
+        }
+      } else if (tool.meta.batchMode) {
         setProgressLabel('compositing…');
         const blob = await runner.run(null, null, null, inputFiles);
         const outname = runner.outName();
