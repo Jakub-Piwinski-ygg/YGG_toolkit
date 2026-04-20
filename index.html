@@ -219,6 +219,56 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .cb-loading-overlay{display:flex;align-items:center;gap:.6rem;font-family:var(--font-mono);font-size:.72rem;color:var(--accent2);padding:1.5rem;justify-content:center}
 .cb-spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent2);border-radius:50%;animation:cbSpin .6s linear infinite;flex-shrink:0}
 @keyframes cbSpin{to{transform:rotate(360deg)}}
+
+/* ═══ Global Search (cross-repo) ═══ */
+.gs-row{display:flex;gap:.4rem;align-items:stretch}
+.gs-row input{flex:1;background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.72rem;padding:.4rem .6rem;border-radius:4px;outline:none;transition:border-color .15s}
+.gs-row input:focus{border-color:var(--accent2)}
+.gs-row input::placeholder{color:#444}
+.gs-btn{background:var(--surface);border:1px solid var(--border);color:var(--accent2);font-family:var(--font-mono);font-size:.6rem;padding:.4rem .7rem;border-radius:4px;cursor:pointer;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;transition:all .15s}
+.gs-btn:hover{border-color:var(--accent2);background:rgba(71,200,255,.08)}
+.gs-btn:disabled{opacity:.4;cursor:not-allowed}
+.gs-btn.danger{color:var(--accent3);border-color:rgba(255,107,71,.3)}
+.gs-btn.danger:hover{border-color:var(--accent3);background:rgba(255,107,71,.08)}
+.gs-progress{display:flex;flex-direction:column;gap:.4rem;padding:.7rem .8rem;background:var(--surface);border:1px solid var(--border);border-radius:6px}
+.gs-progress-bar{height:4px;background:var(--surface2);border-radius:2px;overflow:hidden}
+.gs-progress-fill{height:100%;background:var(--accent2);transition:width .2s ease}
+.gs-progress-label{display:flex;justify-content:space-between;align-items:center;font-family:var(--font-mono);font-size:.6rem;color:var(--muted)}
+.gs-group{background:var(--surface);border:1px solid var(--border);border-radius:6px;margin-bottom:.4rem;overflow:hidden}
+.gs-group-header{display:flex;align-items:center;justify-content:space-between;padding:.55rem .75rem;cursor:pointer;user-select:none;transition:background .15s}
+.gs-group-header:hover{background:var(--surface2)}
+.gs-group-header .gs-repo-name{font-family:var(--font-mono);font-size:.72rem;color:var(--text);font-weight:500}
+.gs-group-header .gs-count{font-family:var(--font-mono);font-size:.58rem;color:var(--accent2);background:rgba(71,200,255,.1);padding:.1rem .4rem;border-radius:3px}
+.gs-group-header .gs-caret{font-size:.6rem;color:var(--muted);margin-right:.3rem;transition:transform .15s}
+.gs-group.expanded .gs-caret{transform:rotate(90deg)}
+.gs-group-body{display:none;border-top:1px solid var(--border);max-height:320px;overflow-y:auto}
+.gs-group.expanded .gs-group-body{display:block}
+.gs-open-repo{font-family:var(--font-mono);font-size:.58rem;color:var(--accent);background:rgba(255,170,71,.08);border:1px solid rgba(255,170,71,.25);padding:.2rem .5rem;border-radius:3px;cursor:pointer;white-space:nowrap;transition:all .12s}
+.gs-open-repo:hover{background:rgba(255,170,71,.18);border-color:var(--accent)}
+.gs-group-body{padding:.5rem}
+.gs-group-body .ab-grid{margin:0}
+.gs-group-body .ab-sound-row{grid-template-columns:1fr auto auto}
+.gs-group-body .ab-sound-row audio{width:220px}
+.gs-file-row{display:flex;align-items:center;gap:.5rem;padding:.35rem .75rem;font-family:var(--font-mono);font-size:.65rem;color:var(--muted);cursor:pointer;border-bottom:1px solid rgba(255,255,255,.03);transition:background .12s}
+.gs-file-row:hover{background:var(--surface2);color:var(--text)}
+.gs-file-row:last-child{border-bottom:none}
+.gs-file-row .gs-file-icon{opacity:.5;flex-shrink:0}
+.gs-file-row .gs-file-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.gs-file-row .gs-open{font-size:.55rem;color:var(--accent2);opacity:0;transition:opacity .12s}
+.gs-file-row:hover .gs-open{opacity:1}
+mark.gs-hit{background:rgba(255,170,71,.25);color:var(--accent);padding:0 2px;border-radius:2px}
+.gs-empty{padding:2rem 1rem;text-align:center;font-family:var(--font-mono);font-size:.7rem;color:#555}
+
+/* Modal overlay */
+.gs-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:10000;display:flex;align-items:center;justify-content:center;animation:abFadeIn .15s}
+.gs-modal{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.4rem;max-width:420px;width:calc(100% - 2rem);display:flex;flex-direction:column;gap:.9rem;box-shadow:0 10px 40px rgba(0,0,0,.5)}
+.gs-modal-title{font-family:var(--font-display);font-size:.9rem;font-weight:700;color:var(--text)}
+.gs-modal-body{font-family:var(--font-mono);font-size:.7rem;color:var(--muted);line-height:1.6}
+.gs-modal-body strong{color:var(--accent2);font-weight:500}
+.gs-modal-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.3rem}
+.gs-modal-actions .gs-btn{padding:.5rem 1rem;font-size:.65rem}
+.gs-modal-actions .gs-btn.primary{color:var(--bg);background:var(--accent2);border-color:var(--accent2)}
+.gs-modal-actions .gs-btn.primary:hover{background:#6cdcff}
 </style>
 </head>
 <body>
@@ -243,7 +293,6 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
         <span class="subtitle-link" onclick="switchTool('slotmachine')">slot machine</span> ·
         <span class="subtitle-link" onclick="switchTool('gradientmap')">gradient map</span> ·
         <span class="subtitle-link" onclick="switchTool('paylines')">paylines</span> ·
-        <span class="subtitle-link" onclick="switchTool('outline')">outline</span> ·
         <span class="subtitle-link" onclick="switchTool('atlas')">atlas packer</span> ·
         <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('sounds')">sounds</span> ·
         <span class="subtitle-link" onclick="switchCategory('contentbrowser');cbSwitchTab('art')">art</span>
@@ -341,6 +390,7 @@ const _cb = {
   searchQuery: '',
   repoView: true,
   authenticated: false,
+  globalSearch: null,  // { query, running, cancelled, scanned, total, matches, results[], startedAt }
 };
 const _EV = {};
 function on(e,fn){ (_EV[e]=_EV[e]||[]).push(fn); }
@@ -2285,6 +2335,7 @@ const _gh = {
   loading: false,
   error: null,
   blobCache: {},
+  treeCache: {},         // { "owner/repo": tree[] } — used by cross-repo search
   repos: [],
   reposLoaded: false,
 };
@@ -2444,6 +2495,172 @@ async function _ghFetchTreeGitLab(branch){
     page=parseInt(np);
   }
   return all.map(i=>({path:i.path, type:i.type==='tree'?'tree':'blob', size:0}));
+}
+
+// ── Standalone tree fetch for any repo (no _gh mutation) ──────────────────
+async function ghFetchTreeForRepo(repoInfo){
+  const key = repoInfo.fullName;
+  if(_gh.treeCache[key]) return _gh.treeCache[key];
+  const branch = repoInfo.defaultBranch || 'main';
+  let tree;
+  if(_gh.provider==='gitlab'){
+    const base=(_gh.baseUrl||'https://gitlab.yggdrasil.lan').replace(/\/$/,'');
+    const projId=encodeURIComponent(repoInfo.fullName);
+    const root=`${base}/api/v4/projects/${projId}`;
+    let page=1, all=[];
+    while(true){
+      const resp=await fetch(`${root}/repository/tree?ref=${encodeURIComponent(branch)}&recursive=true&per_page=100&page=${page}`,
+        {headers:ghAuthHeaders()});
+      if(!resp.ok) throw new Error('HTTP '+resp.status);
+      const items=await resp.json();
+      if(!items.length) break;
+      all=all.concat(items);
+      const np=resp.headers.get('x-next-page');
+      if(!np||np===''||parseInt(np)<=page) break;
+      page=parseInt(np);
+    }
+    tree=all.map(i=>({path:i.path, type:i.type==='tree'?'tree':'blob', size:0}));
+  } else {
+    const root=`https://api.github.com/repos/${encodeURIComponent(repoInfo.owner)}/${encodeURIComponent(repoInfo.name)}`;
+    const resp=await fetch(`${root}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+      {headers:{'Accept':'application/vnd.github+json',...ghAuthHeaders()}});
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    tree=((await resp.json()).tree||[]).map(i=>({path:i.path, type:i.type==='tree'?'tree':'blob', size:i.size||0}));
+  }
+  _gh.treeCache[key]=tree;
+  return tree;
+}
+
+// ── Concurrency pool for cancellable parallel tasks ───────────────────────
+async function _cbRunPool(items, worker, concurrency, shouldAbort){
+  let idx=0;
+  const next=()=> idx<items.length ? items[idx++] : null;
+  const runners=[];
+  for(let i=0;i<concurrency;i++){
+    runners.push((async()=>{
+      while(true){
+        if(shouldAbort && shouldAbort()) break;
+        const item=next();
+        if(item==null) break;
+        try{ await worker(item); }catch(e){ /* swallow, keep going */ }
+      }
+    })());
+  }
+  await Promise.all(runners);
+}
+
+// ── Repo-aware URL helpers (for cross-repo search results) ────────────────
+function gsRawUrl(repo, path){
+  if(_gh.provider==='gitlab'){
+    const base=(_gh.baseUrl||'https://gitlab.yggdrasil.lan').replace(/\/$/,'');
+    const projId=encodeURIComponent(repo.fullName);
+    return `${base}/api/v4/projects/${projId}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(repo.defaultBranch||'main')}`;
+  }
+  return `https://raw.githubusercontent.com/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/${encodeURIComponent(repo.defaultBranch||'main')}/${path}`;
+}
+
+// Composite-key cache to avoid cross-repo path collisions
+const _gsBlobCache={};
+async function gsAuthBlobUrl(repo, path){
+  const key=repo.fullName+'|'+path;
+  if(_gsBlobCache[key]) return _gsBlobCache[key];
+  let url, headers;
+  if(_gh.provider==='gitlab'){
+    const base=(_gh.baseUrl||'https://gitlab.yggdrasil.lan').replace(/\/$/,'');
+    const projId=encodeURIComponent(repo.fullName);
+    url=`${base}/api/v4/projects/${projId}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(repo.defaultBranch||'main')}`;
+    headers=ghAuthHeaders();
+  } else {
+    url=`https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(repo.defaultBranch||'main')}`;
+    headers={...ghAuthHeaders(), 'Accept':'application/vnd.github.raw'};
+  }
+  const resp=await fetch(url,{headers});
+  if(!resp.ok) throw new Error('Failed to fetch '+path+': '+resp.status);
+  const blob=await resp.blob();
+  const blobUrl=URL.createObjectURL(blob);
+  _gsBlobCache[key]=blobUrl;
+  return blobUrl;
+}
+
+function _gsRepo(idx){ return _cb.globalSearch && _cb.globalSearch.repoIndex[idx]; }
+
+// ── Repo-aware interaction handlers (scoped to per-file repo) ─────────────
+async function gsPlayAudio(btn, repoIdx, path, name){
+  const repo=_gsRepo(repoIdx); if(!repo) return;
+  btn.disabled=true; btn.textContent='…';
+  try{
+    const url=ghIsPrivate() ? await gsAuthBlobUrl(repo, path) : gsRawUrl(repo, path);
+    const row=btn.closest('.ab-sound-row');
+    const ph=row.querySelector('.sb-audio-placeholder');
+    const audio=document.createElement('audio');
+    audio.controls=true; audio.preload='auto'; audio.src=url;
+    ph.replaceWith(audio);
+    audio.play().catch(()=>{});
+  }catch(e){ btn.textContent='✗'; btn.style.color='var(--accent3)'; btn.disabled=false; }
+}
+
+async function gsDownload(repoIdx, path, name){
+  const repo=_gsRepo(repoIdx); if(!repo) return;
+  try{ triggerDl(ghIsPrivate() ? await gsAuthBlobUrl(repo, path) : gsRawUrl(repo, path), name); }
+  catch(e){ log('✗ Download failed: '+e.message,'err'); }
+}
+
+async function gsOpenLightbox(repoIdx, path, name){
+  const repo=_gsRepo(repoIdx); if(!repo) return;
+  const existing=document.querySelector('.ab-lightbox');
+  if(existing) existing.remove();
+  try{
+    const url=ghIsPrivate() ? await gsAuthBlobUrl(repo, path) : gsRawUrl(repo, path);
+    const lb=document.createElement('div');
+    lb.className='ab-lightbox'; lb.onclick=()=>lb.remove();
+    lb.innerHTML='<img src="'+url+'" alt="'+esc(name)+'">';
+    const info=document.createElement('div'); info.className='ab-lightbox-info';
+    const dlBtn=document.createElement('button');
+    dlBtn.className='ab-sound-dl'; dlBtn.style.fontSize='.62rem'; dlBtn.textContent='↓ Download';
+    dlBtn.onclick=(e)=>{e.stopPropagation();triggerDl(url,name);};
+    const sendBtn=document.createElement('button');
+    sendBtn.className='ab-sound-dl'; sendBtn.style.cssText='font-size:.62rem;color:var(--accent);border-color:rgba(255,118,46,.35)';
+    sendBtn.textContent='+ Art Tools';
+    sendBtn.onclick=(e)=>{e.stopPropagation();lb.remove();gsSendToArtTools(repoIdx,path,name);};
+    info.innerHTML='<span title="'+esc(repo.fullName)+'">'+esc(cbStripPrefix(repo.name))+' · '+esc(name)+'</span>';
+    info.appendChild(sendBtn); info.appendChild(dlBtn);
+    lb.appendChild(info); document.body.appendChild(lb);
+    const esc2=(e)=>{if(e.key==='Escape'){lb.remove();document.removeEventListener('keydown',esc2);}};
+    document.addEventListener('keydown',esc2);
+  }catch(e){ log('✗ Could not load image: '+e.message,'err'); }
+}
+
+async function gsSendToArtTools(repoIdx, path, name){
+  const repo=_gsRepo(repoIdx); if(!repo) return;
+  try{
+    const url=ghIsPrivate() ? await gsAuthBlobUrl(repo, path) : gsRawUrl(repo, path);
+    const resp=await fetch(url);
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const blob=await resp.blob();
+    const file=new File([blob], name, {type:blob.type||'image/png'});
+    addFiles([file]);
+    switchCategory('arttools');
+    log('✓ '+cbStripPrefix(repo.name)+'/'+name+' → Art Tools','ok');
+  }catch(e){ log('✗ Send failed: '+e.message,'err'); }
+}
+
+// Lazy-load images within search results (private mode)
+function gsSetupLazyLoad(){
+  if(!ghIsPrivate()) return;
+  const imgs=document.querySelectorAll('img[data-gs-repo-idx][data-gs-path]:not([data-gs-loaded])');
+  if(!imgs.length) return;
+  const observer=new IntersectionObserver((entries)=>{
+    entries.forEach(async(entry)=>{
+      if(!entry.isIntersecting) return;
+      const img=entry.target; observer.unobserve(img);
+      img.dataset.gsLoaded='1';
+      const repo=_gsRepo(parseInt(img.dataset.gsRepoIdx));
+      if(!repo) return;
+      try{ img.src=await gsAuthBlobUrl(repo, img.dataset.gsPath); }
+      catch(e){ img.style.opacity='.15'; }
+    });
+  },{rootMargin:'200px'});
+  imgs.forEach(img=>observer.observe(img));
 }
 
 // ── Save / Load config ─────────────────────────────────────────────────────
@@ -2726,6 +2943,8 @@ function cbConnect(){
 function cbDisconnect(){
   _gh.token=''; _cb.authenticated=false;
   _gh.repos=[]; _gh.reposLoaded=false; _gh.tree=null;
+  _gh.treeCache={};
+  _cb.globalSearch=null;
   ghSaveConfig();
   cbRenderAuth();
   const area=document.getElementById('resultsArea');
@@ -2735,6 +2954,11 @@ function cbDisconnect(){
 
 // ── Content browser tab switching ───────────────────────────────────────────
 function cbSwitchTab(tab){
+  if(_cb.activeTab!==tab && _cb.globalSearch){
+    // Type-filter was captured for the old tab → results would be wrong type. Drop them.
+    if(_cb.globalSearch.running) _cb.globalSearch.cancelled=true;
+    _cb.globalSearch=null;
+  }
   _cb.activeTab=tab;
   document.querySelectorAll('.cb-subtab').forEach(t=>t.classList.remove('active'));
   document.getElementById('cb-tab-'+tab)?.classList.add('active');
@@ -2770,17 +2994,31 @@ async function cbScanRepos(){
 
 // ── Show filtered repo list (respects current prefix) ───────────────────────
 function cbShowFilteredRepoList(){
+  // If a scan is active/finished, keep its view
+  if(_cb.globalSearch){ cbGlobalSearchRender(true); return; }
   let repos=_gh.repos;
   // Client-side prefix filter (in case cached repos include non-matching)
   if(_cb.prefix) repos=repos.filter(r=>r.name.startsWith(_cb.prefix));
   const area=document.getElementById('resultsArea');
-  // Create wrapper + input once; only update cards on subsequent calls
+  // Create wrapper + inputs once; only update cards on subsequent calls
   if(!document.getElementById('cb-repo-search')){
+    const tabLabel=_cb.activeTab==='sounds'?'sounds':'images';
     area.innerHTML=`<div style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">
-      <input class="ab-search" type="text" id="cb-repo-search" placeholder="Search repos…" oninput="cbSelectRepoFilterRepos()">
+      <input class="ab-search" type="text" id="cb-repo-search" placeholder="Filter repos live…" oninput="cbSelectRepoFilterRepos()">
+      <div class="gs-row">
+        <input type="text" id="cb-global-search" placeholder="Search ${tabLabel} across all repos…" onkeydown="if(event.key==='Enter')cbGlobalSearchPrompt()">
+        <button class="gs-btn" onclick="cbGlobalSearchPrompt()">Search all</button>
+      </div>
       <div id="cb-repo-cards"></div>
       <div id="cb-repo-status" class="ab-status-bar"></div>
     </div>`;
+  } else {
+    // Keep placeholder in sync with active tab
+    const gsInp=document.getElementById('cb-global-search');
+    if(gsInp){
+      const tabLabel=_cb.activeTab==='sounds'?'sounds':'images';
+      gsInp.placeholder=`Search ${tabLabel} across all repos…`;
+    }
   }
   const q=(document.getElementById('cb-repo-search').value||'').toLowerCase();
   const filtered=q?repos.filter(r=>{
@@ -2794,6 +3032,248 @@ function cbShowFilteredRepoList(){
 }
 
 function cbSelectRepoFilterRepos(){ cbShowFilteredRepoList(); }
+
+// ═══ Cross-repo file search ══════════════════════════════════════════════
+function cbGlobalSearchPrompt(){
+  const inp=document.getElementById('cb-global-search');
+  if(!inp) return;
+  const q=inp.value.trim();
+  if(!q){ inp.focus(); return; }
+  let scanRepos=_gh.repos||[];
+  if(_cb.prefix) scanRepos=scanRepos.filter(r=>r.name.startsWith(_cb.prefix));
+  if(!scanRepos.length){ alert('No repos to search.'); return; }
+  const cached=scanRepos.filter(r=>_gh.treeCache[r.fullName]).length;
+  const needFetch=scanRepos.length-cached;
+  const tabLabel=_cb.activeTab==='sounds'?'sound files':'image files';
+  // Build modal
+  const ov=document.createElement('div');
+  ov.className='gs-modal-overlay';
+  ov.innerHTML=`<div class="gs-modal">
+    <div class="gs-modal-title">Search across repos?</div>
+    <div class="gs-modal-body">
+      Scan <strong>${scanRepos.length}</strong> repo${scanRepos.length!==1?'s':''} for ${tabLabel} matching <strong>"${esc(q)}"</strong>.<br>
+      ${cached?`${cached} cached · `:''}${needFetch} need fetching → ~${Math.ceil(needFetch/8*1.5)}s estimated.<br>
+      ${_cb.prefix?`<span style="color:#666">Limited to prefix "${esc(_cb.prefix)}"</span>`:''}
+    </div>
+    <div class="gs-modal-actions">
+      <button class="gs-btn" id="gs-cancel-btn">Cancel</button>
+      <button class="gs-btn primary" id="gs-confirm-btn">Start scan</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove();
+  ov.addEventListener('click',e=>{ if(e.target===ov) close(); });
+  document.getElementById('gs-cancel-btn').onclick=close;
+  document.getElementById('gs-confirm-btn').onclick=()=>{ close(); cbGlobalSearchStart(q, scanRepos); };
+  document.getElementById('gs-confirm-btn').focus();
+}
+
+function cbGlobalSearchStart(query, scanRepos){
+  _cb.globalSearch={
+    query: query.toLowerCase(),
+    rawQuery: query,
+    running: true,
+    cancelled: false,
+    scanned: 0,
+    total: scanRepos.length,
+    matches: 0,
+    results: [],       // [{repoIdx, repo, files[]}]
+    repoIndex: [],     // canonical repo list for numeric-idx lookups
+    startedAt: Date.now()
+  };
+  cbGlobalSearchRender(true);
+  log('Scanning '+scanRepos.length+' repos for "'+query+'"…','info');
+  const tab=_cb.activeTab;
+  const typeFilter=tab==='sounds' ? sbIsSound : abIsImage;
+  const q=_cb.globalSearch.query;
+  const myGs=_cb.globalSearch; // lock reference — protects if user closes mid-scan
+  _cbRunPool(scanRepos, async (repo)=>{
+    if(myGs.cancelled) return;
+    try{
+      const tree=await ghFetchTreeForRepo(repo);
+      if(myGs.cancelled) return;
+      const hits=[];
+      for(const item of tree){
+        if(item.type==='blob' && typeFilter(item.path) && item.path.toLowerCase().includes(q)) hits.push(item.path);
+      }
+      if(hits.length){
+        const repoIdx=myGs.repoIndex.length;
+        myGs.repoIndex.push(repo);
+        myGs.results.push({repoIdx, repo, files:hits.sort()});
+        myGs.matches+=hits.length;
+      }
+    }catch(e){ /* skip failed repo */ }
+    myGs.scanned++;
+    if(_cb.globalSearch===myGs) cbGlobalSearchUpdateProgress();
+  }, 8, ()=>myGs.cancelled).then(()=>{
+    myGs.running=false;
+    const dur=((Date.now()-myGs.startedAt)/1000).toFixed(1);
+    log(myGs.cancelled
+      ? '✗ Scan cancelled ('+myGs.scanned+'/'+myGs.total+' scanned, '+myGs.matches+' matches)'
+      : '✓ Scan complete: '+myGs.matches+' matches in '+myGs.results.length+' repos ('+dur+'s)',
+      myGs.cancelled?'err':'ok');
+    if(_cb.globalSearch===myGs) cbGlobalSearchRender(true);
+  });
+}
+
+function cbGlobalSearchCancel(){
+  if(!_cb.globalSearch) return;
+  _cb.globalSearch.cancelled=true;
+}
+
+function cbGlobalSearchClose(){
+  // Cancel any running scan too; then drop the reference
+  if(_cb.globalSearch && _cb.globalSearch.running) _cb.globalSearch.cancelled=true;
+  _cb.globalSearch=null;
+  cbShowFilteredRepoList();
+}
+
+function cbGlobalSearchUpdateProgress(){
+  const gs=_cb.globalSearch; if(!gs) return;
+  const bar=document.getElementById('gs-progress-fill');
+  const lbl=document.getElementById('gs-progress-label');
+  if(bar) bar.style.width=(gs.scanned/gs.total*100)+'%';
+  if(lbl) lbl.innerHTML=`<span>${gs.scanned} / ${gs.total} repos scanned · <span style="color:var(--accent)">${gs.matches}</span> matches</span><span>${gs.running?'scanning…':'done'}</span>`;
+  // Append new repo groups that aren't yet rendered
+  const groupsEl=document.getElementById('gs-results');
+  if(groupsEl && groupsEl.dataset.rendered){
+    const rendered=parseInt(groupsEl.dataset.rendered);
+    if(gs.results.length>rendered){
+      for(let i=rendered;i<gs.results.length;i++){
+        groupsEl.insertAdjacentHTML('beforeend', _cbRenderGroup(gs.results[i], gs.query));
+      }
+      groupsEl.dataset.rendered=gs.results.length;
+      requestAnimationFrame(gsSetupLazyLoad);
+    }
+  }
+  document.getElementById('resultCount').textContent=gs.matches+' matches';
+}
+
+function cbGlobalSearchRender(full){
+  const gs=_cb.globalSearch; if(!gs) return;
+  const area=document.getElementById('resultsArea');
+  area.innerHTML=`<div style="padding:.75rem;display:flex;flex-direction:column;gap:.6rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem">
+      <span style="font-family:var(--font-mono);font-size:.68rem;color:var(--text)">Results for <span style="color:var(--accent)">"${esc(gs.rawQuery)}"</span></span>
+      <div style="display:flex;gap:.4rem">
+        ${gs.running?`<button class="gs-btn danger" onclick="cbGlobalSearchCancel()">Cancel scan</button>`:''}
+        <button class="gs-btn" onclick="cbGlobalSearchClose()">← Back to repos</button>
+      </div>
+    </div>
+    <div class="gs-progress">
+      <div class="gs-progress-label" id="gs-progress-label">
+        <span>${gs.scanned} / ${gs.total} repos scanned · <span style="color:var(--accent)">${gs.matches}</span> matches</span>
+        <span>${gs.running?'scanning…':'done'}</span>
+      </div>
+      <div class="gs-progress-bar"><div class="gs-progress-fill" id="gs-progress-fill" style="width:${gs.total?(gs.scanned/gs.total*100):0}%"></div></div>
+    </div>
+    <div id="gs-results" data-rendered="${gs.results.length}">${gs.results.map(r=>_cbRenderGroup(r, gs.query)).join('')}</div>
+    ${!gs.running && !gs.results.length?`<div class="gs-empty">No matches found.</div>`:''}
+  </div>`;
+  document.getElementById('resultCount').textContent=gs.matches+' matches';
+  document.getElementById('dlBar').style.display='none';
+  requestAnimationFrame(gsSetupLazyLoad);
+}
+
+function _cbRenderGroup(group, query){
+  const {repo, files, repoIdx}=group;
+  const repoName=esc(cbStripPrefix(repo.name));
+  const ql=query.toLowerCase();
+  const priv=ghIsPrivate();
+  const openHandler=`event.stopPropagation();cbGlobalSearchOpenResult(${repoIdx},'${esc(query).replace(/'/g,"\\'")}')`;
+
+  let cardsHtml='';
+  if(_cb.activeTab==='sounds'){
+    cardsHtml='<div class="ab-grid sounds">';
+    for(const path of files){
+      const name=path.split('/').pop();
+      const ext=name.split('.').pop().toUpperCase();
+      const en=esc(name).replace(/'/g,"\\'");
+      const ep=esc(path).replace(/'/g,"\\'");
+      const idx=path.toLowerCase().indexOf(ql);
+      let highlighted;
+      if(idx>=0 && ql.length) highlighted=esc(path.slice(0,idx))+'<mark class="gs-hit">'+esc(path.slice(idx,idx+ql.length))+'</mark>'+esc(path.slice(idx+ql.length));
+      else highlighted=esc(path);
+      if(priv){
+        cardsHtml+='<div class="ab-sound-row">'
+          +'<div style="display:flex;flex-direction:column;gap:.15rem;overflow:hidden"><span class="ab-sound-name" title="'+esc(path)+'">'+highlighted+'</span>'
+          +'<span style="font-family:var(--font-mono);font-size:.55rem;color:#444">'+ext+'</span></div>'
+          +'<div class="sb-audio-placeholder" style="display:flex;align-items:center"><button class="btn" onclick="event.stopPropagation();gsPlayAudio(this,'+repoIdx+',\''+ep+'\',\''+en+'\')" style="font-size:.62rem;padding:.3rem .7rem;white-space:nowrap">▶ Play</button></div>'
+          +'<button class="ab-sound-dl" onclick="event.stopPropagation();gsDownload('+repoIdx+',\''+ep+'\',\''+en+'\')" title="Download">↓</button></div>';
+      } else {
+        const ru=gsRawUrl(repo, path);
+        cardsHtml+='<div class="ab-sound-row">'
+          +'<div style="display:flex;flex-direction:column;gap:.15rem;overflow:hidden"><span class="ab-sound-name" title="'+esc(path)+'">'+highlighted+'</span>'
+          +'<span style="font-family:var(--font-mono);font-size:.55rem;color:#444">'+ext+'</span></div>'
+          +'<audio controls preload="none" src="'+esc(ru)+'"></audio>'
+          +'<button class="ab-sound-dl" onclick="event.stopPropagation();triggerDl(\''+esc(ru).replace(/'/g,"\\'")+'\',\''+en+'\')" title="Download">↓</button></div>';
+      }
+    }
+    cardsHtml+='</div>';
+  } else {
+    // art
+    cardsHtml='<div class="ab-grid images">';
+    for(const path of files){
+      const name=path.split('/').pop();
+      const ext=name.split('.').pop().toUpperCase();
+      const canPrev=abCanPreview(name);
+      const en=esc(name).replace(/'/g,"\\'");
+      const ep=esc(path).replace(/'/g,"\\'");
+      const idx=path.toLowerCase().indexOf(ql);
+      let highlighted;
+      if(idx>=0 && ql.length) highlighted=esc(path.slice(0,idx))+'<mark class="gs-hit">'+esc(path.slice(idx,idx+ql.length))+'</mark>'+esc(path.slice(idx+ql.length));
+      else highlighted=esc(path);
+      if(canPrev){
+        const imgTag=priv
+          ?'<img data-gs-repo-idx="'+repoIdx+'" data-gs-path="'+esc(path)+'" alt="'+esc(name)+'" loading="lazy" src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'1\' height=\'1\'%3E%3C/svg%3E" style="background:#0a0a0a">'
+          :'<img src="'+esc(gsRawUrl(repo, path))+'" alt="'+esc(name)+'" loading="lazy" onerror="this.style.opacity=\'.15\'">';
+        cardsHtml+='<div class="ab-image-card" onclick="event.stopPropagation();gsOpenLightbox('+repoIdx+',\''+ep+'\',\''+en+'\')" title="'+esc(path)+'">'
+          +imgTag
+          +'<div class="img-label"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(path)+'">'+highlighted+'</span>'
+          +'<span style="display:flex;gap:.3rem;flex-shrink:0">'
+          +'<span class="dl-icon" onclick="event.stopPropagation();gsSendToArtTools('+repoIdx+',\''+ep+'\',\''+en+'\')" title="Add to Art Tools" style="color:var(--accent)">+</span>'
+          +'<span class="dl-icon" onclick="event.stopPropagation();gsDownload('+repoIdx+',\''+ep+'\',\''+en+'\')" title="Download">↓</span>'
+          +'</span></div></div>';
+      } else {
+        cardsHtml+='<div class="ab-image-card" onclick="event.stopPropagation();gsDownload('+repoIdx+',\''+ep+'\',\''+en+'\')" title="'+esc(path)+'">'
+          +'<div style="width:100%;height:110px;background:#0a0a0a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:.3rem">'
+          +'<span style="font-size:1.4rem;opacity:.25">🖼️</span>'
+          +'<span style="font-family:var(--font-mono);font-size:.55rem;color:#444">'+ext+'</span></div>'
+          +'<div class="img-label"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(path)+'">'+highlighted+'</span></div></div>';
+      }
+    }
+    cardsHtml+='</div>';
+  }
+
+  return `<div class="gs-group expanded">
+    <div class="gs-group-header" onclick="this.parentElement.classList.toggle('expanded')">
+      <div style="display:flex;align-items:center;gap:.3rem;min-width:0;flex:1">
+        <span class="gs-caret">▸</span>
+        <span class="gs-repo-name" title="${esc(repo.fullName)}">${repoName}</span>
+        <span class="gs-count">${files.length}</span>
+      </div>
+      <button class="gs-open-repo" onclick="${openHandler}" title="Open this repo with filter applied">Open →</button>
+    </div>
+    <div class="gs-group-body">${cardsHtml}</div>
+  </div>`;
+}
+
+function cbGlobalSearchOpenResult(repoIdx, query){
+  const repo=_gsRepo(repoIdx); if(!repo) return;
+  const owner=repo.owner, name=repo.name, branch=repo.defaultBranch||'main';
+  // Leave global search overlay; open repo with query pre-applied
+  _cb.globalSearch=null;
+  _cb.searchQuery=query; // will be applied by sb/abRenderView
+  _cb.repoView=false; _cb.currentPath='';
+  clearLog(); log('Opening '+cbStripPrefix(name)+' · filter: "'+query+'"','info');
+  const area=document.getElementById('resultsArea');
+  area.innerHTML='<div class="cb-loading-overlay"><div class="cb-spinner"></div>Loading '+esc(cbStripPrefix(name))+'…</div>';
+  document.getElementById('resultCount').textContent='loading…';
+  ghSelectRepo(owner, name, branch).then(tree=>{
+    if(!tree){ log('✗ '+(_gh.error||'Failed'),'err'); area.innerHTML='<div class="ab-empty">'+esc(_gh.error||'Failed to load tree')+'</div>'; return; }
+    cbRenderBrowserView();
+  });
+}
 
 function cbSelectRepo(owner, name, branch){
   _cb.repoView=false; _cb.currentPath=''; _cb.searchQuery='';
@@ -3240,217 +3720,9 @@ const ToolAtlasPacker={
 };
 </script>
 
-<!-- ═══ tools/outline.js ═══ -->
-<script>
-const ToolOutline={
-  meta:{id:'outline',label:'Outline / Stroke',small:'edge-accurate contour',icon:'🔲',needsMagick:true,batchMode:false,
-    desc:'Creates a precise outline around every opaque edge of the image using morphological dilation on the alpha channel — the same technique as Photoshop\'s Stroke (Outside). Works correctly with concavities, holes, thin features and semi-transparent edges.'},
-  settingsHTML(){return`
-    <div class="field-row">
-      <div class="field">
-        <label>Outline width (px) &mdash; <span id="ol-width-val" style="color:var(--accent)">3</span></label>
-        <input type="range" id="ol-width" value="3" min="1" max="40" step="1"
-          oninput="document.getElementById('ol-width-val').textContent=this.value">
-      </div>
-      <div class="field">
-        <label>Outline colour</label>
-        <div style="display:flex;align-items:center;gap:.5rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.35rem .6rem;cursor:pointer;transition:border-color .15s"
-          onclick="document.getElementById('ol-color-picker').click()" id="ol-color-swatch">
-          <div id="ol-color-dot" style="width:18px;height:18px;border-radius:3px;border:1px solid rgba(255,255,255,.12);background:#ffffff;flex-shrink:0"></div>
-          <span id="ol-color-hex" style="font-family:var(--font-mono);font-size:.72rem;color:var(--muted)">#ffffff</span>
-        </div>
-        <input type="color" id="ol-color-picker" value="#ffffff" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none"
-          oninput="document.getElementById('ol-color-dot').style.background=this.value;document.getElementById('ol-color-hex').textContent=this.value">
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Outline opacity &mdash; <span id="ol-opacity-val" style="color:var(--accent)">100%</span></label>
-        <input type="range" id="ol-opacity" value="100" min="1" max="100" step="1"
-          oninput="document.getElementById('ol-opacity-val').textContent=this.value+'%'">
-      </div>
-      <div class="field">
-        <label>Position</label>
-        <select id="ol-position" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
-          <option value="outside" selected>Outside</option>
-          <option value="center">Center</option>
-          <option value="inside">Inside</option>
-        </select>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Threshold &mdash; <span id="ol-thresh-val" style="color:var(--accent)">1%</span></label>
-        <input type="range" id="ol-threshold" value="1" min="0" max="50" step="1"
-          oninput="document.getElementById('ol-thresh-val').textContent=this.value+'%'">
-        <span style="font-family:var(--font-mono);font-size:.55rem;color:#555;display:block;margin-top:.15rem">0% = soft anti-aliased edges · higher = harder cutoff</span>
-      </div>
-      <div class="field">
-        <label>Canvas handling</label>
-        <select id="ol-canvas" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
-          <option value="expand" selected>Expand canvas by outline width</option>
-          <option value="keep">Keep original canvas (outline may clip)</option>
-        </select>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field">
-        <label>Kernel shape</label>
-        <select id="ol-kernel" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.82rem;padding:.5rem .7rem;border-radius:4px;outline:none;width:100%">
-          <option value="Disk" selected>Disk (round, smooth)</option>
-          <option value="Square">Square (blocky, fast)</option>
-          <option value="Diamond">Diamond (45° edges)</option>
-        </select>
-      </div>
-    </div>`;},
-  outName(n){return n.replace(/\.png$/i,'')+'_outline.png';},
-  async run(uint8){
-    const width    = parseInt(document.getElementById('ol-width').value)||3;
-    const color    = document.getElementById('ol-color-picker').value||'#ffffff';
-    const opacity  = parseInt(document.getElementById('ol-opacity').value)||100;
-    const position = document.getElementById('ol-position').value||'outside';
-    const canvasMode = document.getElementById('ol-canvas').value||'expand';
-    const kernel   = document.getElementById('ol-kernel').value||'Disk';
-    const threshold= parseInt(document.getElementById('ol-threshold').value);
-    const fresh    = async b=>new Uint8Array(await b.arrayBuffer());
-
-    // --- Determine dilation/erosion radii based on position ---
-    let dilateR, erodeR;
-    if(position==='outside'){
-      dilateR=width; erodeR=0;
-    } else if(position==='inside'){
-      dilateR=0; erodeR=width;
-    } else { // center
-      dilateR=Math.ceil(width/2); erodeR=Math.floor(width/2);
-    }
-
-    // --- Expand canvas if needed (outside/center) and canvasMode=expand ---
-    let workingUint8;
-    if(canvasMode==='expand' && dilateR>0){
-      const pad = dilateR;
-      const dims = await getImageDimensions(uint8);
-      const ew = dims.w + pad*2, eh = dims.h + pad*2;
-      const padCopy = uint8.slice();
-      const rPad = await window._Magick.Call(
-        [{name:'input.png',content:padCopy}],
-        ['convert','input.png','-background','transparent','-gravity','Center',
-         '-extent',`${ew}x${eh}`,'+repage','padded.png']
-      );
-      if(!rPad||!rPad.length) throw new Error('Canvas expand failed');
-      workingUint8 = await fresh(rPad[0].blob);
-    } else {
-      workingUint8 = uint8.slice();
-    }
-
-    // --- 1. Extract alpha channel ---
-    const rAlpha = await window._Magick.Call(
-      [{name:'work.png',content:workingUint8.slice()}],
-      ['convert','work.png','-alpha','extract','alpha.png']
-    );
-    if(!rAlpha||!rAlpha.length) throw new Error('Alpha extract failed');
-    const alphaBlob = rAlpha[0].blob;
-
-    // --- 2. Dilate alpha (grow outward) ---
-    let dilatedBlob;
-    if(dilateR>0){
-      const args=['convert','alpha.png','-morphology','Dilate',`${kernel}:${dilateR}`];
-      if(threshold>0) args.push('-threshold',`${threshold}%`);
-      args.push('dilated.png');
-      const rDilate = await window._Magick.Call(
-        [{name:'alpha.png',content:await fresh(alphaBlob)}], args
-      );
-      if(!rDilate||!rDilate.length) throw new Error('Dilation failed');
-      dilatedBlob = rDilate[0].blob;
-    } else {
-      dilatedBlob = alphaBlob;
-    }
-
-    // --- 3. Erode alpha (shrink inward) for inside/center ---
-    let erodedBlob;
-    if(erodeR>0){
-      const args=['convert','alpha.png','-morphology','Erode',`${kernel}:${erodeR}`];
-      if(threshold>0) args.push('-threshold',`${threshold}%`);
-      args.push('eroded.png');
-      const rErode = await window._Magick.Call(
-        [{name:'alpha.png',content:await fresh(alphaBlob)}], args
-      );
-      if(!rErode||!rErode.length) throw new Error('Erosion failed');
-      erodedBlob = rErode[0].blob;
-    } else {
-      erodedBlob = alphaBlob;
-    }
-
-    // --- 4. Outline mask = maskA * (1 - maskB) ---
-    //   Outside: dilated * (1 - original)  → ring outside shape
-    //   Inside:  original * (1 - eroded)   → ring inside shape
-    //   Center:  dilated * (1 - eroded)    → ring straddling edge
-    // Uses Multiply + Negate (universally supported, unlike -compose Minus)
-    let maskA, maskB;
-    if(position==='outside'){
-      maskA = dilatedBlob; maskB = alphaBlob;
-    } else if(position==='inside'){
-      maskA = alphaBlob; maskB = erodedBlob;
-    } else {
-      maskA = dilatedBlob; maskB = erodedBlob;
-    }
-
-    // Step 4a: negate maskB
-    const rNeg = await window._Magick.Call(
-      [{name:'b.png',content:await fresh(maskB)}],
-      ['convert','b.png','-negate','b_neg.png']
-    );
-    if(!rNeg||!rNeg.length) throw new Error('Negate failed');
-    const negBlob = rNeg[0].blob;
-
-    // Step 4b: multiply maskA * negated maskB → outline ring
-    const rMask = await window._Magick.Call(
-      [{name:'a.png',content:await fresh(maskA)},{name:'b_neg.png',content:await fresh(negBlob)}],
-      ['convert','a.png','b_neg.png','-compose','Multiply','-composite','outline_mask.png']
-    );
-    if(!rMask||!rMask.length) throw new Error('Outline mask failed');
-    let outlineMaskBlob = rMask[0].blob;
-
-    // --- 5. Apply opacity to mask if < 100 ---
-    if(opacity<100){
-      const opFrac = (opacity/100).toFixed(4);
-      const rOp = await window._Magick.Call(
-        [{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
-        ['convert','outline_mask.png','-evaluate','Multiply',opFrac,'outline_mask_op.png']
-      );
-      if(!rOp||!rOp.length) throw new Error('Opacity multiply failed');
-      outlineMaskBlob = rOp[0].blob;
-    }
-
-    // --- 6. Create solid-colour outline layer with mask as alpha ---
-    const rColor = await window._Magick.Call(
-      [{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
-      ['convert','outline_mask.png','-fill',color,'-colorize','100','colored.png']
-    );
-    if(!rColor||!rColor.length) throw new Error('Colorize failed');
-    const coloredBlob = rColor[0].blob;
-
-    // Re-apply the outline mask as alpha onto the colored layer
-    const rApplyMask = await window._Magick.Call(
-      [{name:'colored.png',content:await fresh(coloredBlob)},{name:'outline_mask.png',content:await fresh(outlineMaskBlob)}],
-      ['convert','colored.png','outline_mask.png','-alpha','copy','-compose','CopyOpacity','-composite','outline_layer.png']
-    );
-    if(!rApplyMask||!rApplyMask.length) throw new Error('Outline layer composite failed');
-    const outlineLayerBlob = rApplyMask[0].blob;
-
-    // --- 7. Composite: outline layer UNDER original ---
-    const rFinal = await window._Magick.Call(
-      [{name:'outline_layer.png',content:await fresh(outlineLayerBlob)},{name:'work.png',content:workingUint8.slice()}],
-      ['convert','outline_layer.png','work.png','-compose','Over','-composite','output.png']
-    );
-    if(!rFinal||!rFinal.length) throw new Error('Final composite failed');
-    return rFinal[0].blob;
-  }
-};
-</script>
-
 <!-- ═══ app.js ═══ -->
 <script>
-const ART_TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines,ToolOutline,ToolAtlasPacker];
+const ART_TOOLS=[ToolCrop,ToolScaler,ToolWebp,ToolBlur,ToolGaussBlur,ToolRgba,ToolGreyToAlpha,ToolFontPreview,ToolSlotMachine,ToolGradientMap,ToolPaylines,ToolAtlasPacker];
 const BROWSER_TOOLS=[ToolSoundBrowser,ToolArtBrowser];
 const TOOLS=[...ART_TOOLS,...BROWSER_TOOLS];
 
