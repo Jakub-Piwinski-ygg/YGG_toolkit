@@ -8,14 +8,14 @@ slot-game preview utilities.
 1. **Original (`index.html`)**: Single ~4100-line HTML file, zero dependencies, runs
    from `file://`. Legacy reference during React port.
 2. **React rewrite (`react-app/`)**: Vite + React 18 + Framer Motion, modular
-   components, dev server + GitHub Pages deployment. MVP complete: shell + WebP
-   tool. Remaining 12 tools pending.
+   components, dev server + GitHub Pages deployment. **All 13 art tools ported.**
+   Several QoL features from the original still missing — see backlog below.
 
 ---
 
-## Version: React (MVP, ongoing port)
+## Version: React (all art tools ported)
 
-**Status**: Scaffold + proof-of-concept complete (commit `fb2b720`).
+**Status**: All 13 art tools complete as of this session. QoL backlog remains — see below.
 
 ### Project structure
 ```
@@ -36,17 +36,32 @@ react-app/
     │   ├── ToolTabs.jsx            # Framer Motion: smooth tab switches
     │   ├── ToolPanel.jsx           # Settings + RUN/CLEAR + OutputLog
     │   ├── OutputLog.jsx           # Scrolling log with color-coded entries
-    │   ├── ResultsGrid.jsx         # Animated card grid with lazy-load
+    │   ├── ResultsGrid.jsx         # Animated card grid with lazy-load; non-image file support
     │   ├── DownloadBar.jsx
     │   ├── WasmBadge.jsx
     ├── tools/
-    │   ├── registry.js             # ART_TOOLS[] — add new tools here
-    │   └── WebPTool.jsx            # PNG → WebP (canvas-based, proof-of-concept)
+    │   ├── registry.js             # ART_TOOLS[] — all tools registered here
+    │   ├── WebPTool.jsx            # PNG → WebP (canvas-based)
+    │   ├── CropTool.jsx            # Canvas Resize (crop + pad, match-first-image)
+    │   ├── ScalerTool.jsx          # Image Scaler (8 filter algorithms, WASM)
+    │   ├── BlurTool.jsx            # Directional Motion Blur (5-step WASM pipeline)
+    │   ├── GaussianBlurTool.jsx    # Gaussian Blur (keep/blur alpha, feather)
+    │   ├── RgbaMaskTool.jsx        # RGBA Mask Combiner (4 slots, live preview thumbs)
+    │   ├── GreyToAlphaTool.jsx     # Luminance → Alpha (canvas pixel-push, threshold)
+    │   ├── GradientMapTool.jsx     # Gradient Map (drag stops, 8 presets, 256-LUT)
+    │   ├── OutlineTool.jsx         # Outline/Stroke (outside/center/inside, 3 kernel shapes)
+    │   ├── AtlasPackerTool.jsx     # Atlas Packer (grid/tile mode, pre-scaling)
+    │   ├── PaylinesTool.jsx        # Paylines designer (toggle cells, import/export .txt)
+    │   ├── FontPreviewTool.jsx     # Image Font Preview (per-letter PNG assignment, live canvas)
+    │   ├── SlotMachineTool.jsx     # Slot Machine (reel animation, WASM blur cache, layers)
+    │   └── ContentBrowserTool.jsx  # Content Browser (GitHub/GitLab auth, tree nav, send to tools)
     ├── styles/
     │   ├── tokens.css              # CSS variables (--bg, --accent, etc.)
     │   ├── base.css                # Resets, scrollbars, animations
     │   └── components.css          # All component styles (ported from original)
-    └── utils/download.js           # triggerDownload, downloadAll
+    ├── utils/
+    │   ├── download.js             # triggerDownload, downloadAll
+    │   └── image.js                # getImageDimensions, freshBytes (shared WASM helpers)
 
 ### Dev server
 ```bash
@@ -85,26 +100,76 @@ useEffect(() => {
 2. Add to `registry.js` → `ART_TOOLS`
 3. Import nothing in `App.jsx` — registry is the only coupling point
 
+**meta flags** used by ToolPanel dispatch:
+- `needsMagick: true` — disables RUN until WASM is ready
+- `batchMode: true` — runner is called once with all files (`run(null, null, null, allFiles)`)
+- `needsFiles: false` — RUN is not gated on input files (Paylines, Slot Machine, Content Browser)
+- runner returning `null` is safe — ToolPanel skips `pushOutput` if blob is falsy
+
 **Animation**: Framer Motion used for:
 - Tool tab switches (`whileHover`, `whileTap` with spring physics)
 - Result card reveals (`AnimatePresence` with fade+scale)
 - Button taps (scale feedback)
 
-### Porting checklist (remaining 12 tools)
+### Porting status — all 13 art tools done
 
-- [ ] Crop (Canvas Resize — crop/pad modes)
-- [ ] Blur (Directional Blur)
-- [ ] Gaussian Blur
-- [ ] RGBA Mask Combiner (4 slot UI, live preview)
-- [ ] Grey to Alpha (CPU pixel-push, threshold curve)
-- [ ] Font Preview (letter assignment grid, canvas render)
-- [ ] Image Scaler (filter selection, Magick resize)
-- [ ] Gradient Map (draggable stops, preset library, LUT builder)
-- [ ] Paylines (grid designer, click-to-toggle cells)
-- [ ] Outline / Stroke (morph pipeline, 3 modes)
-- [ ] Atlas Packer (grid/tile mode, multi-sprite composite)
-- [ ] Slot Machine (animation loop + WASM blur, complex state)
-- [ ] Content Browser (repo browser, search, auth panel, breadcrumb nav)
+- [x] WebP (canvas-based PNG → WebP)
+- [x] Crop (Canvas Resize — crop/pad/mixed, match-first-image)
+- [x] Blur (Directional Motion Blur — 5-step WASM)
+- [x] Gaussian Blur (keep/blur alpha, feather edge)
+- [x] RGBA Mask Combiner (4 slots, live preview thumbs)
+- [x] Grey to Alpha (canvas pixel-push, threshold + scale)
+- [x] Font Preview (per-letter PNG assignment, live canvas)
+- [x] Image Scaler (8 filter algorithms, WASM resize)
+- [x] Gradient Map (drag stops, 8 presets, 256-entry LUT)
+- [x] Paylines (grid designer, import/export .txt, no files needed)
+- [x] Outline / Stroke (outside/center/inside, kernel shape)
+- [x] Atlas Packer (grid/tile mode, pre-scaling)
+- [x] Slot Machine (reel animation, WASM blur precompute, layer system)
+- [x] Content Browser (GitHub/GitLab auth, repo list, tree nav, breadcrumbs, lazy thumbnails, send to Art Tools)
+
+### React QoL backlog — missing vs original
+
+These features exist in `index.html` but have not yet been ported:
+
+#### 1. "Replace with output" / promote output to working directory
+In the original, after running a tool the user can click a button to replace the
+input file list with the output files, making chained workflows possible without
+manual download→re-upload. React has no equivalent. The output panel is read-only.
+**Design hint**: add a "→ Working Dir" button to ResultsGrid (or per-card) that
+calls `addFiles(outputFiles.map(f => new File([f.blob], f.name)))` and clears outputs.
+
+#### 2. Category tabs — Art Tools vs Content Browser vs future groups
+The original sidebar has top-level category tabs: **Art Tools** and **Content Browser**,
+each with its own sub-navigation. In React, `ContentBrowserTool` is listed in the same
+flat `ART_TOOLS` array as image processors, which is wrong.
+**Design hint**: introduce a `TOOL_CATEGORIES` structure in `registry.js`:
+```js
+export const TOOL_CATEGORIES = [
+  { id: 'arttools', label: 'Art Tools', tools: [cropMeta, scalerMeta, ...] },
+  { id: 'browser',  label: 'Content',   tools: [contentBrowserMeta] },
+];
+```
+ToolTabs and Sidebar need a top-level category switcher that gates which tool list is shown.
+
+#### 3. Content Browser — audio / Sound Browser tab
+The original Content Browser has two sub-tabs: **Art** (images) and **Sounds** (audio files).
+The Sounds tab lists `.ogg`/`.mp3`/`.wav` files, plays them inline with `<audio>` elements,
+and supports download. Currently the React port only has the Art (image) tab.
+See `index.html` L3331–3434 for the original Sound Browser implementation.
+
+#### 4. Content Browser — cross-repo global search
+The original supports searching a phrase across *all repos* simultaneously using an
+8-worker concurrency pool, live progress overlay, cancellable, cached results, and
+click-through to the matching file in any repo.
+See `index.html` L3037–3329 (`cbGlobalSearchPrompt`, `cbGlobalSearchStart`, etc.)
+Currently missing in React — the search input in `ContentBrowserTool` only filters
+within the currently-open repo's tree.
+
+#### 5. Content Browser — lightbox image preview
+Clicking an image in the original opens a full-screen lightbox overlay with
+Escape-to-close, download button, and "+ Art Tools" button.
+The React port has no lightbox — images are only shown as thumbnails in the grid.
 
 ---
 

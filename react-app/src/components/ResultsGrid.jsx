@@ -2,6 +2,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../context/AppContext.jsx';
 import { triggerDownload } from '../utils/download.js';
 
+const IMG_RE = /\.(png|jpe?g|webp|gif|bmp|svg)$/i;
+
 export function ResultsGrid() {
   const { outputFiles } = useApp();
 
@@ -12,21 +14,31 @@ export function ResultsGrid() {
   return (
     <div className="results-grid">
       <AnimatePresence initial={false}>
-        {outputFiles.map((f) => (
-          <motion.div
-            key={f.name}
-            className="result-card"
-            onClick={() => triggerDownload(f.url, f.name)}
-            title="Click to download"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            transition={{ duration: 0.18 }}
-          >
-            <img src={f.url} alt={f.name} loading="lazy" />
-            <div className="rc-label">{f.name}</div>
-          </motion.div>
-        ))}
+        {outputFiles.map((f) => {
+          const isImg = IMG_RE.test(f.name);
+          return (
+            <motion.div
+              key={f.name}
+              className="result-card"
+              onClick={() => triggerDownload(f.url, f.name)}
+              title="Click to download"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.18 }}
+            >
+              {isImg ? (
+                <img src={f.url} alt={f.name} loading="lazy" />
+              ) : (
+                <div className="result-non-image">
+                  <span className="result-ext">{f.name.split('.').pop().toUpperCase()}</span>
+                  <span className="result-hint">click to download</span>
+                </div>
+              )}
+              <div className="rc-label">{f.name}</div>
+            </motion.div>
+          );
+        })}
       </AnimatePresence>
     </div>
   );
