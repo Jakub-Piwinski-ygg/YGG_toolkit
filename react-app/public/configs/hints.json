@@ -1,0 +1,51 @@
+{
+  "structure.missingTopFolder":   "Add the missing top-level folder, or update the config if this game intentionally omits it.",
+  "structure.duplicateFeature":   "Merge into a single shared folder (e.g. 04_FreeSpins_and_BonusGame) when the feature is shared.",
+  "structure.missingSpineSource": "Deliver the .spine source alongside every export so we can iterate without round-tripping back to the artist.",
+  "structure.referenceLeak":      "Reference / concept files leak into atlases on export. Move them out of the export folder before delivery.",
+  "structure.unknownFolder":      "Folder is not in the configured layout — confirm it's intentional or update the config.",
+
+  "naming.disallowedChars":       "Filenames must use only [A-Za-z0-9_-]. Spaces, parens, accents and 'Copy/v2/final' suffixes break asset pipelines.",
+  "naming.forbiddenSuffix":       "Remove versioning/leftover suffixes from delivered filenames.",
+  "naming.upperCaseExtension":    "Use lowercase extensions (.png not .PNG).",
+  "naming.missingPrefix":         "Filename is missing the expected prefix for this folder (see config).",
+  "naming.spineTripletMismatch":  "The .json / .atlas / .png triplet must share an identical base name (case-sensitive).",
+  "naming.atlasPageMissing":      "The atlas references a PNG page that doesn't exist on disk with that exact name.",
+  "naming.boneTextPrefix":        "Bones that drive dynamic text must start with TEXT_ or text_ for engine binding.",
+
+  "coverage.symbolAnimMissing":   "Each symbol skeleton must include the required animation set (idle / land / win, plus anticipation for specials).",
+  "coverage.symbolStaticMissing": "Export the 1st frame of each symbol as a static PNG for use in pay-tables / UI.",
+  "coverage.symbolSizeMissing":   "Multi-cell symbol size variant is missing (e.g. 1x3 for HP1).",
+  "coverage.requiredStaticMissing":"A required static asset is missing from the delivery.",
+  "coverage.winSeqAnimMissing":   "Win sequence is delivered as a single skeleton chaining begin/idle/outro per tier — flagged tier is missing.",
+  "coverage.previewMissing":      "Each view needs a 1920x1080 landscape and a 1080x2160 portrait preview PNG.",
+  "coverage.fontMissing":         "Dynamic text bone has no matching font sheet under Fonts/.",
+
+  "spine.versionMismatch":        "Re-export with the project's target Spine version.",
+  "spine.mockTextInExport":       "Mock text attachment found under a TEXT bone — delete mock-text slots before exporting.",
+  "spine.textBoneMissing":        "Animation expected to host dynamic text has no TEXT_* empty bone — engine has nowhere to attach the value.",
+  "spine.symbolsNotInOneProject": "All symbol skeletons should live in one .spine project so they share an atlas.",
+  "spine.budgetExceeded":         "Bone / vertex / transform count above warn threshold for this skeleton type.",
+  "spine.animationLint":          "Animation name doesn't match the project's naming lint rules.",
+  "spine.attachmentUnresolved":   "Attachment name in JSON has no matching region in the paired .atlas.",
+
+  "atlas.nonPot":                 "Atlas page is non-power-of-two but its category requires POT.",
+  "atlas.sizeCap":                "Atlas page exceeds the size cap for its category.",
+  "atlas.tooManyPages":           "Skeleton produces too many atlas pages — repack or shrink source assets.",
+  "atlas.lowFillRatio":           "Atlas has lots of empty space — consider reducing page size or increasing region count.",
+  "atlas.unusedRegion":           "Region in .atlas is never referenced by any .json attachment — likely a stale export.",
+
+  "image.nonPot":                 "Asset in a POT category has non-power-of-two dimensions.",
+  "image.bgNonCanonical":         "Background long-edge isn't 2048 or 4096 — use a canonical size.",
+  "image.fileTooLarge":           "PNG file size is above the per-asset cap.",
+  "image.axisTooLarge":           "PNG dimension exceeds the max-axis cap.",
+
+  "bakedText.attachmentName":     "Attachment name suggests baked text content — replace with a TEXT_ bone driven by the engine.",
+  "bakedText.mockInExport":       "Mock text image left in the export under a TEXT bone.",
+  "bakedText.textBoneMissing":    "Skeleton expects dynamic text but no TEXT_ bone is present.",
+
+  "packing.spineMultipleAtlases": "Each .spine export should produce a single atlas — multiple atlases per skeleton suggest a packing issue.",
+
+  "consistency.spineVersionDrift":"Spine .json files don't all agree on the same engine version.",
+  "consistency.atlasFilterDrift": "Atlas filter mode is inconsistent within a category."
+}

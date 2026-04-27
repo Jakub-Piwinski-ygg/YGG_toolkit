@@ -1,0 +1,5 @@
+{
+  "configs": [
+    { "id": "default", "label": "Default (general slot game)", "file": "default.json" }
+  ]
+}

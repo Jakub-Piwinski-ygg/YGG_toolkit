@@ -13,6 +13,7 @@ import { FontPreviewTool, fontPreviewMeta } from './FontPreviewTool.jsx';
 import { SlotMachineTool, slotMachineMeta } from './SlotMachineTool.jsx';
 import { ContentBrowserTool, contentBrowserMeta } from './ContentBrowserTool.jsx';
 import { SoundBrowserTool, soundBrowserMeta } from './SoundBrowserTool.jsx';
+import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerTool.jsx';
 
 const ART = [
   { meta: cropMeta, Component: CropTool },
@@ -35,9 +36,14 @@ const BROWSER = [
   { meta: soundBrowserMeta, Component: SoundBrowserTool }
 ];
 
+const REVIEW = [
+  { meta: assetCheckerMeta, Component: AssetCheckerTool }
+];
+
 export const TOOL_CATEGORIES = [
   { id: 'arttools', label: 'Art Tools', icon: '🎨', tools: ART },
-  { id: 'browser', label: 'Content', icon: '📦', tools: BROWSER }
+  { id: 'browser', label: 'Content', icon: '📦', tools: BROWSER },
+  { id: 'review', label: 'Review', icon: '🔍', tools: REVIEW }
 ];
 
 // Flattened convenience list — used by anything that needs to look up a tool
