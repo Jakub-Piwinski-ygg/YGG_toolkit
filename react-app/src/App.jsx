@@ -1,4 +1,5 @@
 import { AppProvider } from './context/AppContext.jsx';
+import { RepoBrowserProvider } from './context/RepoBrowserContext.jsx';
 import { useMagick } from './hooks/useMagick.js';
 import { Header } from './components/Header.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
@@ -41,7 +42,9 @@ function Shell() {
 export default function App() {
   return (
     <AppProvider>
-      <Shell />
+      <RepoBrowserProvider>
+        <Shell />
+      </RepoBrowserProvider>
     </AppProvider>
   );
 }

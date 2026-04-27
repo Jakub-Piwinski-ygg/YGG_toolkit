@@ -5,7 +5,19 @@ const AppContext = createContext(null);
 export function AppProvider({ children }) {
   const [inputFiles, setInputFiles] = useState([]);
   const [outputFiles, setOutputFiles] = useState([]);
-  const [currentTool, setCurrentTool] = useState('webp');
+  const [currentTool, setCurrentToolRaw] = useState('webp');
+  const [currentCategory, setCurrentCategory] = useState('arttools');
+
+  // Selecting a tool also moves to its category — lets links from outside the
+  // sidebar (header subtitle, "send to art tools") work without a separate step.
+  // We import the registry lazily here to avoid a circular import at module load
+  // time (registry imports tool components that import this file).
+  const setCurrentTool = useCallback(async (id) => {
+    setCurrentToolRaw(id);
+    const { categoryOfTool } = await import('../tools/registry.js');
+    const cat = categoryOfTool(id);
+    if (cat) setCurrentCategory(cat);
+  }, []);
   const [logEntries, setLogEntries] = useState([
     { type: 'info', msg: '— loading ImageMagick WASM… —' }
   ]);
@@ -41,6 +53,27 @@ export function AppProvider({ children }) {
       }
       return additions.length ? [...prev, ...additions] : prev;
     });
+  }, []);
+
+  // Promote produced output blobs into the working file list. Used by
+  // "Replace with output" so a user can chain tools without manual
+  // download → re-upload.
+  const replaceFilesWithOutput = useCallback(() => {
+    setOutputFiles((currentOutputs) => {
+      if (!currentOutputs.length) return currentOutputs;
+      const newInputs = currentOutputs.map((f) => ({
+        name: f.name,
+        file: new File([f.blob], f.name, { type: f.blob.type || 'application/octet-stream' }),
+        url: URL.createObjectURL(f.blob)
+      }));
+      setInputFiles((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p.url));
+        return newInputs;
+      });
+      currentOutputs.forEach((f) => URL.revokeObjectURL(f.url));
+      return [];
+    });
+    setProgressLabel('');
   }, []);
 
   const removeFile = useCallback((name) => {
@@ -80,6 +113,8 @@ export function AppProvider({ children }) {
       outputFiles,
       currentTool,
       setCurrentTool,
+      currentCategory,
+      setCurrentCategory,
       logEntries,
       log,
       clearLog,
@@ -94,6 +129,7 @@ export function AppProvider({ children }) {
       clearResults,
       pushOutput,
       resetOutputs,
+      replaceFilesWithOutput,
       registerRunner,
       getRunner
     }),
@@ -101,6 +137,7 @@ export function AppProvider({ children }) {
       inputFiles,
       outputFiles,
       currentTool,
+      currentCategory,
       logEntries,
       magickReady,
       isRunning,
@@ -112,6 +149,7 @@ export function AppProvider({ children }) {
       clearResults,
       pushOutput,
       resetOutputs,
+      replaceFilesWithOutput,
       registerRunner,
       getRunner
     ]
