@@ -1,0 +1,109 @@
+{
+  "$schema": "ygg-asset-checker-config/v1",
+  "label": "Default (general slot game)",
+  "description": "Placeholder rules derived from past tech-art reviews. Replace thresholds with the official tech-art doc when supplied.",
+
+  "structure": {
+    "rootFolderName": "unity_export",
+    "elementFolderPattern": "^[0-9]+[_\\-]",
+    "elementSubfolders": {
+      "exportAnim":   "Export/Animation",
+      "exportStatic": "Export/StaticArt",
+      "sourceAnim":   "Source/AnimationSources",
+      "sourceStatic": "Source"
+    },
+    "expectedLocations": {
+      "spineExport":  "exportAnim",
+      "staticPng":    "exportStatic",
+      "spineSource":  "sourceAnim",
+      "psd":          "sourceStatic",
+      "preview":      "elementRoot"
+    },
+    "elementSubfoldersRequired": false,
+    "referenceFilePatterns": [
+      "(?i)(^|[_\\-])(ref|reference|concept|wireframe|wip)[0-9]*([_\\-]|\\.|$)"
+    ]
+  },
+
+  "naming": {
+    "allowedCharsRegex": "^[A-Za-z0-9_\\-./]+$",
+    "forbiddenSuffixes": ["_copy", "_v1", "_v2", "_FINAL", "-bak", " copy", "_old"],
+    "lowercaseExtensions": true,
+    "folderPrefixes": {
+      "Backgrounds": ["bg_"],
+      "Symbols":     ["sym_", "hp", "lp"],
+      "Popups":      ["popup_"],
+      "Buttons":     ["btn_"],
+      "Fonts":       ["font_"]
+    },
+    "folderCasing": {}
+  },
+
+  "spine": {
+    "targetVersion": "4.2",
+    "textBonePrefixes": ["TEXT_", "text_"],
+    "textIndicatingBoneNameRegex": "(?i)(win.?amount|counter|number|multiplier|bonus|freespins|fs.?number)",
+    "symbolAnimationsRequired": ["idle", "land", "win"],
+    "specialSymbolAnimationsRequired": ["idle", "land", "win", "anticipation"],
+    "winSequenceAnimationsRequired": [
+      "small_idle", "medium_begin", "medium_idle",
+      "large_begin", "large_idle", "big_begin", "big_idle",
+      "mega_begin", "mega_idle"
+    ],
+    "boneCountWarn": 80,
+    "vertexCountWarn": 4000,
+    "transformCountWarn": 80,
+    "animationLints": [
+      { "regex": "_transition$", "message": "Use _intro or _begin instead of _transition" }
+    ]
+  },
+
+  "atlas": {
+    "maxPagesPerSkeletonWarn": 2,
+    "maxPagesPerSkeletonError": 4,
+    "categorySizeCaps": {
+      "symbols":   { "maxW": 2048, "maxH": 4096 },
+      "winseq":    { "maxW": 2048, "maxH": 4096 },
+      "ui":        { "maxW": 2048, "maxH": 2048 },
+      "default":   { "maxW": 2048, "maxH": 2048 }
+    },
+    "potCategories": ["symbols", "backgrounds"],
+    "fillRatioWarn": 0.55
+  },
+
+  "images": {
+    "potCategories": ["backgrounds", "symbols"],
+    "backgroundCanonicalSizes": [2048, 4096],
+    "maxFileMB": 8,
+    "maxAxisPx": 4096,
+    "categoryMaxSize": {
+      "smallDetail": 128,
+      "smallUi": 256
+    }
+  },
+
+  "coverage": {
+    "requiredStatics": [
+      "bg_static.png", "logo_static.png",
+      "loading_bar.png", "loading_bar_bg.png",
+      "splash_bg.png", "machine_frame.png", "board_static.png"
+    ],
+    "previewViews": [
+      "base_game", "free_spins", "bonus_intro", "bonus_outro",
+      "total_win", "win_sequence", "splash"
+    ],
+    "previewSizes": [
+      { "label": "landscape", "w": 1920, "h": 1080 },
+      { "label": "portrait",  "w": 1080, "h": 2160 }
+    ],
+    "symbolSizes": ["1x1", "1x3"]
+  },
+
+  "bakedText": {
+    "stringLikeAttachmentNames": [
+      "text", "win_amount", "winamount", "bonus", "multiplier",
+      "freespins", "free_spins", "start", "tap_to_continue",
+      "spin", "press", "play"
+    ]
+  }
+}
