@@ -499,6 +499,178 @@ opt-in toggle.
 
 ---
 
+## 14a. v1 implementation status (this PR)
+
+A working v1 of the tool ships in this PR under a new **Review** sidebar
+category. All implementation lives in `react-app/src/tools/AssetChecker/`.
+
+### Architecture as built
+
+```
+react-app/
+├── public/configs/
+│   ├── manifest.json            # selectable preset list
+│   ├── default.json             # bundled rule set
+│   └── hints.json               # ruleId → fix advice strings
+└── src/tools/AssetChecker/
+    ├── AssetCheckerTool.jsx     # ingest, RUN, mode badge, layout
+    ├── engine/
+    │   ├── runChecks.js         # orchestrator + summary
+    │   ├── findings.js          # Finding type, severity rank, sort/group
+    │   ├── fileIndex.js         # path tree, byExt/byDir/byBase lookup
+    │   ├── ingest.js            # <input webkitdirectory> + drag-drop walker
+    │   ├── mode.js              # full / element / loose detection
+    │   ├── regex.js             # (?i) inline-flag shim, folder normaliser
+    │   ├── spineTriplet.js      # find json↔atlas pairs (incl. multi-skel)
+    │   ├── suggest.js           # rename suggestions for naming findings
+    │   └── checks/
+    │       ├── structure.js     # §1, content-location validation
+    │       ├── naming.js        # §2 + per-finding suggestions
+    │       ├── coverage.js      # §3 + per-element preview check
+    │       ├── spineJson.js     # §4 + §5.5 union-based unused regions
+    │       ├── atlas.js         # §5
+    │       ├── images.js        # §6 (size gauge + per-file passes)
+    │       └── bakedText.js     # §7.4
+    └── report/
+        ├── ReportView.jsx       # summary, group views, filters, gauge UI
+        └── TreeView.jsx         # tree with per-severity badges
+```
+
+### Modes (auto-detected from the dropped folder name)
+
+| Mode | Trigger | Behaviour |
+|------|---------|-----------|
+| **full** | top folder = `unity_export` | Strict: enumerate `NN_Element` children, full content-location validation, required-statics enforced |
+| **element** | top folder matches `^\d+[_-]` | Lenient: subfolders optional; content-location applies if present; required-statics skipped |
+| **loose** | anything else | Skip structure entirely; still run naming, spine, atlas, image, baked-text on whatever's there |
+
+Configurable via `structure.rootFolderName` and `structure.elementFolderPattern`.
+
+### Canonical element layout (configurable)
+
+```
+unity_export/<NN>_<ElementName>/
+  ├── Export/
+  │   ├── Animation/      → spine .json + .atlas(.txt) + .png
+  │   └── StaticArt/      → static PNGs
+  ├── Source/             → .psd + raw .png  (excluded from naming/image checks)
+  │   └── AnimationSources/   → .spine + spine source images
+  └── Preview/            → <name>_landscape.png, <name>_portrait.png
+```
+
+`expectedLocations` in the config maps file-kind → subfolder key, so the
+content-location validator (`spine export must live under Export/Animation`,
+etc.) is fully data-driven. Folder-name comparisons are case-insensitive
+(so `export/Animation` matches the spec) and tolerant of numeric prefixes
+(`01_Symbols` ≡ `Symbols`).
+
+### Phase-1 checks shipped
+
+| § | Check | Status | Notes |
+|---|-------|--------|-------|
+| 1.1 | Required top-level folders | ✅ | Replaced by canonical element layout in full mode |
+| 1.3 | `.spine` source alongside exports | ✅ | |
+| 1.4 | Reference / WIP file leak | ✅ | Configurable regex set |
+| 1.5 | Orphan / unknown folders | ✅ | Direct children of root must match element pattern in full mode |
+| — | **Content-location validation (new)** | ✅ | Spine export → `Export/Animation`, .spine → `Source/AnimationSources`, .psd → `Source/`; case-insensitive |
+| 2.1 | Disallowed chars | ✅ | File-name only (folder names handled separately, deduped) |
+| 2.3 | Lowercase extension | ✅ | + suggested rename |
+| 2.5 | Forbidden suffix | ✅ | + suggested rename |
+| 2.6 | Spine triplet base-name match | ✅ | Multi-skeleton (many .json + one shared atlas, e.g. Symbols) recognised as valid |
+| 2.7 | Atlas page filename ↔ disk file (case) | ✅ | |
+| 3.1 | Per-symbol completeness (matrix) | ✅ | Animations: idle / land / win |
+| 3.2 | Static PNG per symbol | ✅ | |
+| 3.4 | Required statics | ✅ | **Full mode only** — element / loose drops are intentional subsets |
+| 3.5 | Win-sequence chain completeness | ✅ | Per-skeleton matrix |
+| 3.6 | Previews per element | ✅ | **Rewritten**: looks for `*_landscape.png` (1920×1080) and `*_portrait.png` (1080×2160) in `(element)/Preview/`; checks actual PNG dimensions |
+| 4.1 | Spine version match | ✅ | Per-file pass |
+| 4.2 | Mock text under TEXT bone | ✅ | Per-file pass |
+| 4.3 | TEXT_/text_ prefix on text-suggestive bones | ✅ | Per-file pass |
+| 4.5 | Bone / vertex budgets | ✅ | Per-file pass |
+| 4.7 | Animation name lints | ✅ | Per-file pass |
+| 4.8 | Attachment names resolve in atlas | ✅ | Per-file pass |
+| 5.1 | Atlas page POT | ✅ | |
+| 5.2 | Atlas size cap per category | ✅ | |
+| 5.3 | Atlas page count per skeleton | ✅ | |
+| 5.5 | Unused regions in atlas | ✅ | **Union across skeletons** — multi-skeleton shared atlases don't false-flag siblings' regions; collapsed into a single matrix-finding per atlas |
+| 6.1 | POT for POT-required categories | ✅ | |
+| 6.2 | Background canonical resolution | ✅ | |
+| 6.4 | File-size budget | ✅ | **Traffic-light gauge** (≤4MB pass / 4–10MB info / 10–16MB warn / ≥16MB error) with sharp marker + labeled chevron |
+| 6.6 | Oversized PNG axis | ✅ | |
+| 7.4 | String-like attachment names (cheap baked-text) | ✅ | |
+| 11.1 | Same Spine version everywhere | ✅ | |
+
+### Robustness fixes applied during iteration
+
+- **`(?i)` inline flag** in config regexes — JS doesn't support it; `regex.js`
+  strips the prefix and applies the `i` flag instead.
+- **`.atlas.txt`** is recognised alongside `.atlas` (some Spine exporters add
+  the suffix). Treated as ext `atlas` in the index.
+- **Multi-skeleton atlases** — many `.json` files sharing one `.atlas` (the
+  Symbols pattern) is now first-class: no triplet-mismatch warnings, unused
+  regions computed against the union, single info-pass per shared atlas.
+- **Folder casing** — `export/` vs `Export/` no longer breaks content-location
+  matching.
+- **Numeric prefixes** — `01_Symbols` ≡ `Symbols` for required-folder and
+  prefix-rule lookup.
+- **`Source/`** is fully excluded from per-asset checks (raw / WIP files).
+- **`Preview/`** is excluded from naming / size checks; only the
+  landscape+portrait coverage check runs there.
+
+### Pass-finding strategy
+
+Every check group emits at least one `severity: 'pass'` finding for what it
+verified (per-file where useful, per-rule where helpful, blanket otherwise).
+Examples shipped:
+
+- `image.fileSizeOk` — per PNG, with size + dimensions + gauge bar
+- `spine.rule4_1Pass` … `spine.rule4_8Pass` — per .json per rule
+- `spine.multiSkeletonAtlas` — per shared atlas
+- `atlas.allRegionsUsed`, `atlas.withinBudget`
+- `coverage.symbolsComplete`, `coverage.previewOk`, `coverage.requiredStaticsPresent`
+- `structure.elementsFound`, `structure.elementSubfoldersPresent`,
+  `structure.spineLocationOk`, `structure.spineSourceLocationOk`,
+  `structure.refLeakClean`, plus a mode-detection pass on every run
+- `naming.allClean`
+- `consistency.spineVersionConsistent`
+
+Passes are filtered off by default — toggle the green pill in the summary
+to surface them.
+
+### Report UX shipped
+
+- Mode badge (green / blue / orange dot) above the summary
+- 4 clickable severity cards (errors / warnings / info / passed) double as
+  filter toggles; plus file / size / atlas / spine / png stat cards
+- Three view modes (severity / category / file) with collapsible groups,
+  per-group mini-counts (`3 err`, `7 warn`, `12 info`, `4 pass`)
+- Search box matching message / category / paths
+- Naming suggestions render inline as `from → to` pills with copy button
+- File-size gauge: gradient bar with bold marker, pointer label showing the
+  actual MB at that position
+- Findings carrying `data.kind === 'matrix'` render as compact tables
+  (preview coverage, symbol coverage, win-sequence completeness, unused
+  regions)
+- Tree sidebar with per-severity badges per node, propagating up; click a
+  node to filter the report to that file or descendants; click again /
+  ✕-clear-button restores the full list
+- Inline preview on file click (image / JSON / atlas text)
+
+### Phase 2 / Phase 3 — not in this PR
+
+Defer until v1 is in real use:
+
+- Phase 2 (medium): §3.7 font-set completeness, §5.4 atlas fill ratio,
+  §6.3 font glyph completeness, §6.5 estimated compressed size
+  (pngquant / oxipng WASM), §6.7 alpha histogram, §6.8 trim-bounds,
+  §6.10 mirror symmetry, §6.12 per-category resolution caps,
+  §9.1 pivot match, §10.1 / 10.3 / 10.4 advisory.
+- Phase 3 (heavy): §6.9 / 6.11 perceptual-hash clustering, §7.3 / 7.5
+  Tesseract.js OCR for baked-text deep scan, §10.2 additive-blending hint.
+- HTML / Markdown report export.
+
+---
+
 ## 15. Things this tool deliberately does NOT do
 
 - Subjective art-direction calls ("the symbol looks dim", "background feels
