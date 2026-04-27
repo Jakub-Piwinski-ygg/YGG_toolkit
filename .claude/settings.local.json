@@ -14,7 +14,9 @@
       "Bash(powershell -NoProfile -Command \"cd 'C:/Users/jakub.pi/YGG_toolkit/.claude/worktrees/ecstatic-aryabhata-77480e/react-app'; & 'C:/Program Files/nodejs/npm.cmd' install 2>&1\")",
       "Bash(powershell -NoProfile -Command \"rm -Force -Recurse node_modules -ErrorAction SilentlyContinue; rm package-lock.json -ErrorAction SilentlyContinue; echo 'Cleaned'; & 'C:/Program Files/nodejs/npm.cmd' install --loglevel=error 2>&1 | tail -20\")",
       "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/jakub.pi/YGG_toolkit/.claude/worktrees/ecstatic-aryabhata-77480e/react-app/install.ps1\")",
-      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/jakub.pi/YGG_toolkit/.claude/worktrees/ecstatic-aryabhata-77480e/react-app/dev.ps1\")"
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/jakub.pi/YGG_toolkit/.claude/worktrees/ecstatic-aryabhata-77480e/react-app/dev.ps1\")",
+      "Bash(npm run *)",
+      "Bash(git add *)"
     ]
   }
 }

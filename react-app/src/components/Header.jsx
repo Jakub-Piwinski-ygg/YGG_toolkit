@@ -1,6 +1,8 @@
 import { WasmBadge } from './WasmBadge.jsx';
 import { useApp } from '../context/AppContext.jsx';
-import { ART_TOOLS } from '../tools/registry.js';
+import { TOOL_CATEGORIES } from '../tools/registry.js';
+
+const SUBTITLE_TOOLS = TOOL_CATEGORIES.find((c) => c.id === 'arttools')?.tools || [];
 
 export function Header() {
   const { setCurrentTool, inputFiles, resetOutputs, log, clearLog } = useApp();
@@ -24,12 +26,12 @@ export function Header() {
         <div>
           <h1>YGG&nbsp;&nbsp;&nbsp;TOOLKIT</h1>
           <span className="subtitle">
-            {ART_TOOLS.map((t, i) => (
+            {SUBTITLE_TOOLS.map((t, i) => (
               <span key={t.meta.id}>
                 <span className="subtitle-link" onClick={() => setCurrentTool(t.meta.id)}>
                   {t.meta.label.toLowerCase()}
                 </span>
-                {i < ART_TOOLS.length - 1 && ' · '}
+                {i < SUBTITLE_TOOLS.length - 1 && ' · '}
               </span>
             ))}
           </span>

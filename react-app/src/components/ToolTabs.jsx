@@ -1,12 +1,13 @@
 import { motion } from 'framer-motion';
-import { ART_TOOLS } from '../tools/registry.js';
+import { TOOL_CATEGORIES } from '../tools/registry.js';
 import { useApp } from '../context/AppContext.jsx';
 
 export function ToolTabs() {
-  const { currentTool, setCurrentTool } = useApp();
+  const { currentTool, setCurrentTool, currentCategory } = useApp();
+  const cat = TOOL_CATEGORIES.find((c) => c.id === currentCategory) || TOOL_CATEGORIES[0];
   return (
     <div className="tool-tabs">
-      {ART_TOOLS.map((t) => {
+      {cat.tools.map((t) => {
         const active = currentTool === t.meta.id;
         return (
           <motion.button
