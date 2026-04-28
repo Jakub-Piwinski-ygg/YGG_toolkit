@@ -1,5 +1,6 @@
 import { mkFinding } from '../findings.js';
-import { folderMatches, normalizeFolderName } from '../regex.js';
+import { folderMatches, normalizeFolderName, compileRegex } from '../regex.js';
+import { isUnderSource, isUnderPreview } from '../spineTriplet.js';
 
 const CAT = '3. Coverage';
 
@@ -222,6 +223,45 @@ export async function run(ctx) {
           message: `${j.name} contains all ${reqWin.length} required win-sequence animation(s).`
         }));
       }
+    }
+  }
+
+  // Buttons must live under a Buttons/ folder so they're imported separately
+  // and can be wired up as buttons in the engine. Filename regex matches
+  // common button conventions; folder regex matches Buttons/ButtonStrip/etc.
+  // Excludes Source/ and Preview/ since those aren't shipping assets.
+  let btnNameRe = null, btnFolderRe = null;
+  try { btnNameRe = compileRegex(cfg.buttonNameRegex || '(?i)(?:^|[/_-])(btn|button)(?:[_-]|$)'); } catch {}
+  try { btnFolderRe = compileRegex(cfg.buttonFolderRegex || '(?i)button'); } catch {}
+  if (btnNameRe && btnFolderRe) {
+    const pngs = (index.byExt.get('png') || []).filter((e) => !isUnderSource(e) && !isUnderPreview(e));
+    const stray = [];
+    let candidates = 0;
+    for (const e of pngs) {
+      if (!btnNameRe.test(e.name)) continue;
+      candidates++;
+      const inButtonsFolder = e.segments.slice(0, -1).some((s) => btnFolderRe.test(s));
+      if (!inButtonsFolder) stray.push(e);
+    }
+    for (const e of stray) {
+      findings.push(mkFinding({
+        ruleId: 'coverage.buttonOutsideFolder',
+        severity: 'warn',
+        priority: 2,
+        category: CAT,
+        paths: [e.relPath],
+        message: `${e.name} looks like a button asset but isn't under a Buttons/ folder — buttons should be exported separately so they can be wired up as buttons in the engine.`
+      }));
+    }
+    if (candidates > 0 && stray.length === 0) {
+      findings.push(mkFinding({
+        ruleId: 'coverage.buttonsLocated',
+        severity: 'pass',
+        priority: 5,
+        category: CAT,
+        paths: [],
+        message: `All ${candidates} button-like asset(s) live under a Buttons/ folder.`
+      }));
     }
   }
 

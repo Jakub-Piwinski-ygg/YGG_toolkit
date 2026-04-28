@@ -15,6 +15,79 @@ async function pngDims(file) {
   return { w: view.getUint32(16), h: view.getUint32(20) };
 }
 
+// Decode a PNG to a downscaled canvas and compute alpha stats:
+//   - transparentRatio: fraction of pixels with alpha < threshold
+//   - tightBox: bbox of pixels with alpha >= threshold (in canvas coords)
+//   - canvasW/H: downscaled canvas dims
+// We downscale to ANALYSIS_MAX on the long edge — alpha ratios and bbox
+// proportions are scale-invariant within rounding, and this caps cost on
+// large drops. Returns null if the PNG is too big or fails to decode.
+const ANALYSIS_MAX = 512;
+const ANALYSIS_ALPHA_THRESHOLD = 8;
+const ANALYSIS_SKIP_AXIS = 8192; // bail on absurdly large files
+
+async function analyzeAlpha(file, dims) {
+  if (!dims) return null;
+  if (dims.w > ANALYSIS_SKIP_AXIS || dims.h > ANALYSIS_SKIP_AXIS) return null;
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); } catch { return null; }
+  const long = Math.max(bitmap.width, bitmap.height);
+  const scale = long > ANALYSIS_MAX ? ANALYSIS_MAX / long : 1;
+  const cw = Math.max(1, Math.round(bitmap.width * scale));
+  const ch = Math.max(1, Math.round(bitmap.height * scale));
+  let canvas;
+  try {
+    canvas = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(cw, ch)
+      : Object.assign(document.createElement('canvas'), { width: cw, height: ch });
+  } catch { bitmap.close?.(); return null; }
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) { bitmap.close?.(); return null; }
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.drawImage(bitmap, 0, 0, cw, ch);
+  bitmap.close?.();
+  let data;
+  try { data = ctx.getImageData(0, 0, cw, ch).data; } catch { return null; }
+
+  let transparent = 0;
+  let minX = cw, minY = ch, maxX = -1, maxY = -1;
+  const total = cw * ch;
+  for (let y = 0; y < ch; y++) {
+    for (let x = 0; x < cw; x++) {
+      const a = data[(y * cw + x) * 4 + 3];
+      if (a < ANALYSIS_ALPHA_THRESHOLD) {
+        transparent++;
+      } else {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  const tightBox = maxX >= 0
+    ? { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 }
+    : null;
+  return {
+    transparentRatio: transparent / total,
+    tightBox,
+    canvasW: cw,
+    canvasH: ch
+  };
+}
+
+// Map a filename to a custom resolution-cap category via patterns.
+// cfg.categoryPatterns: { categoryId: ["regex", ...] }
+function matchResolutionCategory(name, patterns) {
+  const lower = name.toLowerCase();
+  for (const [cat, list] of Object.entries(patterns || {})) {
+    for (const pat of list) {
+      try { if (new RegExp(pat, 'i').test(lower)) return cat; } catch { /* skip bad regex */ }
+    }
+  }
+  return null;
+}
+
 function sizeGauge(bytes) {
   // 0 at SIZE_IDEAL or below, 1 at SIZE_BAD or above, linear in between.
   if (bytes <= SIZE_IDEAL) return { t: 0, label: 'green', severity: 'pass' };
@@ -33,6 +106,11 @@ export async function run(ctx) {
   // Preview/ files have their own dedicated check in coverage.js.
   const pngs = (index.byExt.get('png') || []).filter((e) => !isUnderSource(e) && !isUnderPreview(e));
   const potCats = new Set(cfg.potCategories || []);
+  const resCaps = cfg.categoryMaxSize || {};
+  const resPatterns = cfg.categoryPatterns || {};
+  const alphaEmptyThreshold = cfg.alphaEmptyRatio ?? 0.9;
+  const trimRatioThreshold = cfg.trimRatioWarn ?? 0.5;
+  const enableDeepAnalysis = cfg.deepImageAnalysis !== false;
   let nonPotCount = 0;
   let bigCount = 0;
   let imageCount = 0;
@@ -89,6 +167,56 @@ export async function run(ctx) {
           paths: [e.relPath],
           message: `${cat} asset is non-POT: ${dims.w}x${dims.h}.`
         }));
+      }
+    }
+
+    // 6.12 per-category resolution caps (e.g. flares ≤ 128, small UI ≤ 256)
+    if (dims) {
+      const resCat = matchResolutionCategory(e.name, resPatterns);
+      if (resCat && resCaps[resCat]) {
+        const capPx = resCaps[resCat];
+        const longEdge = Math.max(dims.w, dims.h);
+        if (longEdge > capPx) {
+          fileFindings.push(mkFinding({
+            ruleId: 'image.categoryAxisExceeded',
+            severity: 'warn',
+            priority: 3,
+            category: CAT,
+            paths: [e.relPath],
+            message: `${e.name} (${resCat}) is ${dims.w}x${dims.h}; category cap is ${capPx}px on the long edge.`
+          }));
+        }
+      }
+    }
+
+    // 6.7 / 6.8 deep alpha analysis (canvas-based, downscaled)
+    if (enableDeepAnalysis && dims) {
+      const stats = await analyzeAlpha(e.file, dims);
+      if (stats) {
+        if (stats.transparentRatio > alphaEmptyThreshold) {
+          fileFindings.push(mkFinding({
+            ruleId: 'image.almostEmptyAlpha',
+            severity: 'warn',
+            priority: 3,
+            category: CAT,
+            paths: [e.relPath],
+            message: `${e.name}: ${Math.round(stats.transparentRatio * 100)}% of pixels are transparent — trim canvas before export.`
+          }));
+        } else if (stats.tightBox) {
+          const canvasArea = stats.canvasW * stats.canvasH;
+          const usedArea = stats.tightBox.w * stats.tightBox.h;
+          const usedRatio = usedArea / canvasArea;
+          if (usedRatio < trimRatioThreshold) {
+            fileFindings.push(mkFinding({
+              ruleId: 'image.excessivePadding',
+              severity: 'info',
+              priority: 4,
+              category: CAT,
+              paths: [e.relPath],
+              message: `${e.name}: content occupies ${Math.round(usedRatio * 100)}% of canvas — consider tighter trim.`
+            }));
+          }
+        }
       }
     }
 

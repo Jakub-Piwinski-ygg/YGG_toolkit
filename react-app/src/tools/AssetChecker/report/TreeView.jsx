@@ -60,7 +60,7 @@ function Node({ node, depth, selected, onSelect, openMap, toggle, sevFilter }) {
           style={{ paddingLeft: depth * 12 }}
           onClick={() => {
             if (node.kind === 'dir') toggle(node.path);
-            onSelect?.(node.path);
+            onSelect?.(node.path, node.kind);
           }}
         >
           <span className="ac-tree-caret">

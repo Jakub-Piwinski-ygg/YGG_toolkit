@@ -23,6 +23,8 @@
 
   "spine.versionMismatch":        "Re-export with the project's target Spine version.",
   "spine.mockTextInExport":       "Mock text attachment found under a TEXT bone — delete mock-text slots before exporting.",
+  "spine.textBoneDecoration":     "An attachment under a TEXT bone has a decoration-like name (shadow/glow/halo/etc). Probably intentional — keep if the in-engine text renders on top of it.",
+  "coverage.buttonOutsideFolder": "Buttons should ship under a Buttons/ folder so they can be imported separately and wired up as buttons in the engine.",
   "spine.textBoneMissing":        "Animation expected to host dynamic text has no TEXT_* empty bone — engine has nowhere to attach the value.",
   "spine.symbolsNotInOneProject": "All symbol skeletons should live in one .spine project so they share an atlas.",
   "spine.budgetExceeded":         "Bone / vertex / transform count above warn threshold for this skeleton type.",
@@ -39,6 +41,14 @@
   "image.bgNonCanonical":         "Background long-edge isn't 2048 or 4096 — use a canonical size.",
   "image.fileTooLarge":           "PNG file size is above the per-asset cap.",
   "image.axisTooLarge":           "PNG dimension exceeds the max-axis cap.",
+  "image.categoryAxisExceeded":   "Asset category has a tighter resolution cap than the global max — downscale before export.",
+  "image.almostEmptyAlpha":       "PNG canvas is mostly transparent — trim before export so the asset doesn't waste atlas space.",
+  "image.excessivePadding":       "Content fills less than half of the canvas — tighter trim will reduce atlas footprint.",
+
+  "atlas.fillRatioOk":            "Atlas pages have healthy fill ratios.",
+
+  "spine.budgetOutlier":          "Skeleton sits in the top percentile of bone/vertex count for this drop — likely a candidate for optimisation.",
+  "spine.budgetPercentileOk":     "No skeleton stands out as a bone/vertex outlier in this drop.",
 
   "bakedText.attachmentName":     "Attachment name suggests baked text content — replace with a TEXT_ bone driven by the engine.",
   "bakedText.mockInExport":       "Mock text image left in the export under a TEXT bone.",

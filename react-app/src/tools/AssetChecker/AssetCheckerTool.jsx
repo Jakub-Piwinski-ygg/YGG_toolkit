@@ -141,16 +141,25 @@ export function AssetCheckerTool() {
     }
   };
 
-  const onSelectFile = async (path) => {
+  // File inspection: open preview only. Does NOT touch treeFilter, so the
+  // list doesn't re-render and the user's scroll position is preserved.
+  const onInspectFile = async (path) => {
+    const entry = entries.find((e) => e.relPath === path);
+    if (!entry) return; // not a real file (folder path) — ignore
+    // Toggle: clicking the same file again closes the preview.
+    if (selectedFile === path) {
+      setSelectedFile(null);
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+      setPreviewText(null);
+      setPreviewKind(null);
+      return;
+    }
     setSelectedFile(path);
-    setTreeFilter(path); // filter findings to this file or descendants
     if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); }
     setPreviewText(null);
     setPreviewKind(null);
-    const segs = path.split('/');
-    const tail = segs[segs.length - 1] || '';
-    const entry = entries.find((e) => e.relPath === path);
-    if (!entry) return; // folder click — filter only, no preview
+    const tail = path.split('/').pop() || '';
     if (/\.(png|jpg|jpeg|webp|gif)$/i.test(tail)) {
       setPreviewUrl(URL.createObjectURL(entry.file));
       setPreviewKind('image');
@@ -161,6 +170,18 @@ export function AssetCheckerTool() {
     } else {
       setPreviewKind('binary');
     }
+  };
+
+  // Folder selection in the tree: filter the report to this folder's subtree.
+  // Does NOT open a preview.
+  const onSelectFolder = (path) => {
+    setTreeFilter(path);
+  };
+
+  // Tree-row click router: dirs filter, files inspect.
+  const onTreeSelect = (path, kind) => {
+    if (kind === 'dir') onSelectFolder(path);
+    else onInspectFile(path);
   };
 
   const clearTreeFilter = () => {
@@ -237,21 +258,10 @@ export function AssetCheckerTool() {
         <div className="ac-main">
           <div className="ac-sidebar">
             <div className="ac-side-head">Tree</div>
-            <TreeView entries={entries} findings={findings} selected={selectedFile} onSelect={onSelectFile} sevFilter={sevFilter} />
+            <TreeView entries={entries} findings={findings} selected={selectedFile} onSelect={onTreeSelect} sevFilter={sevFilter} />
           </div>
           <div className="ac-content">
-            <ReportView findings={findings} summary={summary} onSelectFile={onSelectFile} treeFilter={treeFilter} onClearTreeFilter={clearTreeFilter} sevFilter={sevFilter} onToggleSev={toggleSev} />
-            {selectedFile && (
-              <div className="ac-preview">
-                <div className="ac-preview-head">
-                  <span>{selectedFile}</span>
-                  <button className="btn" style={{ fontSize: '.55rem', padding: '.15rem .45rem' }} onClick={() => setSelectedFile(null)}>✕ close</button>
-                </div>
-                {previewKind === 'image' && previewUrl && <img src={previewUrl} alt="" className="ac-preview-img" />}
-                {previewKind === 'text' && <pre className="ac-preview-text">{previewText}</pre>}
-                {previewKind === 'binary' && <div className="ac-preview-bin">No inline preview for this file type.</div>}
-              </div>
-            )}
+            <ReportView findings={findings} summary={summary} onSelectFile={onInspectFile} selectedFile={selectedFile} previewUrl={previewUrl} previewKind={previewKind} previewText={previewText} treeFilter={treeFilter} onClearTreeFilter={clearTreeFilter} sevFilter={sevFilter} onToggleSev={toggleSev} />
           </div>
         </div>
       )}

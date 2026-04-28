@@ -24,6 +24,13 @@ export async function run(ctx) {
     try { textNameRe = compileRegex(cfg.textIndicatingBoneNameRegex); }
     catch (e) { /* ignore — checked.versionMismatch will still run */ }
   }
+  // Slots parented to a TEXT_ bone whose name matches this regex are treated
+  // as legitimate decorations (shadow, glow, halo, etc) — flagged at info,
+  // not as a mock-text export error.
+  let textBoneDecorationRe = null;
+  try {
+    textBoneDecorationRe = compileRegex(cfg.textBoneDecorationRegex || '(?i)(shadow|glow|halo|backdrop|blur|light|underlay|outline|stroke|gradient|fade)');
+  } catch { /* fall through */ }
 
   const triplets = findSpineExports(index);
   const jsons = triplets.map((t) => t.json);
@@ -60,6 +67,7 @@ export async function run(ctx) {
   }
 
   const versions = new Map();
+  const skeletonStats = []; // { path, name, bones, verts } for §10.4 percentile
 
   // Per-atlas union of regions referenced by ALL skeletons sharing it.
   // (Multi-skeleton atlases share regions across skeletons; the unused-region
@@ -132,8 +140,20 @@ export async function run(ctx) {
       if (!isText) continue;
       const childSlots = slotByBone.get(boneName) || [];
       for (const s of childSlots) {
-        if (slotHasAttachment.has(s.name)) {
-          rulePass['4.2'] = false;
+        if (!slotHasAttachment.has(s.name)) continue;
+        rulePass['4.2'] = false;
+        const decoration =
+          textBoneDecorationRe && (textBoneDecorationRe.test(s.name) || textBoneDecorationRe.test(boneName));
+        if (decoration) {
+          findings.push(mkFinding({
+            ruleId: 'spine.textBoneDecoration',
+            severity: 'info',
+            priority: 4,
+            category: CAT,
+            paths: [j.relPath],
+            message: `Decoration "${s.name}" sits under TEXT bone "${boneName}" — fine if intentional (shadow/glow/etc); ignore otherwise.`
+          }));
+        } else {
           findings.push(mkFinding({
             ruleId: 'spine.mockTextInExport',
             severity: 'error',
@@ -176,6 +196,8 @@ export async function run(ctx) {
         }
       }
     }
+    skeletonStats.push({ path: j.relPath, name: j.name, bones: boneCount, verts: vertCount });
+
     if (cfg.boneCountWarn && boneCount > cfg.boneCountWarn) {
       rulePass['4.5'] = false;
       findings.push(mkFinding({
@@ -274,6 +296,43 @@ export async function run(ctx) {
         category: CAT,
         paths: [j.relPath],
         message: `${j.name} — ${RULE_PASS_LABELS[ruleKey]}`
+      }));
+    }
+  }
+
+  // 10.4 bone/vertex outliers — flag the top percentile across the drop.
+  // Only meaningful when several skeletons exist; needs at least the
+  // configured minimum so a 2-skeleton drop doesn't auto-flag the larger one.
+  const minForPercentile = cfg.percentileMinSkeletons ?? 4;
+  const percentileCutoff = cfg.percentileCutoff ?? 0.95;
+  if (skeletonStats.length >= minForPercentile) {
+    const boneSorted = [...skeletonStats].map((s) => s.bones).sort((a, b) => a - b);
+    const vertSorted = [...skeletonStats].map((s) => s.verts).sort((a, b) => a - b);
+    const idx = Math.floor(percentileCutoff * (boneSorted.length - 1));
+    const boneThresh = boneSorted[idx];
+    const vertThresh = vertSorted[idx];
+    const outliers = skeletonStats.filter((s) => s.bones >= boneThresh || s.verts >= vertThresh);
+    for (const s of outliers) {
+      const reasons = [];
+      if (s.bones >= boneThresh) reasons.push(`bones=${s.bones}`);
+      if (s.verts >= vertThresh) reasons.push(`vertices=${s.verts}`);
+      findings.push(mkFinding({
+        ruleId: 'spine.budgetOutlier',
+        severity: 'info',
+        priority: 4,
+        category: CAT,
+        paths: [s.path],
+        message: `${s.name} is in the top ${Math.round((1 - percentileCutoff) * 100)}% (${reasons.join(', ')}) — review for optimisation.`
+      }));
+    }
+    if (outliers.length === 0) {
+      findings.push(mkFinding({
+        ruleId: 'spine.budgetPercentileOk',
+        severity: 'pass',
+        priority: 5,
+        category: CAT,
+        paths: [],
+        message: `No skeletons in the top ${Math.round((1 - percentileCutoff) * 100)}% bone/vertex bracket.`
       }));
     }
   }
