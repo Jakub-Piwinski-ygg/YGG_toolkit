@@ -16,7 +16,8 @@
       "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/jakub.pi/YGG_toolkit/.claude/worktrees/ecstatic-aryabhata-77480e/react-app/install.ps1\")",
       "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/jakub.pi/YGG_toolkit/.claude/worktrees/ecstatic-aryabhata-77480e/react-app/dev.ps1\")",
       "Bash(npm run *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

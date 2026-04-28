@@ -8,11 +8,30 @@ const SIZE_BAD   = 16 * 1024 * 1024;  // ≥ 16 MB → error (red)
 
 function isPot(n) { return n > 0 && (n & (n - 1)) === 0; }
 
-async function pngDims(file) {
+// Static-image extensions we run technical checks on. PNG is still the
+// primary format; jpg/webp/gif/bmp are accepted so loose-asset drops of
+// non-PNG static art aren't silently skipped.
+const STATIC_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'];
+const ALPHA_CAPABLE_EXTS = new Set(['png', 'webp', 'gif']);
+
+async function pngDimsFromHeader(file) {
   const buf = new Uint8Array(await file.slice(0, 32).arrayBuffer());
   if (buf[0] !== 0x89 || buf[1] !== 0x50) return null;
   const view = new DataView(buf.buffer);
   return { w: view.getUint32(16), h: view.getUint32(20) };
+}
+
+// Generic image-dim reader. PNGs use the cheap header parse; everything
+// else falls back to createImageBitmap (decodes the file once — small cost
+// for jpg/webp/gif which we'd decode for alpha analysis anyway).
+async function imageDims(file, ext) {
+  if (ext === 'png') return pngDimsFromHeader(file);
+  try {
+    const bm = await createImageBitmap(file);
+    const dims = { w: bm.width, h: bm.height };
+    bm.close?.();
+    return dims;
+  } catch { return null; }
 }
 
 // Decode a PNG to a downscaled canvas and compute alpha stats:
@@ -104,7 +123,15 @@ export async function run(ctx) {
   const findings = [];
   // Source/ contains raw / WIP files — skip them entirely.
   // Preview/ files have their own dedicated check in coverage.js.
-  const pngs = (index.byExt.get('png') || []).filter((e) => !isUnderSource(e) && !isUnderPreview(e));
+  // We include PNG + JPG/WEBP/GIF/BMP so loose-asset drops of non-PNG
+  // static art still get size, dimension, and alpha checks.
+  const images = [];
+  for (const ext of STATIC_IMAGE_EXTS) {
+    const list = index.byExt.get(ext) || [];
+    for (const e of list) {
+      if (!isUnderSource(e) && !isUnderPreview(e)) images.push({ entry: e, ext });
+    }
+  }
   const potCats = new Set(cfg.potCategories || []);
   const resCaps = cfg.categoryMaxSize || {};
   const resPatterns = cfg.categoryPatterns || {};
@@ -115,9 +142,10 @@ export async function run(ctx) {
   let bigCount = 0;
   let imageCount = 0;
 
-  for (const e of pngs) {
+  for (const { entry: e, ext } of images) {
     imageCount++;
-    const dims = await pngDims(e.file);
+    const dims = await imageDims(e.file, ext);
+    const hasAlpha = ALPHA_CAPABLE_EXTS.has(ext);
     const top = (e.segments[0] || '').toLowerCase();
     const cat = categoryFromTop(top);
     const sizeMB = (e.size / 1024 / 1024).toFixed(2);
@@ -152,7 +180,7 @@ export async function run(ctx) {
         priority: 3,
         category: CAT,
         paths: [e.relPath],
-        message: `PNG ${dims.w}x${dims.h} exceeds max-axis ${cfg.maxAxisPx}px.`
+        message: `${ext.toUpperCase()} ${dims.w}x${dims.h} exceeds max-axis ${cfg.maxAxisPx}px.`
       }));
     }
 
@@ -189,8 +217,10 @@ export async function run(ctx) {
       }
     }
 
-    // 6.7 / 6.8 deep alpha analysis (canvas-based, downscaled)
-    if (enableDeepAnalysis && dims) {
+    // 6.7 / 6.8 deep alpha analysis (canvas-based, downscaled).
+    // Skip for JPEGs / BMPs — they have no alpha channel, so the
+    // "almost-empty alpha" check would always misfire.
+    if (enableDeepAnalysis && dims && hasAlpha) {
       const stats = await analyzeAlpha(e.file, dims);
       if (stats) {
         if (stats.transparentRatio > alphaEmptyThreshold) {

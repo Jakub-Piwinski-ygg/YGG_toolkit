@@ -178,10 +178,12 @@ export function AssetCheckerTool() {
     setTreeFilter(path);
   };
 
-  // Tree-row click router: dirs filter, files inspect.
+  // Tree-row click router: both dirs and files filter the report; files also
+  // open an inline preview. Filtering by an exact file path is supported by
+  // ReportView's treeFilter logic (it matches paths === treeFilter).
   const onTreeSelect = (path, kind) => {
-    if (kind === 'dir') onSelectFolder(path);
-    else onInspectFile(path);
+    setTreeFilter(path);
+    if (kind === 'file') onInspectFile(path);
   };
 
   const clearTreeFilter = () => {
