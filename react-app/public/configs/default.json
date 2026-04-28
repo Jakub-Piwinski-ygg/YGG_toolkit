@@ -55,7 +55,9 @@
     "transformCountWarn": 80,
     "animationLints": [
       { "regex": "_transition$", "message": "Use _intro or _begin instead of _transition" }
-    ]
+    ],
+    "percentileMinSkeletons": 4,
+    "percentileCutoff": 0.95
   },
 
   "atlas": {
@@ -79,7 +81,14 @@
     "categoryMaxSize": {
       "smallDetail": 128,
       "smallUi": 256
-    }
+    },
+    "categoryPatterns": {
+      "smallDetail": ["flare", "spark", "highlight", "glow", "particle"],
+      "smallUi":     ["icon[_-]", "btn[_-]", "badge"]
+    },
+    "deepImageAnalysis": true,
+    "alphaEmptyRatio": 0.9,
+    "trimRatioWarn": 0.5
   },
 
   "coverage": {

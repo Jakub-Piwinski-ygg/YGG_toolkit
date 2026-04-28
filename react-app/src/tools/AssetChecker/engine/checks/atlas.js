@@ -23,6 +23,9 @@ export async function run(ctx) {
   // group atlases by their base (.json) skeleton
   const pagesPerSkeleton = new Map();
 
+  const fillWarn = cfg.fillRatioWarn ?? 0.55;
+  const fillMinPageArea = cfg.fillMinPageAreaPx ?? 1024 * 1024; // skip tiny atlases
+
   for (const a of atlases) {
     const text = await a.file.text();
     const pages = parseAtlasPages(text);
@@ -43,16 +46,23 @@ export async function run(ctx) {
           }));
         }
       }
-      // 5.2 size cap
-      if (cap && (p.w > cap.maxW || p.h > cap.maxH)) {
-        findings.push(mkFinding({
-          ruleId: 'atlas.sizeCap',
-          severity: 'error',
-          priority: 1,
-          category: CAT,
-          paths: [a.relPath],
-          message: `Atlas page "${p.name}" is ${p.w}x${p.h}, exceeds cap ${cap.maxW}x${cap.maxH} for "${cat}".`
-        }));
+      // 5.2 size cap — atlases pack either orientation, so allow w/h to map
+      // either way (e.g. 4096x644 fits a 2048x4096 cap rotated).
+      if (cap) {
+        const capLong = Math.max(cap.maxW, cap.maxH);
+        const capShort = Math.min(cap.maxW, cap.maxH);
+        const pageLong = Math.max(p.w, p.h);
+        const pageShort = Math.min(p.w, p.h);
+        if (pageLong > capLong || pageShort > capShort) {
+          findings.push(mkFinding({
+            ruleId: 'atlas.sizeCap',
+            severity: 'error',
+            priority: 1,
+            category: CAT,
+            paths: [a.relPath],
+            message: `Atlas page "${p.name}" is ${p.w}x${p.h}, exceeds cap ${cap.maxW}x${cap.maxH} (or ${cap.maxH}x${cap.maxW}) for "${cat}".`
+          }));
+        }
       }
     }
 
@@ -80,9 +90,54 @@ export async function run(ctx) {
       }));
     }
 
+    // 5.4 / 10.3 atlas fill ratio (sum of region areas vs page area)
+    const fillRows = [];
+    let fillRatioBad = false;
+    for (const p of pages) {
+      const pageArea = p.w * p.h;
+      if (!pageArea || pageArea < fillMinPageArea) continue;
+      const usedArea = p.regions.reduce((s, r) => s + (r.w * r.h), 0);
+      const ratio = usedArea / pageArea;
+      const pct = Math.round(ratio * 100);
+      fillRows.push([p.name, `${p.w}x${p.h}`, `${p.regions.length}`, `${pct}%`]);
+      if (ratio < fillWarn) {
+        fillRatioBad = true;
+        findings.push(mkFinding({
+          ruleId: 'atlas.lowFillRatio',
+          severity: 'info',
+          priority: 4,
+          category: CAT,
+          paths: [a.relPath],
+          message: `Atlas page "${p.name}" is ${pct}% full (${p.regions.length} region(s) on ${p.w}x${p.h}) — under ${Math.round(fillWarn * 100)}% threshold.`
+        }));
+      }
+    }
+    if (fillRows.length > 0 && !fillRatioBad) {
+      findings.push(mkFinding({
+        ruleId: 'atlas.fillRatioOk',
+        severity: 'pass',
+        priority: 5,
+        category: CAT,
+        paths: [a.relPath],
+        message: `${a.name}: atlas fill ratio within budget.`,
+        data: {
+          kind: 'matrix',
+          title: 'Atlas fill ratio',
+          columns: ['Page', 'Size', 'Regions', 'Fill'],
+          rows: fillRows
+        }
+      }));
+    }
+
     // emit a pass per atlas if size & page count within budget
+    const fitsCap = (p) => {
+      if (!cap) return true;
+      const cl = Math.max(cap.maxW, cap.maxH), cs = Math.min(cap.maxW, cap.maxH);
+      const pl = Math.max(p.w, p.h), ps = Math.min(p.w, p.h);
+      return pl <= cl && ps <= cs;
+    };
     if (pages.length > 0 &&
-        pages.every((p) => !cap || (p.w <= cap.maxW && p.h <= cap.maxH)) &&
+        pages.every(fitsCap) &&
         pages.length < (cfg.maxPagesPerSkeletonWarn || 2)) {
       findings.push(mkFinding({
         ruleId: 'atlas.withinBudget',
@@ -124,22 +179,70 @@ export async function run(ctx) {
 }
 
 export function parseAtlasPages(atlasText) {
-  // A page block starts with the PNG filename, followed by indented attributes.
-  // libgdx atlas format: filename line, then "size: WxH", "filter: ...", etc.
+  // libgdx / Spine atlas format. Page block starts with PNG filename and
+  // header attributes (size, format, filter, repeat). Subsequent unindented
+  // non-image lines are region names; their indented attrs include the
+  // packed `size: w,h` (post-trim, what actually consumes atlas space).
+  // We treat the first `size:` after a region name as that region's size.
   const lines = atlasText.split(/\r?\n/);
   const pages = [];
-  let cur = null;
-  for (const line of lines) {
-    if (/\.(png|webp|jpg)$/i.test(line.trim()) && !line.startsWith(' ') && !line.startsWith('\t')) {
-      if (cur) pages.push(cur);
-      cur = { name: line.trim(), w: 0, h: 0 };
+  let curPage = null;
+  let curRegion = null;
+  let pageSizeCaptured = false;
+  let regionSizeCaptured = false;
+
+  const pushRegion = () => {
+    if (curPage && curRegion && curRegion.w > 0 && curRegion.h > 0) {
+      curPage.regions.push(curRegion);
+    }
+    curRegion = null;
+    regionSizeCaptured = false;
+  };
+
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    const isIndented = /^[ \t]/.test(raw);
+
+    if (!trimmed) {
+      pushRegion();
       continue;
     }
-    if (cur) {
-      const m = line.match(/^\s*size\s*:\s*(\d+)\s*[,xX]\s*(\d+)/);
-      if (m) { cur.w = +m[1]; cur.h = +m[2]; }
+
+    if (!isIndented && /\.(png|webp|jpg)$/i.test(trimmed)) {
+      pushRegion();
+      if (curPage) pages.push(curPage);
+      curPage = { name: trimmed, w: 0, h: 0, regions: [] };
+      pageSizeCaptured = false;
+      continue;
+    }
+
+    if (!isIndented && trimmed.includes(':')) {
+      // Page-level attribute (size / format / filter / repeat).
+      if (curPage && !pageSizeCaptured) {
+        const m = trimmed.match(/^size\s*:\s*(\d+)\s*[,xX]\s*(\d+)/);
+        if (m) {
+          curPage.w = +m[1]; curPage.h = +m[2];
+          pageSizeCaptured = true;
+        }
+      }
+      continue;
+    }
+
+    if (!isIndented && !trimmed.includes(':')) {
+      pushRegion();
+      curRegion = { name: trimmed, w: 0, h: 0 };
+      continue;
+    }
+
+    if (isIndented && curPage && curRegion) {
+      const m = trimmed.match(/^size\s*:\s*(\d+)\s*[,xX]\s*(\d+)/);
+      if (m && !regionSizeCaptured) {
+        curRegion.w = +m[1]; curRegion.h = +m[2];
+        regionSizeCaptured = true;
+      }
     }
   }
-  if (cur) pages.push(cur);
+  pushRegion();
+  if (curPage) pages.push(curPage);
   return pages;
 }

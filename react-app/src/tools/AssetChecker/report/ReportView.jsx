@@ -1,10 +1,31 @@
 import { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { groupBy } from '../engine/findings.js';
 
 const SEV_ICON = { error: '✕', warn: '!', info: 'i', pass: '✓' };
 const SEV_COLOR = { error: '#e85a5a', warn: '#e0a93a', info: '#5aa0e8', pass: '#4cff88' };
 
-function CollapsibleGroup({ label, list, onSelectFile }) {
+function InlinePreview({ kind, url, text, path }) {
+  return (
+    <motion.div
+      key={path + (kind || '')}
+      initial={{ height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={{ height: 0, opacity: 0 }}
+      transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+      style={{ overflow: 'hidden' }}
+      className="ac-inline-preview-wrap"
+    >
+      <div className="ac-inline-preview">
+        {kind === 'image' && url && <img src={url} alt="" className="ac-preview-img" />}
+        {kind === 'text'  && <pre className="ac-preview-text">{text}</pre>}
+        {kind === 'binary' && <div className="ac-preview-bin">No inline preview for this file type.</div>}
+      </div>
+    </motion.div>
+  );
+}
+
+function CollapsibleGroup({ label, list, onSelectFile, selectedFile, previewUrl, previewKind, previewText }) {
   const [open, setOpen] = useState(true);
   const counts = list.reduce((a, f) => { a[f.severity] = (a[f.severity] || 0) + 1; return a; }, {});
   return (
@@ -20,12 +41,22 @@ function CollapsibleGroup({ label, list, onSelectFile }) {
           <span className="ac-group-count">{list.length}</span>
         </span>
       </div>
-      {open && list.map((f) => <FindingRow key={f.uid} f={f} onSelect={onSelectFile} />)}
+      {open && list.map((f) => (
+        <FindingRow
+          key={f.uid}
+          f={f}
+          onSelect={onSelectFile}
+          selectedFile={selectedFile}
+          previewUrl={previewUrl}
+          previewKind={previewKind}
+          previewText={previewText}
+        />
+      ))}
     </div>
   );
 }
 
-function FindingRow({ f, onSelect }) {
+function FindingRow({ f, onSelect, selectedFile, previewUrl, previewKind, previewText }) {
   const [copied, setCopied] = useState(false);
   const sug = f.data?.suggestion;
   const copy = (text) => {
@@ -57,12 +88,26 @@ function FindingRow({ f, onSelect }) {
       {f.paths?.length > 0 && (
         <div className="ac-fpaths">
           {f.paths.map((p) => (
-            <span key={p} className="ac-fpath" onClick={() => onSelect?.(p)}>{p}</span>
+            <span
+              key={p}
+              className={`ac-fpath ${selectedFile === p ? 'sel' : ''}`}
+              onClick={() => onSelect?.(p)}
+            >{p}</span>
           ))}
         </div>
       )}
       {f.data?.kind === 'matrix' && <Matrix data={f.data} />}
       {f.data?.gauge && <SizeGauge gauge={f.data.gauge} />}
+      <AnimatePresence initial={false}>
+        {selectedFile && f.paths?.includes(selectedFile) && (
+          <InlinePreview
+            kind={previewKind}
+            url={previewUrl}
+            text={previewText}
+            path={selectedFile}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -147,7 +192,7 @@ function SizeGauge({ gauge }) {
   );
 }
 
-export function ReportView({ findings, summary, onSelectFile, treeFilter, onClearTreeFilter, sevFilter, onToggleSev }) {
+export function ReportView({ findings, summary, onSelectFile, selectedFile, previewUrl, previewKind, previewText, treeFilter, onClearTreeFilter, sevFilter, onToggleSev }) {
   const [view, setView] = useState('severity');
   const [search, setSearch] = useState('');
   const toggleSev = onToggleSev;
@@ -238,7 +283,16 @@ export function ReportView({ findings, summary, onSelectFile, treeFilter, onClea
       )}
 
       {grouped.map(([groupLabel, list]) => (
-        <CollapsibleGroup key={groupLabel} label={groupLabel} list={list} onSelectFile={onSelectFile} />
+        <CollapsibleGroup
+          key={groupLabel}
+          label={groupLabel}
+          list={list}
+          onSelectFile={onSelectFile}
+          selectedFile={selectedFile}
+          previewUrl={previewUrl}
+          previewKind={previewKind}
+          previewText={previewText}
+        />
       ))}
     </div>
   );
