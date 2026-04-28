@@ -24,6 +24,13 @@ export async function run(ctx) {
     try { textNameRe = compileRegex(cfg.textIndicatingBoneNameRegex); }
     catch (e) { /* ignore — checked.versionMismatch will still run */ }
   }
+  // Slots parented to a TEXT_ bone whose name matches this regex are treated
+  // as legitimate decorations (shadow, glow, halo, etc) — flagged at info,
+  // not as a mock-text export error.
+  let textBoneDecorationRe = null;
+  try {
+    textBoneDecorationRe = compileRegex(cfg.textBoneDecorationRegex || '(?i)(shadow|glow|halo|backdrop|blur|light|underlay|outline|stroke|gradient|fade)');
+  } catch { /* fall through */ }
 
   const triplets = findSpineExports(index);
   const jsons = triplets.map((t) => t.json);
@@ -133,8 +140,20 @@ export async function run(ctx) {
       if (!isText) continue;
       const childSlots = slotByBone.get(boneName) || [];
       for (const s of childSlots) {
-        if (slotHasAttachment.has(s.name)) {
-          rulePass['4.2'] = false;
+        if (!slotHasAttachment.has(s.name)) continue;
+        rulePass['4.2'] = false;
+        const decoration =
+          textBoneDecorationRe && (textBoneDecorationRe.test(s.name) || textBoneDecorationRe.test(boneName));
+        if (decoration) {
+          findings.push(mkFinding({
+            ruleId: 'spine.textBoneDecoration',
+            severity: 'info',
+            priority: 4,
+            category: CAT,
+            paths: [j.relPath],
+            message: `Decoration "${s.name}" sits under TEXT bone "${boneName}" — fine if intentional (shadow/glow/etc); ignore otherwise.`
+          }));
+        } else {
           findings.push(mkFinding({
             ruleId: 'spine.mockTextInExport',
             severity: 'error',

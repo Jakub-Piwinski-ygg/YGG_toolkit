@@ -23,6 +23,8 @@
 
   "spine.versionMismatch":        "Re-export with the project's target Spine version.",
   "spine.mockTextInExport":       "Mock text attachment found under a TEXT bone — delete mock-text slots before exporting.",
+  "spine.textBoneDecoration":     "An attachment under a TEXT bone has a decoration-like name (shadow/glow/halo/etc). Probably intentional — keep if the in-engine text renders on top of it.",
+  "coverage.buttonOutsideFolder": "Buttons should ship under a Buttons/ folder so they can be imported separately and wired up as buttons in the engine.",
   "spine.textBoneMissing":        "Animation expected to host dynamic text has no TEXT_* empty bone — engine has nowhere to attach the value.",
   "spine.symbolsNotInOneProject": "All symbol skeletons should live in one .spine project so they share an atlas.",
   "spine.budgetExceeded":         "Bone / vertex / transform count above warn threshold for this skeleton type.",

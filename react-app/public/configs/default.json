@@ -46,6 +46,7 @@
   "spine": {
     "targetVersion": "4.2",
     "textBonePrefixes": ["TEXT_", "text_"],
+    "textBoneDecorationRegex": "(?i)(shadow|glow|halo|backdrop|blur|light|underlay|outline|stroke|gradient|fade)",
     "textIndicatingBoneNameRegex": "(?i)(win.?amount|counter|number|multiplier|bonus|freespins|fs.?number)",
     "symbolAnimationsRequired": ["idle", "land", "win"],
     "specialSymbolAnimationsRequired": ["idle", "land", "win", "anticipation"],
@@ -105,6 +106,8 @@
       "base_game", "free_spins", "bonus_intro", "bonus_outro",
       "total_win", "win_sequence", "splash"
     ],
+    "buttonNameRegex": "(?i)(?:^|[/_-])(btn|button)(?:[_-]|$)",
+    "buttonFolderRegex": "(?i)button",
     "previewSizes": [
       { "label": "landscape", "w": 1920, "h": 1080 },
       { "label": "portrait",  "w": 1080, "h": 2160 }
