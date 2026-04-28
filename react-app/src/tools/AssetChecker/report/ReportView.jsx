@@ -71,6 +71,15 @@ function FindingRow({ f, onSelect, selectedFile, previewUrl, previewKind, previe
         <span className="ac-sev" style={{ background: SEV_COLOR[f.severity] }}>
           {SEV_ICON[f.severity]}
         </span>
+        {f.severity === 'pass' && f.data?.passOf && (
+          <span
+            className="ac-passof"
+            style={{ background: SEV_COLOR[f.data.passOf] }}
+            title={`If this check failed, it would be a ${f.data.passOf}.`}
+          >
+            {SEV_ICON[f.data.passOf]}
+          </span>
+        )}
         <span className="ac-fcat">{f.category}</span>
         <span className="ac-fmsg">{f.message}</span>
       </div>

@@ -365,6 +365,7 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .ac-finding:last-child{border-bottom:none}
 .ac-fhead{display:flex;align-items:flex-start;gap:.5rem;flex-wrap:wrap}
 .ac-sev{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:3px;color:#000;font-weight:bold;font-size:.7rem;flex-shrink:0}
+.ac-passof{display:inline-flex;align-items:center;justify-content:center;width:12px;height:12px;border-radius:2px;color:#000;font-weight:bold;font-size:.55rem;flex-shrink:0;opacity:.85;margin-left:-2px}
 .ac-fcat{font-size:.55rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;background:var(--surface2);padding:.15rem .4rem;border-radius:3px;flex-shrink:0}
 .ac-fmsg{font-size:.7rem;color:var(--text);flex:1;min-width:200px}
 .ac-fhint{font-size:.6rem;color:var(--muted);margin-top:.3rem;padding-left:26px;font-style:italic}
