@@ -4,16 +4,17 @@ import { runAllChecks } from './engine/runChecks.js';
 import { entriesFromInput, entriesFromDataTransfer } from './engine/ingest.js';
 import { ReportView } from './report/ReportView.jsx';
 import { TreeView } from './report/TreeView.jsx';
+import { ExportPanel } from './report/ExportPanel.jsx';
 
 export const assetCheckerMeta = {
   id: 'assetchecker',
-  label: 'Asset Checker',
-  small: 'automated tech-art review',
+  label: 'Asset Pipeline',
+  small: 'review + Unity export',
   icon: '🔍',
   needsMagick: false,
   batchMode: false,
   needsFiles: false,
-  desc: 'Drop a full art-output folder. The checker scans folder structure, naming, Spine JSON, atlases, image dimensions, asset coverage and baked-text indicators against a configurable rule set, then groups findings by severity / category / file. Hard constraint: all processing runs locally in your browser — nothing is uploaded.'
+  desc: 'Drop a full art-output folder. The pipeline scans folder structure, naming, Spine JSON, atlases, image dimensions, asset coverage and baked-text indicators against a configurable rule set, then groups findings by severity / category / file. Once reviewed, export a Unity-ready folder structure as a ZIP with optional rename rules. Hard constraint: all processing runs locally in your browser — nothing is uploaded.'
 };
 
 const BASE = (import.meta?.env?.BASE_URL || './').replace(/\/?$/, '/');
@@ -267,6 +268,8 @@ export function AssetCheckerTool() {
           </div>
         </div>
       )}
+
+      <ExportPanel entries={entries} log={log} />
     </div>
   );
 }
