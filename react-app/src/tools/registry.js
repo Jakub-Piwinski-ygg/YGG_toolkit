@@ -14,6 +14,7 @@ import { SlotMachineTool, slotMachineMeta } from './SlotMachineTool.jsx';
 import { ContentBrowserTool, contentBrowserMeta } from './ContentBrowserTool.jsx';
 import { SoundBrowserTool, soundBrowserMeta } from './SoundBrowserTool.jsx';
 import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerTool.jsx';
+import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.jsx';
 
 const ART = [
   { meta: cropMeta, Component: CropTool },
@@ -37,7 +38,8 @@ const BROWSER = [
 ];
 
 const REVIEW = [
-  { meta: assetCheckerMeta, Component: AssetCheckerTool }
+  { meta: assetCheckerMeta, Component: AssetCheckerTool },
+  { meta: projectScaffoldMeta, Component: ProjectScaffoldTool }
 ];
 
 export const TOOL_CATEGORIES = [
