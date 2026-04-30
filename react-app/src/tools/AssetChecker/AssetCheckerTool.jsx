@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
 import { runAllChecks } from './engine/runChecks.js';
 import { entriesFromInput, entriesFromDataTransfer } from './engine/ingest.js';
 import { ReportView } from './report/ReportView.jsx';
 import { TreeView } from './report/TreeView.jsx';
 import { ExportPanel } from './report/ExportPanel.jsx';
+import { SpinePlayer } from '../../components/SpinePlayer.jsx';
+import { findSpineInTree, collectTextureCandidates } from '../../utils/spine/index.js';
 
 export const assetCheckerMeta = {
   id: 'assetchecker',
@@ -40,7 +42,45 @@ export function AssetCheckerTool() {
   const [hints, setHints] = useState({});
   const [customConfigName, setCustomConfigName] = useState(null);
 
+  const [spinePlay, setSpinePlay] = useState(null);
+  const blobCacheRef = useRef(new Map()); // relPath → blob URL
+
   const dropRef = useRef(null);
+
+  // Detect all Spine triplets in the loaded folder (at any depth)
+  const spineList = useMemo(() => {
+    if (!entries.length) return [];
+    const virtualTree = entries.map((e) => ({ path: e.relPath, type: 'blob' }));
+    return findSpineInTree(virtualTree, null); // null = all depths
+  }, [entries]);
+
+  // Revoke cached blob URLs when a new folder is loaded
+  useEffect(() => {
+    const cache = blobCacheRef.current;
+    return () => {
+      for (const url of cache.values()) URL.revokeObjectURL(url);
+      cache.clear();
+    };
+  }, [entries]);
+
+  // Resolves a relPath to a cached blob URL from the local file set
+  const localResolveUrl = (path) => {
+    const cache = blobCacheRef.current;
+    if (cache.has(path)) return Promise.resolve(cache.get(path));
+    const entry = entries.find((e) => e.relPath === path);
+    if (!entry) return Promise.reject(new Error(`File not in loaded folder: ${path}`));
+    const url = URL.createObjectURL(entry.file);
+    cache.set(path, url);
+    return Promise.resolve(url);
+  };
+
+  const openSpinePlayer = (triplet) => {
+    const virtualTree = entries.map((e) => ({ path: e.relPath, type: 'blob' }));
+    setSpinePlay({
+      ...triplet,
+      textures: collectTextureCandidates(virtualTree, triplet.dir),
+    });
+  };
 
   // load manifest + default config + hints on mount
   useEffect(() => {
@@ -264,12 +304,53 @@ export function AssetCheckerTool() {
             <TreeView entries={entries} findings={findings} selected={selectedFile} onSelect={onTreeSelect} sevFilter={sevFilter} />
           </div>
           <div className="ac-content">
+            {spineList.length > 0 && (
+              <SpineSection items={spineList} onPlay={openSpinePlayer} />
+            )}
             <ReportView findings={findings} summary={summary} onSelectFile={onInspectFile} selectedFile={selectedFile} previewUrl={previewUrl} previewKind={previewKind} previewText={previewText} treeFilter={treeFilter} onClearTreeFilter={clearTreeFilter} sevFilter={sevFilter} onToggleSev={toggleSev} />
           </div>
         </div>
       )}
 
       <ExportPanel entries={entries} log={log} />
+
+      <SpinePlayer
+        open={!!spinePlay}
+        spec={spinePlay}
+        resolveUrl={localResolveUrl}
+        onClose={() => setSpinePlay(null)}
+      />
+    </div>
+  );
+}
+
+// ── SpineSection ─────────────────────────────────────────────────────────────
+
+function SpineSection({ items, onPlay }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="ac-spine-section">
+      <button className="ac-spine-head" onClick={() => setOpen((v) => !v)}>
+        <span className="ac-spine-caret">{open ? '▾' : '▸'}</span>
+        <span className="ac-spine-label">🦴 Spine Animations</span>
+        <span className="ac-spine-count">{items.length}</span>
+      </button>
+      {open && (
+        <div className="ac-spine-grid">
+          {items.map((s) => (
+            <button
+              key={s.jsonPath}
+              className="sp-grid-card"
+              onClick={() => onPlay(s)}
+              title={s.jsonPath}
+            >
+              <span className="sp-grid-icon">🦴</span>
+              <span className="sp-grid-name">{s.name}</span>
+              <span className="sp-grid-play">▶ Preview</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
