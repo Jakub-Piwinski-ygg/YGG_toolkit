@@ -17,6 +17,8 @@ import {
 } from '../utils/repoBrowser.js';
 import { triggerDownload } from '../utils/download.js';
 import { Lightbox } from './Lightbox.jsx';
+import { SpinePlayer } from './SpinePlayer.jsx';
+import { findSpineInTree, collectTextureCandidates } from '../utils/spine/index.js';
 
 function LazyImg({ provider, baseUrl, token, repo, path, alt, blobCache }) {
   const [src, setSrc] = useState(token ? '' : rawUrl(provider, baseUrl, repo, path));
@@ -81,7 +83,8 @@ export function RepoBrowserView({ mode }) {
   const [fileSearch, setFileSearch] = useState('');
   const [globalQuery, setGlobalQuery] = useState('');
   const [confirmModal, setConfirmModal] = useState(null); // {query, scanRepos}
-  const [lightbox, setLightbox] = useState(null); // {src, name, path, repo}
+  const [lightbox, setLightbox] = useState(null);   // {src, name, path, repo}
+  const [spinePlay, setSpinePlay] = useState(null); // {name, dir, jsonPath, atlasPath, textures}
 
   const isImage = mode === 'art';
   const filterRe = isImage ? IMG_FULL_EXTS : SOUND_EXTS;
@@ -117,6 +120,12 @@ export function RepoBrowserView({ mode }) {
     }
     return listDir(currentPath, tree, matchPath);
   }, [tree, currentPath, fileSearch, mode]); // eslint-disable-line
+
+  // Spine triplets visible in the current directory (art mode only, no active search)
+  const spineList = useMemo(() => {
+    if (!isImage || !tree || fileSearch) return [];
+    return findSpineInTree(tree, currentPath || '');
+  }, [tree, currentPath, fileSearch, isImage]);
 
   const breadcrumb = useMemo(() => {
     if (!currentPath) return [];
@@ -449,6 +458,18 @@ export function RepoBrowserView({ mode }) {
                 </div>
               )}
 
+              {spineList.length > 0 && (
+                <SpineGrid
+                  items={spineList}
+                  onPlay={(s) =>
+                    setSpinePlay({
+                      ...s,
+                      textures: collectTextureCandidates(tree, s.dir),
+                    })
+                  }
+                />
+              )}
+
               {listing.files.length > 0 && (
                 isImage ? (
                   <ImageGrid
@@ -519,6 +540,14 @@ export function RepoBrowserView({ mode }) {
         />
       )}
 
+      {/* Spine player */}
+      <SpinePlayer
+        open={!!spinePlay}
+        spec={spinePlay}
+        resolveUrl={resolveUrl}
+        onClose={() => setSpinePlay(null)}
+      />
+
       {/* Lightbox */}
       <Lightbox
         open={!!lightbox}
@@ -532,6 +561,28 @@ export function RepoBrowserView({ mode }) {
             : null
         }
       />
+    </div>
+  );
+}
+
+function SpineGrid({ items, onPlay }) {
+  return (
+    <div className="sp-grid">
+      <div className="sp-grid-label">🦴 Spine · {items.length}</div>
+      <div className="sp-grid-row">
+        {items.map((s) => (
+          <button
+            key={s.jsonPath}
+            className="sp-grid-card"
+            onClick={() => onPlay(s)}
+            title={s.jsonPath}
+          >
+            <span className="sp-grid-icon">🦴</span>
+            <span className="sp-grid-name">{s.name}</span>
+            <span className="sp-grid-play">▶ Preview</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
