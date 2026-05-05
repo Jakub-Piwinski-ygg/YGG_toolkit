@@ -262,11 +262,11 @@ export async function run(ctx) {
               rulePass['4.8'] = false;
               findings.push(mkFinding({
                 ruleId: 'spine.attachmentUnresolved',
-                severity: 'warn',
-                priority: 2,
+                severity: 'error',
+                priority: 1,
                 category: CAT,
                 paths: [j.relPath, atlasPath],
-                message: `Attachment "${refName}" not found in atlas.`
+                message: `Attachment "${refName}" not found in atlas — Unity import will fail.`
               }));
             }
           }
