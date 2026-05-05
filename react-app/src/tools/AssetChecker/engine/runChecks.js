@@ -39,7 +39,7 @@ const DEFAULT_FAIL_SEVERITY = {
   'spine.budgetExceeded':             'info',
   'spine.budgetOutlier':              'info',
   'spine.animationLint':              'warn',
-  'spine.attachmentUnresolved':       'warn',
+  'spine.attachmentUnresolved':       'error',
   'atlas.nonPot':                     'warn',
   'atlas.sizeCap':                    'error',
   'atlas.tooManyPages':               'warn',

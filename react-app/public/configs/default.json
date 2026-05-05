@@ -3,9 +3,7 @@
   "label": "Default (general slot game)",
   "description": "Placeholder rules derived from past tech-art reviews. Replace thresholds with the official tech-art doc when supplied.",
 
-  "ruleSeverity": {
-    "spine.attachmentUnresolved": "info"
-  },
+  "ruleSeverity": {},
 
   "structure": {
     "rootFolderName": "unity_export",
