@@ -5,7 +5,7 @@ const AppContext = createContext(null);
 export function AppProvider({ children }) {
   const [inputFiles, setInputFiles] = useState([]);
   const [outputFiles, setOutputFiles] = useState([]);
-  const [currentTool, setCurrentToolRaw] = useState('webp');
+  const [currentTool, setCurrentToolRaw] = useState('converter');
   const [currentCategory, setCurrentCategory] = useState('arttools');
 
   // Selecting a tool also moves to its category — lets links from outside the
