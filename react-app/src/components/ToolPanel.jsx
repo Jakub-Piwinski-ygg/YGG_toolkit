@@ -57,12 +57,18 @@ export function ToolPanel() {
           setProgressLabel('done');
         }
       } else if (tool.meta.batchMode) {
-        setProgressLabel('compositing…');
-        const blob = await runner.run(null, null, null, inputFiles);
-        const outname = runner.outName();
-        pushOutput({ name: outname, blob, url: URL.createObjectURL(blob) });
-        log(`✓ → ${outname}`, 'ok');
-        setProgressLabel('done — 1 file');
+        setProgressLabel('processing…');
+        const result = await runner.run(null, null, null, inputFiles);
+        const items = Array.isArray(result)
+          ? result
+          : result
+          ? [{ name: runner.outName(), blob: result }]
+          : [];
+        for (const { name, blob } of items) {
+          pushOutput({ name, blob, url: URL.createObjectURL(blob) });
+          log(`✓ → ${name}`, 'ok');
+        }
+        setProgressLabel(`done — ${items.length} file(s)`);
       } else {
         let okCount = 0;
         for (let i = 0; i < inputFiles.length; i++) {

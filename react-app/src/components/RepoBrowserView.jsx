@@ -511,7 +511,7 @@ export function RepoBrowserView({ mode }) {
                     className="btn cb-add-all-btn"
                     onClick={() => {
                       listing.files.forEach((f) => sendToArtTools(f.path, f.name));
-                      setCurrentTool('webp');
+                      setCurrentTool('converter');
                     }}
                   >
                     + Add all to Art Tools

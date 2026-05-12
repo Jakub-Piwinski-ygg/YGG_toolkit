@@ -1,6 +1,6 @@
 import { CropTool, cropMeta } from './CropTool.jsx';
 import { ScalerTool, scalerMeta } from './ScalerTool.jsx';
-import { WebPTool, webpMeta } from './WebPTool.jsx';
+import { ConverterTool, converterMeta } from './ConverterTool.jsx';
 import { BlurTool, blurMeta } from './BlurTool.jsx';
 import { GaussianBlurTool, gaussBlurMeta } from './GaussianBlurTool.jsx';
 import { RgbaMaskTool, rgbaMeta } from './RgbaMaskTool.jsx';
@@ -19,7 +19,7 @@ import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.
 const ART = [
   { meta: cropMeta, Component: CropTool },
   { meta: scalerMeta, Component: ScalerTool },
-  { meta: webpMeta, Component: WebPTool },
+  { meta: converterMeta, Component: ConverterTool },
   { meta: blurMeta, Component: BlurTool },
   { meta: gaussBlurMeta, Component: GaussianBlurTool },
   { meta: rgbaMeta, Component: RgbaMaskTool },
