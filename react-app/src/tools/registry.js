@@ -15,6 +15,7 @@ import { ContentBrowserTool, contentBrowserMeta } from './ContentBrowserTool.jsx
 import { SoundBrowserTool, soundBrowserMeta } from './SoundBrowserTool.jsx';
 import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerTool.jsx';
 import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.jsx';
+import { CharExtractorTool, charExtractorMeta } from './CharExtractorTool.jsx';
 
 const ART = [
   { meta: cropMeta, Component: CropTool },
@@ -39,13 +40,14 @@ const BROWSER = [
 
 const REVIEW = [
   { meta: assetCheckerMeta, Component: AssetCheckerTool },
-  { meta: projectScaffoldMeta, Component: ProjectScaffoldTool }
+  { meta: projectScaffoldMeta, Component: ProjectScaffoldTool },
+  { meta: charExtractorMeta, Component: CharExtractorTool }
 ];
 
 export const TOOL_CATEGORIES = [
   { id: 'arttools', label: 'Art Tools', icon: '🎨', tools: ART },
   { id: 'browser', label: 'Content', icon: '📦', tools: BROWSER },
-  { id: 'review', label: 'Review', icon: '🔍', tools: REVIEW }
+  { id: 'review', label: 'Asset Pipeline', icon: '🔍', tools: REVIEW }
 ];
 
 // Flattened convenience list — used by anything that needs to look up a tool
