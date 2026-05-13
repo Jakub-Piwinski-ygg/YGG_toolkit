@@ -32,13 +32,14 @@ export function BlurTool() {
         let blurred;
         if (bidirectional) {
           const angleB = (angle + 180) % 360;
+          const inputB = new Uint8Array(uint8.buffer.slice(0));
           const rA = await window._Magick.Call(
             [{ name: 'input.png', content: uint8 }],
             ['convert', 'input.png', '-motion-blur', `${radius}x${sigma}+${angle}`, 'a.png']
           );
           if (!rA || !rA.length) throw new Error('Motion blur (A) failed');
           const rB = await window._Magick.Call(
-            [{ name: 'input.png', content: new Uint8Array(uint8.buffer.slice(0)) }],
+            [{ name: 'input.png', content: inputB }],
             ['convert', 'input.png', '-motion-blur', `${radius}x${sigma}+${angleB}`, 'b.png']
           );
           if (!rB || !rB.length) throw new Error('Motion blur (B) failed');
