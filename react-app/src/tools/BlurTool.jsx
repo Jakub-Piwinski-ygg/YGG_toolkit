@@ -17,24 +17,48 @@ export function BlurTool() {
   const [sigma, setSigma] = useState(20);
   const [angle, setAngle] = useState(90);
   const [feather, setFeather] = useState(5);
+  const [bidirectional, setBidirectional] = useState(false);
   const { registerRunner } = useApp();
 
-  const settingsRef = useRef({ radius, sigma, angle, feather });
-  settingsRef.current = { radius, sigma, angle, feather };
+  const settingsRef = useRef({ radius, sigma, angle, feather, bidirectional });
+  settingsRef.current = { radius, sigma, angle, feather, bidirectional };
 
   useEffect(() => {
     registerRunner(blurMeta.id, {
       outName: (n) => n.replace(/\.png$/i, '') + '_blur.png',
       run: async (uint8) => {
-        const { radius, sigma, angle, feather } = settingsRef.current;
-        const blurArg = `${radius}x${sigma}+${angle}`;
+        const { radius, sigma, angle, feather, bidirectional } = settingsRef.current;
 
-        const r1 = await window._Magick.Call(
-          [{ name: 'input.png', content: uint8 }],
-          ['convert', 'input.png', '-motion-blur', blurArg, 'blurred.png']
-        );
-        if (!r1 || !r1.length) throw new Error('Motion blur failed');
-        const blurred = r1[0].blob;
+        let blurred;
+        if (bidirectional) {
+          const angleB = (angle + 180) % 360;
+          const rA = await window._Magick.Call(
+            [{ name: 'input.png', content: uint8 }],
+            ['convert', 'input.png', '-motion-blur', `${radius}x${sigma}+${angle}`, 'a.png']
+          );
+          if (!rA || !rA.length) throw new Error('Motion blur (A) failed');
+          const rB = await window._Magick.Call(
+            [{ name: 'input.png', content: new Uint8Array(uint8.buffer.slice(0)) }],
+            ['convert', 'input.png', '-motion-blur', `${radius}x${sigma}+${angleB}`, 'b.png']
+          );
+          if (!rB || !rB.length) throw new Error('Motion blur (B) failed');
+          const rMix = await window._Magick.Call(
+            [
+              { name: 'a.png', content: await freshBytes(rA[0].blob) },
+              { name: 'b.png', content: await freshBytes(rB[0].blob) }
+            ],
+            ['convert', 'a.png', 'b.png', '-compose', 'blend', '-define', 'compose:args=50,50', '-composite', 'blurred.png']
+          );
+          if (!rMix || !rMix.length) throw new Error('Bidirectional blend failed');
+          blurred = rMix[0].blob;
+        } else {
+          const r1 = await window._Magick.Call(
+            [{ name: 'input.png', content: uint8 }],
+            ['convert', 'input.png', '-motion-blur', `${radius}x${sigma}+${angle}`, 'blurred.png']
+          );
+          if (!r1 || !r1.length) throw new Error('Motion blur failed');
+          blurred = r1[0].blob;
+        }
 
         const r2 = await window._Magick.Call(
           [{ name: 'blurred.png', content: await freshBytes(blurred) }],
@@ -96,6 +120,19 @@ export function BlurTool() {
         <div className="field">
           <label>Edge Feather (px)</label>
           <input type="number" min="0" max="100" value={feather} onChange={(e) => setFeather(+e.target.value)} />
+        </div>
+      </div>
+      <div className="field-row">
+        <div className="field">
+          <label>
+            <input
+              type="checkbox"
+              checked={bidirectional}
+              onChange={(e) => setBidirectional(e.target.checked)}
+              style={{ marginRight: '6px', verticalAlign: 'middle' }}
+            />
+            Bidirectional (blur both ways along angle)
+          </label>
         </div>
       </div>
     </>
