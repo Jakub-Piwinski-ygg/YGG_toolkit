@@ -6,7 +6,7 @@ export const projectScaffoldMeta = {
   id: 'projectscaffold',
   label: 'Project Scaffold',
   small: 'create new project structure',
-  icon: '🏗️',
+  icon: '🗂️',
   needsMagick: false,
   batchMode: false,
   needsFiles: false,

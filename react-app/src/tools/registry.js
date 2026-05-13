@@ -47,7 +47,7 @@ const REVIEW = [
 export const TOOL_CATEGORIES = [
   { id: 'arttools', label: 'Art Tools', icon: '🎨', tools: ART },
   { id: 'browser', label: 'Content', icon: '📦', tools: BROWSER },
-  { id: 'review', label: 'Asset Pipeline', icon: '🔍', tools: REVIEW }
+  { id: 'review', label: 'Asset Pipeline', icon: '🏗️', tools: REVIEW }
 ];
 
 // Flattened convenience list — used by anything that needs to look up a tool
