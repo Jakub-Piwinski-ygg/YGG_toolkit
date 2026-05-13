@@ -10,7 +10,7 @@ import { findSpineInTree, collectTextureCandidates } from '../../utils/spine/ind
 
 export const assetCheckerMeta = {
   id: 'assetchecker',
-  label: 'Asset Pipeline',
+  label: 'Asset Checker',
   small: 'review + Unity export',
   icon: '🔍',
   needsMagick: false,
