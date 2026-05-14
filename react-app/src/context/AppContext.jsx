@@ -1,22 +1,43 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { readToolFromUrl, writeToolToUrl } from '../utils/toolUrl.js';
+import { ART_TOOLS, categoryOfTool } from '../tools/registry.js';
 
 const AppContext = createContext(null);
+
+// Initial tool comes from ?tool= if present, otherwise the default.
+const INITIAL_TOOL = readToolFromUrl(ART_TOOLS) || 'converter';
+const INITIAL_CATEGORY = categoryOfTool(INITIAL_TOOL) || 'arttools';
 
 export function AppProvider({ children }) {
   const [inputFiles, setInputFiles] = useState([]);
   const [outputFiles, setOutputFiles] = useState([]);
-  const [currentTool, setCurrentToolRaw] = useState('converter');
-  const [currentCategory, setCurrentCategory] = useState('arttools');
+  const [currentTool, setCurrentToolRaw] = useState(INITIAL_TOOL);
+  const [currentCategory, setCurrentCategory] = useState(INITIAL_CATEGORY);
 
   // Selecting a tool also moves to its category — lets links from outside the
   // sidebar (header subtitle, "send to art tools") work without a separate step.
-  // We import the registry lazily here to avoid a circular import at module load
-  // time (registry imports tool components that import this file).
-  const setCurrentTool = useCallback(async (id) => {
+  const setCurrentTool = useCallback((id) => {
     setCurrentToolRaw(id);
-    const { categoryOfTool } = await import('../tools/registry.js');
     const cat = categoryOfTool(id);
     if (cat) setCurrentCategory(cat);
+    writeToolToUrl(id);
+  }, []);
+
+  // Keep the URL synced with the canonical id once on mount, and react to
+  // back/forward navigation so the user can step between tools they've visited.
+  useEffect(() => {
+    writeToolToUrl(currentTool);
+    const onPop = () => {
+      const fromUrl = readToolFromUrl(ART_TOOLS);
+      if (fromUrl && fromUrl !== currentTool) {
+        setCurrentToolRaw(fromUrl);
+        const cat = categoryOfTool(fromUrl);
+        if (cat) setCurrentCategory(cat);
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [logEntries, setLogEntries] = useState([
     { type: 'info', msg: '— loading ImageMagick WASM… —' }

@@ -264,8 +264,8 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 .ab-lightbox-btn-accent{color:var(--accent);border-color:rgba(255,118,46,.35)}
 
 /* Sidebar category switcher */
-.sidebar-categories{display:flex;gap:.3rem;margin-bottom:.5rem}
-.sidebar-categories .category-tab{padding:.4rem .55rem;font-size:.62rem}
+.sidebar-categories{display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.5rem}
+.sidebar-categories .category-tab{flex:1 1 auto;min-width:fit-content;padding:.4rem .55rem;font-size:.62rem;white-space:nowrap}
 
 /* Sound rows (mirrors original .ab-sound-row) */
 .sb-row{display:grid;grid-template-columns:1fr auto auto;gap:.45rem;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:.4rem .55rem}
