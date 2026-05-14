@@ -327,6 +327,7 @@ function SpinStep({ step, idx }) {
     hoveredPayout += combo.payout || 0;
     combo.positions.forEach(({ reel, row }) => hoveredPosKeys.add(`${reel},${row}`));
   });
+  const hasHoverFocus = hoveredPosKeys.size > 0;
 
   return (
     <div className="ct-spin-mode-block">
@@ -346,6 +347,7 @@ function SpinStep({ step, idx }) {
               const key = `${ri},${ci}`;
               const isWin = winMap.has(key);
               const isHoveredWin = (hoverKey || hoverComboId !== null) && hoveredPosKeys.has(key);
+              const isMuted = hasHoverFocus && !isHoveredWin;
               const c = sym && sym !== '?' && sym !== '·' ? symColor(sym) : null;
               const style = isHoveredWin
                 ? { background: 'rgba(255, 196, 77, 0.22)', borderColor: 'rgba(255, 196, 77, 0.7)', color: '#ffd574' }
@@ -356,7 +358,7 @@ function SpinStep({ step, idx }) {
               return (
                 <div
                   key={ci}
-                  className={`ct-spin-cell${isWin ? ' winning' : ''}${isHoveredWin ? ' winning-gold' : ''}`}
+                  className={`ct-spin-cell${isWin ? ' winning' : ''}${isHoveredWin ? ' winning-gold' : ''}${isMuted ? ' muted' : ''}${isMuted && isWin ? ' winning-muted' : ''}`}
                   style={style}
                   title={tt}
                   onMouseEnter={isWin ? () => { setHoverComboId(null); setHoverKey(key); } : undefined}
