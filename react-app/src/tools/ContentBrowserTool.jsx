@@ -11,6 +11,8 @@ export const contentBrowserMeta = {
   needsMagick: false,
   batchMode: false,
   needsFiles: false,
+  fullBleed: true,
+  hideOutput: true,
   desc: 'Browse your GitHub or GitLab repositories for images and send them straight to the Art Tools. Paste a personal access token (provider auto-detected), optionally set a repo prefix, then pick a repo to navigate its tree. Use the global search to scan all repos for a filename. Press RUN to rescan the repo list.'
 };
 

@@ -11,7 +11,8 @@ export const soundBrowserMeta = {
   needsMagick: false,
   batchMode: false,
   needsFiles: false,
-  desc: 'Browse sound effects and music across your repos. Connect with a personal access token, pick a repo, and play .wav / .mp3 / .ogg files inline. Use the global search to scan all repos for an audio filename. Press RUN to rescan the repo list.'
+  fullBleed: true,
+  hideOutput: true
 };
 
 export function SoundBrowserTool() {

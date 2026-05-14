@@ -16,7 +16,7 @@ import { SoundBrowserTool, soundBrowserMeta } from './SoundBrowserTool.jsx';
 import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerTool.jsx';
 import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.jsx';
 import { CharExtractorTool, charExtractorMeta } from './CharExtractorTool.jsx';
-import { CheatTool, cheatToolMeta } from './CheatTool.jsx';
+import { CheatTool, cheatToolMeta } from './CheatTool/index.jsx';
 
 const ART = [
   { meta: cropMeta, Component: CropTool },

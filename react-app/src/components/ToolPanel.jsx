@@ -21,10 +21,30 @@ export function ToolPanel() {
   } = useApp();
 
   const tool = ART_TOOLS.find((t) => t.meta.id === currentTool);
+  const fullBleed = tool?.meta.fullBleed === true;
   const needsWasm = tool?.meta.needsMagick ?? true;
   const needsFiles = tool?.meta.needsFiles !== false;
   const runDisabled =
     isRunning || (needsFiles && inputFiles.length === 0) || (needsWasm && !magickReady);
+
+  if (fullBleed && tool) {
+    return (
+      <div className="panel fullbleed-panel">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentTool}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.18 }}
+            style={{ display: 'flex', flexDirection: 'column', width: '100%' }}
+          >
+            <tool.Component />
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    );
+  }
 
   const handleRun = async () => {
     const runner = getRunner(currentTool);

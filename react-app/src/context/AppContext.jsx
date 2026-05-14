@@ -1,43 +1,37 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { readToolFromUrl, writeToolToUrl } from '../utils/toolUrl.js';
-import { ART_TOOLS, categoryOfTool } from '../tools/registry.js';
 
 const AppContext = createContext(null);
 
-// Initial tool comes from ?tool= if present, otherwise the default.
-const INITIAL_TOOL = readToolFromUrl(ART_TOOLS) || 'converter';
-const INITIAL_CATEGORY = categoryOfTool(INITIAL_TOOL) || 'arttools';
+function toolFromUrl() {
+  return new URLSearchParams(window.location.search).get('tool') || 'converter';
+}
 
 export function AppProvider({ children }) {
   const [inputFiles, setInputFiles] = useState([]);
   const [outputFiles, setOutputFiles] = useState([]);
-  const [currentTool, setCurrentToolRaw] = useState(INITIAL_TOOL);
-  const [currentCategory, setCurrentCategory] = useState(INITIAL_CATEGORY);
+  const [currentTool, setCurrentToolRaw] = useState(toolFromUrl);
+  const [currentCategory, setCurrentCategory] = useState('arttools');
 
-  // Selecting a tool also moves to its category — lets links from outside the
-  // sidebar (header subtitle, "send to art tools") work without a separate step.
-  const setCurrentTool = useCallback((id) => {
-    setCurrentToolRaw(id);
-    const cat = categoryOfTool(id);
-    if (cat) setCurrentCategory(cat);
-    writeToolToUrl(id);
+  // On mount: resolve the correct category for whatever tool was in the URL.
+  // Uses the same lazy import as setCurrentTool to avoid circular deps.
+  useEffect(() => {
+    import('../tools/registry.js').then(({ categoryOfTool }) => {
+      const cat = categoryOfTool(toolFromUrl());
+      if (cat) setCurrentCategory(cat);
+    });
   }, []);
 
-  // Keep the URL synced with the canonical id once on mount, and react to
-  // back/forward navigation so the user can step between tools they've visited.
-  useEffect(() => {
-    writeToolToUrl(currentTool);
-    const onPop = () => {
-      const fromUrl = readToolFromUrl(ART_TOOLS);
-      if (fromUrl && fromUrl !== currentTool) {
-        setCurrentToolRaw(fromUrl);
-        const cat = categoryOfTool(fromUrl);
-        if (cat) setCurrentCategory(cat);
-      }
-    };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Selecting a tool also moves to its category and syncs the URL so the
+  // current tool can be bookmarked / shared. Dynamic import avoids a circular
+  // module dependency (registry → tool components → this file).
+  const setCurrentTool = useCallback(async (id) => {
+    setCurrentToolRaw(id);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tool', id);
+    window.history.replaceState(null, '', url.toString());
+    const { categoryOfTool } = await import('../tools/registry.js');
+    const cat = categoryOfTool(id);
+    if (cat) setCurrentCategory(cat);
   }, []);
   const [logEntries, setLogEntries] = useState([
     { type: 'info', msg: '— loading ImageMagick WASM… —' }

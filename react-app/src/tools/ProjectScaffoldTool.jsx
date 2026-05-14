@@ -10,6 +10,8 @@ export const projectScaffoldMeta = {
   needsMagick: false,
   batchMode: false,
   needsFiles: false,
+  fullBleed: true,
+  hideOutput: true,
   desc: 'Generate the canonical SharePoint / Unity-export folder skeleton for a new slot project. Pick the elements you need (base ones are pre-checked), tick optional common ones, or add your own custom names. Numbering follows the order shown — drag rows up/down to reorder. The ZIP mirrors the same hierarchy the Asset Pipeline checks for: unity_export/NN_Element/{Export/Animation, Export/StaticArt, Source/AnimationSources, preview}.'
 };
 

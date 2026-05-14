@@ -16,6 +16,8 @@ export const assetCheckerMeta = {
   needsMagick: false,
   batchMode: false,
   needsFiles: false,
+  fullBleed: true,
+  hideOutput: true,
   desc: 'Drop a full art-output folder. The pipeline scans folder structure, naming, Spine JSON, atlases, image dimensions, asset coverage and baked-text indicators against a configurable rule set, then groups findings by severity / category / file. Once reviewed, export a Unity-ready folder structure as a ZIP with optional rename rules. Hard constraint: all processing runs locally in your browser — nothing is uploaded.'
 };
 

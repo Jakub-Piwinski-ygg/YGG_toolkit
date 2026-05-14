@@ -7,6 +7,7 @@ import { ToolPanel } from './components/ToolPanel.jsx';
 import { ResultsGrid } from './components/ResultsGrid.jsx';
 import { DownloadBar } from './components/DownloadBar.jsx';
 import { useApp } from './context/AppContext.jsx';
+import { ART_TOOLS } from './tools/registry.js';
 
 function OutputPanel() {
   const { outputFiles } = useApp();
@@ -23,6 +24,18 @@ function OutputPanel() {
   );
 }
 
+function MainArea() {
+  const { currentTool } = useApp();
+  const tool = ART_TOOLS.find((t) => t.meta.id === currentTool);
+  const hideOutput = tool?.meta.hideOutput === true;
+  return (
+    <div className="main-panel">
+      <ToolPanel />
+      {!hideOutput && <OutputPanel />}
+    </div>
+  );
+}
+
 function Shell() {
   useMagick();
   return (
@@ -30,10 +43,7 @@ function Shell() {
       <Header />
       <div className="app-layout">
         <Sidebar />
-        <div className="main-panel">
-          <ToolPanel />
-          <OutputPanel />
-        </div>
+        <MainArea />
       </div>
     </>
   );

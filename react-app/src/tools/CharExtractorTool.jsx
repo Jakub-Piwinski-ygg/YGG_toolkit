@@ -9,6 +9,8 @@ export const charExtractorMeta = {
   needsMagick: false,
   batchMode: false,
   needsFiles: false,
+  fullBleed: true,
+  hideOutput: true,
   desc: 'Extract the unique character set from pasted text, or read the cmap table of a TTF / OTF / WOFF / WOFF2 font to list every codepoint it can render. Useful for sizing baked-text atlases, validating font coverage against a translation, or generating the minimal character list a localised font needs to support. Filters by spaces / punctuation / digits / emoji, sorts by unicode / alpha / category, renders glyphs in the loaded font.'
 };
 
