@@ -1,0 +1,10 @@
+{
+  "$schema": "ygg-cheat-tool-game-ids/v1",
+  "games": [
+    { "name": "CooCoo", "id": 10857 },
+    { "name": "Gemstone", "id": 10852 },
+    { "name": "Dealer's", "id": 10884 },
+    { "name": "Multifly 2", "id": 10894 },
+    { "name": "Toothless", "id": 10921 }
+  ]
+}
