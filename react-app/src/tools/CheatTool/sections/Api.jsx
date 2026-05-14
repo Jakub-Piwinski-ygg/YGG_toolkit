@@ -11,8 +11,6 @@ export function ApiSection() {
     customBaseUrl, setCustomBaseUrl,
     urlPreview,
     configStatus, fetchGameConfig,
-    request, sendRequest, cancelRequest,
-    historySaveRequest,
     validation
   } = useCheatTool();
 
@@ -72,6 +70,20 @@ export function ApiSection() {
         <button className="ct-config-fetch-btn" onClick={fetchGameConfig}>⬇ Pobierz config gry</button>
       </div>
 
+    </Section>
+  );
+}
+
+export function ApiActionDock() {
+  const {
+    request, sendRequest, cancelRequest,
+    historySaveRequest,
+    validation
+  } = useCheatTool();
+
+  return (
+    <div className="ct-api-dock">
+      {!validation.ok ? <ValidationBar errors={validation.errors} /> : null}
       <div className="ct-send-row">
         <button
           className={`ct-send-btn${request.inFlight ? ' loading' : ''}`}
@@ -86,9 +98,7 @@ export function ApiSection() {
           <button className="ct-cancel-btn" onClick={cancelRequest} title="Przerwij">✕</button>
         ) : null}
       </div>
-
-      {!validation.ok ? <ValidationBar errors={validation.errors} /> : null}
-    </Section>
+    </div>
   );
 }
 

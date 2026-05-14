@@ -47,7 +47,7 @@ h1{font-size:clamp(1.4rem,3vw,2rem);font-weight:800;letter-spacing:-0.03em;color
 /* Main panel */
 .main-panel{display:flex;flex-direction:column;gap:1rem;min-height:0}
 .panel{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
-.fullbleed-panel{display:flex;flex-direction:column;background:var(--surface)}
+.fullbleed-panel{display:flex;flex-direction:column;background:var(--surface);overflow:visible}
 .panel-header{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
 .panel-header span{color:var(--accent2);font-weight:500}
 .settings-body{padding:1.2rem;display:flex;flex-direction:column;gap:1.2rem}

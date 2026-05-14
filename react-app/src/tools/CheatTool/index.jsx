@@ -9,7 +9,7 @@ import { BoardSection } from './sections/Board.jsx';
 import { OakSection } from './sections/Oak.jsx';
 import { CountersSection } from './sections/Counters.jsx';
 import { TransformsSection } from './sections/Transforms.jsx';
-import { ApiSection } from './sections/Api.jsx';
+import { ApiSection, ApiActionDock } from './sections/Api.jsx';
 import { NextModeSection } from './sections/NextMode.jsx';
 import { HistorySection } from './sections/History.jsx';
 import { OutputPanel } from './sections/Output.jsx';
@@ -52,7 +52,7 @@ function CheatToolShell() {
       <header className="ct-header">
         <div className="ct-logo">CHEAT<span>API</span> BUILDER</div>
         <div className="ct-badge">QA Tool</div>
-        <div className="ct-version">v1.36</div>
+        <div className="ct-version">v1.4</div>
       </header>
 
       <div className="ct-layout">
@@ -72,6 +72,8 @@ function CheatToolShell() {
           <OutputPanel />
         </div>
       </div>
+
+      <ApiActionDock />
 
       <div className="ct-history-wrap">
         <HistorySection />

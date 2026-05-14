@@ -84,7 +84,7 @@
   margin-bottom: 14px;
   border: 1px solid var(--ct-border);
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
   background: var(--ct-surface);
 }
 .ct-root .ct-section:focus-within { border-color: rgba(255, 118, 46, 0.4); }
@@ -546,7 +546,24 @@
 
 @keyframes ct-pulse { 50% { opacity: 0.4; } }
 
-.ct-root .ct-send-row { display: flex; gap: 8px; margin-top: 10px; }
+.ct-root .ct-api-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 12;
+  margin-top: 10px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--ct-border);
+  background: linear-gradient(
+    180deg,
+    rgba(15, 16, 20, 0) 0%,
+    rgba(15, 16, 20, 0.92) 26%,
+    rgba(15, 16, 20, 0.98) 100%
+  );
+}
+.ct-root .ct-send-row {
+  display: flex;
+  gap: 8px;
+}
 .ct-root .ct-send-btn {
   flex: 1;
   background: linear-gradient(135deg, var(--ct-accent), #d65a18);
@@ -584,6 +601,8 @@
   border-radius: 6px;
   cursor: pointer;
 }
+.ct-root .ct-send-row .ct-save-btn,
+.ct-root .ct-send-row .ct-cancel-btn { flex-shrink: 0; }
 
 .ct-root .ct-validation-bar {
   margin-top: 8px;
@@ -830,12 +849,16 @@
   transition: border-color 0.15s;
 }
 @keyframes ct-win-pulse {
-  0%, 100% { transform: scale(1);    box-shadow: 0 0 0 2px var(--ct-green), 0 0 6px  rgba(76,255,136,0.25); }
-  50%       { transform: scale(1.08); box-shadow: 0 0 0 2px var(--ct-green), 0 0 14px rgba(76,255,136,0.55); }
+  0%, 100% { box-shadow: 0 0 0 2px var(--ct-green), 0 0 6px rgba(76,255,136,0.25); }
+  50% { box-shadow: 0 0 0 2px var(--ct-green), 0 0 14px rgba(76,255,136,0.55); }
 }
 .ct-root .ct-spin-cell.winning {
   border-color: var(--ct-green) !important;
   animation: ct-win-pulse 1.4s ease-in-out infinite;
+}
+.ct-root .ct-spin-cell.winning-gold {
+  border-color: #ffc44d !important;
+  box-shadow: 0 0 0 2px #ffc44d, 0 0 16px rgba(255, 196, 77, 0.55) !important;
 }
 .ct-root .ct-combo-list { padding: 6px; }
 .ct-root .ct-combo-row {
@@ -845,10 +868,16 @@
   font-size: 10px;
   padding: 2px 0;
 }
+.ct-root .ct-combo-row.active {
+  background: rgba(255, 196, 77, 0.12);
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(255, 196, 77, 0.35);
+}
 .ct-root .ct-combo-row .payout { color: var(--ct-green); font-weight: 600; }
 .ct-root .ct-combo-row .desc { color: var(--ct-text-mid); }
 .ct-root .ct-combo-row .pos { color: var(--ct-text-dim); font-size: 9px; }
 .ct-root .ct-combo-row .dim { color: var(--ct-text-dim); }
+.ct-root .ct-spin-mode-header .win.hover { color: #ffd574; margin-left: auto; margin-right: 12px; }
 
 /* Status bar */
 .ct-root .ct-status-bar {

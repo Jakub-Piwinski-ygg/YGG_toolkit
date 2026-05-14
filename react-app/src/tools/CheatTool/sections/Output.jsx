@@ -293,24 +293,46 @@ function PlayTab() {
 }
 
 function SpinStep({ step, idx }) {
+  const [hoverKey, setHoverKey] = useState(null);
+  const [hoverComboId, setHoverComboId] = useState(null);
   const stepWin = step.stepWin ?? step.StepWin ?? step.win ?? step.Win ?? 0;
   const combos = step.wonCombinations ?? step.WonCombinations ?? step.wins ?? step.Wins ?? [];
   const reels = extractBoardReels(step);
-  const winMap = new Map();
-  combos.forEach((combo) => {
+  const comboModels = combos.map((combo, comboIdx) => {
     const payout = combo.combinationPayout ?? combo.CombinationPayout ?? combo.payout ?? combo.Payout ?? 0;
     const desc = describeCombination(combo);
-    extractWinPositions(combo).forEach(({ reel, row }) => {
+    const positions = extractWinPositions(combo);
+    return { id: comboIdx, payout, desc, positions };
+  });
+  const comboById = new Map(comboModels.map((c) => [c.id, c]));
+  const sortedComboModels = [...comboModels].sort((a, b) => (b.payout || 0) - (a.payout || 0));
+  const winMap = new Map();
+  comboModels.forEach((combo) => {
+    combo.positions.forEach(({ reel, row }) => {
       const k = `${reel},${row}`;
       if (!winMap.has(k)) winMap.set(k, []);
-      winMap.get(k).push({ payout, desc });
+      winMap.get(k).push({ comboId: combo.id, payout: combo.payout, desc: combo.desc });
     });
+  });
+
+  const hoveredCombos = hoverKey ? winMap.get(hoverKey) || [] : [];
+  const hoveredComboIds = hoverComboId !== null
+    ? new Set([hoverComboId])
+    : new Set(hoveredCombos.map((c) => c.comboId));
+  const hoveredPosKeys = new Set();
+  let hoveredPayout = 0;
+  hoveredComboIds.forEach((comboId) => {
+    const combo = comboById.get(comboId);
+    if (!combo) return;
+    hoveredPayout += combo.payout || 0;
+    combo.positions.forEach(({ reel, row }) => hoveredPosKeys.add(`${reel},${row}`));
   });
 
   return (
     <div className="ct-spin-mode-block">
       <div className="ct-spin-mode-header">
         <span>Step {idx + 1}</span>
+        {hoveredPayout > 0 ? <span className="win hover">hover {hoveredPayout}×</span> : null}
         <span className="win">{stepWin > 0 ? stepWin + '×' : '—'}</span>
       </div>
       <div className="ct-spin-board-grid">
@@ -321,16 +343,24 @@ function SpinStep({ step, idx }) {
                 ?? cell.symbolCode ?? cell.SymbolCode
                 ?? cell.symbol ?? cell.Symbol
                 ?? (typeof cell === 'string' ? cell : '?');
-              const isWin = winMap.has(`${ri},${ci}`);
+              const key = `${ri},${ci}`;
+              const isWin = winMap.has(key);
+              const isHoveredWin = (hoverKey || hoverComboId !== null) && hoveredPosKeys.has(key);
               const c = sym && sym !== '?' && sym !== '·' ? symColor(sym) : null;
-              const style = c ? { background: c + '1f', borderColor: c + '55', color: c } : undefined;
-              const tt = isWin ? winMap.get(`${ri},${ci}`).map((w) => `+${w.payout}× ${w.desc}`).join('\n') : '';
+              const style = isHoveredWin
+                ? { background: 'rgba(255, 196, 77, 0.22)', borderColor: 'rgba(255, 196, 77, 0.7)', color: '#ffd574' }
+                : c
+                  ? { background: c + '1f', borderColor: c + '55', color: c }
+                  : undefined;
+              const tt = isWin ? winMap.get(key).map((w) => `+${w.payout}× ${w.desc}`).join('\n') : '';
               return (
                 <div
                   key={ci}
-                  className={`ct-spin-cell${isWin ? ' winning' : ''}`}
+                  className={`ct-spin-cell${isWin ? ' winning' : ''}${isHoveredWin ? ' winning-gold' : ''}`}
                   style={style}
                   title={tt}
+                  onMouseEnter={isWin ? () => { setHoverComboId(null); setHoverKey(key); } : undefined}
+                  onMouseLeave={isWin ? () => setHoverKey(null) : undefined}
                 >{sym}</div>
               );
             })}
@@ -339,13 +369,18 @@ function SpinStep({ step, idx }) {
       </div>
       {combos.length > 0 ? (
         <div className="ct-combo-list">
-          {combos.map((combo, i) => {
-            const payout = combo.combinationPayout ?? combo.CombinationPayout ?? combo.payout ?? combo.Payout ?? 0;
-            const desc = describeCombination(combo);
-            const positions = extractWinPositions(combo);
+          {sortedComboModels.map((combo) => {
+            const payout = combo.payout;
+            const desc = combo.desc;
+            const positions = combo.positions;
             const posLabel = positions.length > 0 ? positions.map((p) => `R${p.reel + 1}:${p.row + 1}`).join(' ') : '';
             return (
-              <div className="ct-combo-row" key={i}>
+              <div
+                className={`ct-combo-row${hoveredComboIds.has(combo.id) ? ' active' : ''}`}
+                key={combo.id}
+                onMouseEnter={() => setHoverComboId(combo.id)}
+                onMouseLeave={() => setHoverComboId(null)}
+              >
                 <span className="payout">+{payout}×</span>
                 <span className="desc">{desc || <i className="dim">brak opisu</i>}</span>
                 {posLabel ? <span className="pos">{posLabel}</span> : null}
