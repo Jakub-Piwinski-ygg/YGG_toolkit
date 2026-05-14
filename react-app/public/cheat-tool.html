@@ -1,0 +1,4793 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cheat Tool v1.36</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #181c23;
+    --surface3: #1e2330;
+    --border: #252c3a;
+    --border-bright: #2e3a50;
+    --accent: #00e5ff;
+    --accent2: #7c4dff;
+    --accent3: #ff4d7c;
+    --green: #00ff9d;
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --text-mid: #94a3b8;
+    --red: #ff4d4d;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* HEADER */
+  header {
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+  }
+
+  .logo span { color: var(--accent2); }
+  .badge {
+    background: var(--accent2);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* LAYOUT */
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    flex: 1;
+    gap: 0;
+  }
+
+  .left-panel {
+    padding: 28px 32px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+  }
+
+  .right-panel {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+
+  /* SECTION CARDS */
+  .section {
+    margin-bottom: 20px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+    transition: border-color 0.2s;
+  }
+
+  .section:focus-within {
+    border-color: var(--border-bright);
+  }
+
+  .section-header {
+    padding: 12px 18px;
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .section-header:hover { background: var(--surface3); }
+
+  .section-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+  }
+
+  .ic-blue { background: rgba(0,229,255,0.12); color: var(--accent); }
+  .ic-purple { background: rgba(124,77,255,0.12); color: var(--accent2); }
+  .ic-green { background: rgba(0,255,157,0.12); color: var(--green); }
+  .ic-red { background: rgba(255,77,124,0.12); color: var(--accent3); }
+  .ic-orange { background: rgba(255,165,0,0.12); color: orange; }
+
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.3px;
+    color: var(--text);
+  }
+
+  .section-subtitle {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-left: auto;
+    letter-spacing: 0.5px;
+  }
+
+  .section-body {
+    padding: 16px 18px;
+  }
+
+  /* FORM ELEMENTS */
+  .field-row {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .field-row:last-child { margin-bottom: 0; }
+
+  label {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  select {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  input:focus, select:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0,229,255,0.08);
+  }
+
+  select option { background: var(--surface2); }
+
+  .range-row {
+    display: grid;
+    grid-template-columns: 140px 1fr 12px 1fr;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .range-sep {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  /* TOGGLE */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .toggle {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
+  .toggle input { opacity: 0; width: 0; height: 0; }
+
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--surface3);
+    border-radius: 20px;
+    cursor: pointer;
+    transition: 0.2s;
+    border: 1px solid var(--border);
+  }
+
+  .toggle-slider:before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 2px;
+    top: 2px;
+    background: var(--text-dim);
+    border-radius: 50%;
+    transition: 0.2s;
+  }
+
+  .toggle input:checked + .toggle-slider { background: rgba(0,229,255,0.15); border-color: var(--accent); }
+  .toggle input:checked + .toggle-slider:before { transform: translateX(16px); background: var(--accent); }
+
+  .toggle-label { font-size: 12px; color: var(--text-mid); }
+
+  /* SYMBOL TAGS */
+  .symbol-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .sym-tag {
+    padding: 4px 10px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--surface3);
+    color: var(--text-dim);
+    user-select: none;
+  }
+
+  .sym-tag:hover { border-color: var(--accent); color: var(--accent); }
+  .sym-tag.active { background: rgba(0,229,255,0.1); border-color: var(--accent); color: var(--accent); }
+  .sym-tag.hi { border-color: rgba(255,165,0,0.3); }
+  .sym-tag.hi.active { background: rgba(255,165,0,0.1); border-color: orange; color: orange; }
+  .sym-tag.mi { border-color: rgba(124,77,255,0.3); }
+  .sym-tag.mi.active { background: rgba(124,77,255,0.1); border-color: var(--accent2); color: var(--accent2); }
+  .sym-tag.lo { border-color: rgba(100,116,139,0.3); }
+  .sym-tag.lo.active { background: rgba(100,116,139,0.1); border-color: var(--text-mid); color: var(--text-mid); }
+  .sym-tag.sp { border-color: rgba(0,255,157,0.3); }
+  .sym-tag.sp.active { background: rgba(0,255,157,0.1); border-color: var(--green); color: var(--green); }
+
+  /* SYMBOL COUNT ROWS */
+  .sym-count-row {
+    display: grid;
+    grid-template-columns: 1fr 80px 28px;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    animation: fadeIn 0.15s ease;
+  }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .remove-btn {
+    background: rgba(255,77,77,0.1);
+    border: 1px solid rgba(255,77,77,0.2);
+    color: var(--red);
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+
+  .remove-btn:hover { background: rgba(255,77,77,0.2); }
+
+  /* ADD BUTTON */
+  .add-btn {
+    background: transparent;
+    border: 1px dashed var(--border-bright);
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    width: 100%;
+    margin-top: 4px;
+    letter-spacing: 0.3px;
+  }
+
+  .add-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,229,255,0.04); }
+
+  /* NEXT MODE SECTION */
+  .next-mode-inner {
+    margin-top: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface3);
+  }
+
+  /* OUTPUT PANEL */
+  .output-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .output-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .output-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+
+  .copy-btn {
+    background: rgba(0,229,255,0.08);
+    border: 1px solid rgba(0,229,255,0.2);
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+  }
+
+  .copy-btn:hover { background: rgba(0,229,255,0.15); }
+  .copy-btn.copied { background: rgba(0,255,157,0.1); border-color: var(--green); color: var(--green); }
+
+  .output-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .tab {
+    padding: 8px 16px;
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .output-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  pre {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .json-key { color: #7dd3fc; }
+  .json-str { color: #86efac; }
+  .json-num { color: #fbbf24; }
+  .json-bool { color: #c084fc; }
+  .json-null { color: var(--text-dim); }
+
+  .minified-output {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    word-break: break-all;
+    color: var(--text-mid);
+    padding: 4px;
+  }
+
+  /* STATUS BAR */
+  .status-bar {
+    padding: 8px 16px;
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 16px;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+  }
+
+  .status-item { display: flex; align-items: center; gap: 5px; }
+  .status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+
+  /* SECTION LABEL INSIDE SYMBOL GRID */
+  .sym-group-label {
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    width: 100%;
+    margin-bottom: 2px;
+    margin-top: 6px;
+  }
+
+  .sym-group-label:first-child { margin-top: 0; }
+
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 14px 0;
+  }
+
+  /* ENV PILLS */
+  .env-pills {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .env-pill {
+    padding: 5px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--text-dim);
+    background: var(--surface3);
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+  }
+  .env-pill:hover { border-color: var(--accent); color: var(--accent); }
+  .env-pill.active { background: rgba(0,229,255,0.1); border-color: var(--accent); color: var(--accent); }
+
+  /* URL PREVIEW */
+  .url-preview {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+    word-break: break-all;
+    letter-spacing: 0.3px;
+  }
+  .url-preview span { color: var(--accent); }
+
+  /* SEND BUTTON */
+  .send-btn {
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, rgba(0,229,255,0.15), rgba(124,77,255,0.15));
+    border: 1px solid rgba(0,229,255,0.3);
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    letter-spacing: 0.5px;
+  }
+  .send-btn:hover { background: linear-gradient(135deg, rgba(0,229,255,0.25), rgba(124,77,255,0.25)); box-shadow: 0 0 20px rgba(0,229,255,0.1); }
+  .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .send-btn.loading { animation: sendPulse 1s infinite; }
+  @keyframes sendPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+
+  /* RESPONSE PANEL */
+  .response-panel {
+    border-top: 1px solid var(--border);
+    max-height: 280px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .response-header {
+    padding: 10px 16px;
+    background: var(--surface2);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .response-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-mid);
+  }
+  .response-body { padding: 12px 16px; }
+
+  /* RESPONSE CARDS */
+  .res-success { border-left: 3px solid var(--green); }
+  .res-fail { border-left: 3px solid var(--red); }
+  .res-card {
+    background: var(--surface3);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+  }
+  .res-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+  }
+  .res-row:last-child { border-bottom: none; }
+  .res-key { color: var(--text-dim); letter-spacing: 0.3px; }
+  .res-val { color: var(--text); font-weight: 500; }
+  .res-val.green { color: var(--green); }
+  .res-val.red { color: var(--red); }
+  .res-val.accent { color: var(--accent); }
+  .res-val.orange { color: orange; }
+
+  .res-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .res-badge.ok { background: rgba(0,255,157,0.1); color: var(--green); border: 1px solid rgba(0,255,157,0.3); }
+  .res-badge.err { background: rgba(255,77,77,0.1); color: var(--red); border: 1px solid rgba(255,77,77,0.3); }
+
+  .cors-warning {
+    background: rgba(255,165,0,0.08);
+    border: 1px solid rgba(255,165,0,0.3);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 11px;
+    color: orange;
+    line-height: 1.6;
+  }
+
+  /* ===== VISUAL BOARD GRID ===== */
+
+  .board-mode-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 14px;
+    background: var(--surface3);
+    padding: 3px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .board-mode-tab {
+    flex: 1;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.2px;
+  }
+  .board-mode-tab:hover { color: var(--text-mid); }
+  .board-mode-tab.active { background: var(--surface); color: var(--accent); border-color: var(--border-bright); box-shadow: 0 1px 4px rgba(0,0,0,0.3); }
+
+  .board-palette { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .pal-group { display: flex; gap: 4px; padding: 4px 6px; background: var(--surface3); border-radius: 7px; border: 1px solid var(--border); }
+  .pal-sym { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; transition: all 0.12s; border: 1px solid transparent; user-select: none; letter-spacing: 0.3px; }
+  .pal-sym[draggable="true"] { cursor: grab; }
+  .pal-sym[draggable="true"]:active { cursor: grabbing; opacity: 0.6; }
+  .pal-sym.hi { color: orange; }
+  .pal-sym.hi.active, .pal-sym.hi:hover { background: rgba(255,165,0,0.15); border-color: orange; }
+  .pal-sym.mi { color: var(--accent2); }
+  .pal-sym.mi.active, .pal-sym.mi:hover { background: rgba(124,77,255,0.15); border-color: var(--accent2); }
+  .pal-sym.lo { color: var(--text-mid); }
+  .pal-sym.lo.active, .pal-sym.lo:hover { background: rgba(148,163,184,0.15); border-color: var(--text-mid); }
+  .pal-sym.sp { color: var(--green); }
+  .pal-sym.sp.active, .pal-sym.sp:hover { background: rgba(0,255,157,0.15); border-color: var(--green); }
+  .pal-sym.eraser { color: var(--text-dim); }
+  .pal-sym.eraser.active, .pal-sym.eraser:hover { background: rgba(255,77,77,0.1); border-color: var(--red); color: var(--red); }
+  .pal-sym.active { box-shadow: 0 0 8px rgba(255,255,255,0.08); }
+
+  .board-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .board-ctrl-group { display: flex; align-items: center; gap: 6px; background: var(--surface3); border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; }
+  .board-ctrl-label { font-size: 10px; color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase; margin-right: 2px; }
+  .board-ctrl-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-mid); width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.12s; line-height: 1; padding: 0; }
+  .board-ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .board-ctrl-val { font-size: 13px; font-weight: 600; color: var(--text); min-width: 18px; text-align: center; }
+  .board-clear-btn { background: rgba(255,77,77,0.07); border: 1px solid rgba(255,77,77,0.2); color: var(--red); font-family: "JetBrains Mono", monospace; font-size: 10px; padding: 5px 12px; border-radius: 6px; cursor: pointer; transition: all 0.12s; letter-spacing: 0.3px; margin-left: auto; }
+  .board-clear-btn:hover { background: rgba(255,77,77,0.15); }
+
+  .board-grid-wrap { overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px; position: relative; }
+  .board-reel-labels { display: flex; gap: 3px; margin-bottom: 4px; padding-left: 2px; }
+  .reel-label { font-size: 9px; color: var(--text-dim); letter-spacing: 0.5px; text-align: center; flex-shrink: 0; text-transform: uppercase; }
+  .board-grid { display: flex; flex-direction: column; gap: 3px; }
+  .board-row { display: flex; gap: 3px; }
+
+  .board-cell { width: 52px; height: 40px; border-radius: 5px; border: 1px solid var(--border); background: var(--surface3); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; transition: all 0.1s; user-select: none; flex-shrink: 0; letter-spacing: 0.2px; position: relative; overflow: hidden; }
+  .mode-paint .board-cell { cursor: crosshair; }
+  .mode-drag  .board-cell { cursor: grab; }
+  .mode-type  .board-cell { cursor: text; }
+  .board-cell.empty { color: var(--border-bright); }
+  .board-cell.drag-over { border-color: var(--accent) !important; box-shadow: inset 0 0 0 2px rgba(0,229,255,0.3); }
+  .board-cell.drag-source { opacity: 0.35; }
+  .board-cell.sym-Hi1    { background: rgba(255,140,0,0.18);  border-color: rgba(255,140,0,0.45);  color: #ffaa40; }
+  .board-cell.sym-Hi2    { background: rgba(255,180,0,0.18);  border-color: rgba(255,180,0,0.45);  color: #ffcc40; }
+  .board-cell.sym-Hi3    { background: rgba(255,100,50,0.18); border-color: rgba(255,100,50,0.45); color: #ff8060; }
+  .board-cell.sym-Hi4    { background: rgba(220,80,0,0.18);   border-color: rgba(220,80,0,0.45);   color: #e06030; }
+  .board-cell.sym-Mi1    { background: rgba(124,77,255,0.18); border-color: rgba(124,77,255,0.45); color: #a080ff; }
+  .board-cell.sym-Mi2    { background: rgba(160,100,255,0.18);border-color: rgba(160,100,255,0.45);color: #c090ff; }
+  .board-cell.sym-Lo1    { background: rgba(100,116,139,0.18);border-color: rgba(100,116,139,0.45);color: #94a3b8; }
+  .board-cell.sym-Lo2    { background: rgba(80,100,120,0.18); border-color: rgba(80,100,120,0.45); color: #7a9ab0; }
+  .board-cell.sym-Lo3    { background: rgba(60,80,100,0.18);  border-color: rgba(60,80,100,0.45);  color: #6080a0; }
+  .board-cell.sym-Wild    { background: rgba(0,229,255,0.18); border-color: rgba(0,229,255,0.5);   color: #00e5ff; }
+  .board-cell.sym-Scatter { background: rgba(0,255,157,0.18); border-color: rgba(0,255,157,0.5);   color: #00ff9d; }
+  .board-cell.sym-FS      { background: rgba(255,77,124,0.18);border-color: rgba(255,77,124,0.5);  color: #ff4d7c; }
+
+  .cell-input { width: 100%; height: 100%; background: transparent; border: none; outline: none; color: inherit; font-family: "JetBrains Mono", monospace; font-size: 10px; font-weight: 600; text-align: center; letter-spacing: 0.2px; caret-color: var(--accent); padding: 0 2px; }
+
+  .autocomplete-drop { position: fixed; background: var(--surface2); border: 1px solid var(--border-bright); border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 9999; min-width: 130px; overflow: hidden; }
+  .ac-item { padding: 7px 12px; font-size: 11px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 0.1s; }
+  .ac-item:hover, .ac-item.focused { background: var(--surface3); }
+  .ac-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  .board-summary { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
+  .sum-chip { display: flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 10px; font-weight: 600; border: 1px solid; }
+  .sum-chip .sum-count { background: rgba(255,255,255,0.1); border-radius: 10px; padding: 0 5px; font-size: 9px; }
+
+    /* MEGAWAYS PER-REEL CONTROLS */
+  .megaways-reel-controls {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .mw-reel-ctrl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 8px;
+    min-width: 52px;
+  }
+  .mw-reel-label {
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .mw-reel-val {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 20px;
+    text-align: center;
+  }
+  .mw-reel-btns {
+    display: flex;
+    gap: 3px;
+  }
+  .mw-reel-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-mid);
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.12s;
+    padding: 0;
+    line-height: 1;
+  }
+  .mw-reel-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .resp-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .resp-tab {
+    padding: 6px 14px;
+    font-size: 10px;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .resp-tab:hover { color: var(--text-mid); }
+  .resp-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .spin-inspector {
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .spin-inspector-loading {
+    color: var(--text-dim);
+    font-size: 11px;
+    padding: 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .spin-mode-block {
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .spin-mode-header {
+    padding: 7px 12px;
+    background: var(--surface3);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--accent2);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .spin-mode-win {
+    color: var(--green);
+    font-size: 12px;
+  }
+  .spin-board-grid {
+    display: flex;
+    gap: 2px;
+    padding: 10px;
+    flex-wrap: wrap;
+    background: var(--surface2);
+  }
+  .spin-reel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .spin-cell {
+    width: 42px;
+    height: 32px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    position: relative;
+    transition: all 0.15s;
+  }
+  .spin-cell.winning {
+    border-color: var(--green) !important;
+    box-shadow: 0 0 0 1px var(--green), 0 0 12px rgba(0,255,157,0.4);
+    animation: winPulse 1.4s ease-in-out infinite;
+    z-index: 1;
+  }
+  .spin-cell.winning:hover {
+    box-shadow: 0 0 0 2px var(--green), 0 0 16px rgba(0,255,157,0.6);
+    z-index: 2;
+  }
+  @keyframes winPulse {
+    0%,100% { box-shadow: 0 0 0 1px var(--green), 0 0 8px rgba(0,255,157,0.3); }
+    50%     { box-shadow: 0 0 0 1px var(--green), 0 0 16px rgba(0,255,157,0.6); }
+  }
+  .combo-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 8px; margin: 2px 0;
+    background: rgba(0,255,157,0.05);
+    border: 1px solid rgba(0,255,157,0.15);
+    border-radius: 4px;
+    font-size: 10px;
+  }
+  .combo-payout {
+    color: var(--green); font-weight: 700;
+    background: rgba(0,255,157,0.12);
+    padding: 1px 7px; border-radius: 3px;
+    min-width: 50px; text-align: center;
+  }
+  .combo-desc { color: var(--text-mid); flex: 1; }
+  .combo-pos { color: var(--text-dim); font-size: 9px; }
+  .config-fetch-bar {
+    background: rgba(0,229,255,0.05);
+    border: 1px solid rgba(0,229,255,0.15);
+    border-radius: 7px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+  .config-fetch-btn {
+    background: rgba(0,229,255,0.08);
+    border: 1px solid rgba(0,229,255,0.2);
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .config-fetch-btn:hover { background: rgba(0,229,255,0.15); }
+  .config-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .config-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+  .config-dot.loaded { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .config-dot.error { background: var(--red); }
+
+  /* FS COUNT BUTTONS */
+  .fs-count-btn {
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 6px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+  }
+  .fs-count-btn:hover { border-color: var(--green); color: var(--green); }
+  .fs-count-btn.active { background: rgba(0,255,157,0.1); border-color: var(--green); color: var(--green); box-shadow: 0 0 8px rgba(0,255,157,0.15); }
+
+  /* API RESPONSE */
+  .response-panel {
+    border-top: 1px solid var(--border);
+    background: var(--surface2);
+  }
+  .response-header {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+  }
+  .response-title { font-size: 11px; color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase; }
+  .response-body { padding: 12px 16px; max-height: 220px; overflow-y: auto; }
+
+  .resp-field {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+  .resp-key { color: var(--text-dim); }
+  .resp-val { color: var(--text); font-weight: 500; }
+  .resp-val.success { color: var(--green); }
+  .resp-val.fail { color: var(--red); }
+  .resp-val.highlight { color: var(--accent); font-size: 14px; font-weight: 700; }
+
+  .send-btn {
+    width: 100%;
+    padding: 11px;
+    background: rgba(0,229,255,0.08);
+    border: 1px solid rgba(0,229,255,0.25);
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.5px;
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .send-btn:hover { background: rgba(0,229,255,0.15); border-color: var(--accent); box-shadow: 0 0 16px rgba(0,229,255,0.1); }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .send-btn.loading { animation: pulse 1s infinite; }
+
+  .env-pills { display: flex; gap: 6px; margin-bottom: 10px; }
+  .env-pill {
+    padding: 4px 12px;
+    border-radius: 5px;
+    border: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    background: var(--surface3);
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .env-pill:hover { border-color: var(--accent2); color: var(--accent2); }
+  .env-pill.active { background: rgba(124,77,255,0.1); border-color: var(--accent2); color: var(--accent2); }
+  .env-pill.dev.active { background: rgba(0,255,157,0.1); border-color: var(--green); color: var(--green); }
+  .env-pill.staging.active { background: rgba(255,165,0,0.1); border-color: orange; color: orange; }
+  .env-pill.proxy.active { background: rgba(255,200,0,0.1); border-color: #ffcc00; color: #ffcc00; }
+
+  .url-preview {
+    font-size: 10px;
+    color: var(--text-dim);
+    background: var(--surface3);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 7px 10px;
+    word-break: break-all;
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+  .url-preview span { color: var(--accent); }
+
+  .error-box {
+    background: rgba(255,77,77,0.08);
+    border: 1px solid rgba(255,77,77,0.2);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    color: var(--red);
+    line-height: 1.5;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 4px; }
+
+  /* ===== MOBILE RESPONSIVE ===== */
+  @media (max-width: 768px) {
+
+    /* Layout — single column */
+    .layout {
+      display: flex;
+      flex-direction: column;
+      height: auto;
+    }
+
+    .left-panel {
+      padding: 12px;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      overflow-y: visible;
+    }
+
+    .right-panel {
+      position: relative;
+      height: auto;
+      min-height: 0;
+    }
+
+    /* Header */
+    header { padding: 12px 16px; gap: 10px; }
+    .logo { font-size: 16px; }
+
+    /* Bigger touch targets */
+    input[type="text"],
+    input[type="number"],
+    select {
+      font-size: 16px; /* prevents iOS zoom */
+      padding: 12px 14px;
+      min-height: 48px;
+    }
+
+    label { font-size: 12px; }
+
+    /* field-row — stack on mobile */
+    .field-row {
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+
+    .range-row {
+      grid-template-columns: 1fr 16px 1fr;
+      gap: 8px;
+    }
+    .range-row > label { display: none; }
+
+    /* Section headers — bigger */
+    .section-header { padding: 14px 16px; }
+    .section-icon { width: 32px; height: 32px; font-size: 15px; }
+    .section-title { font-size: 14px; }
+    .section-body { padding: 14px 12px; }
+
+    /* Toggle — większy obszar dotyku */
+    .toggle {
+      width: 48px;
+      height: 28px;
+      min-width: 48px;
+    }
+    .toggle input {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      margin: 0;
+      cursor: pointer;
+      z-index: 1;
+    }
+    .toggle-slider { border-radius: 28px; }
+    .toggle-slider:before { width: 20px; height: 20px; top: 3px; left: 3px; }
+    .toggle input:checked + .toggle-slider:before { transform: translateX(20px); }
+    .toggle-label { font-size: 14px; }
+    .toggle-row { gap: 12px; min-height: 44px; align-items: center; }
+
+    /* Buttons */
+    .add-btn { font-size: 14px; padding: 12px 16px; min-height: 48px; }
+    .remove-btn { width: 36px; height: 36px; font-size: 18px; }
+    .board-clear-btn { font-size: 12px; padding: 8px 14px; min-height: 36px; }
+    .copy-btn { font-size: 12px; padding: 10px 16px; min-height: 40px; }
+
+    /* Send button — sticky at bottom on mobile */
+    .send-btn { font-size: 16px; padding: 16px; min-height: 56px; letter-spacing: 0.5px; }
+
+    /* sym-count-row */
+    .sym-count-row {
+      grid-template-columns: 1fr 90px 36px;
+      gap: 8px;
+    }
+
+    /* Board controls — bigger touch targets */
+    .board-ctrl-btn { width: 32px; height: 32px; font-size: 18px; }
+    .board-ctrl-val { font-size: 16px; min-width: 24px; }
+    .board-ctrl-label { font-size: 11px; }
+    .board-ctrl-group { padding: 8px 12px; gap: 8px; }
+
+    /* Board mode tabs */
+    .board-mode-tab { padding: 10px 6px; font-size: 12px; min-height: 44px; }
+
+    /* Palette symbols — bigger */
+    .pal-sym { padding: 8px 12px; font-size: 12px; min-height: 40px; }
+    .pal-group { padding: 6px 8px; gap: 6px; }
+
+    /* Board cells — bigger for touch */
+    .board-cell { width: 56px; height: 48px; font-size: 11px; }
+    .cell-input { font-size: 11px; }
+
+    /* Megaways controls */
+    .mw-reel-btn { width: 28px; height: 28px; font-size: 16px; }
+    .mw-reel-val { font-size: 16px; }
+    .mw-reel-ctrl { min-width: 60px; padding: 8px 10px; }
+
+    /* FS count buttons */
+    .fs-count-btn { padding: 10px 20px; font-size: 14px; min-height: 44px; }
+
+    /* Output panel */
+    .output-header { padding: 12px 16px; }
+    .output-body { padding: 12px; }
+    .tab { padding: 12px 16px; font-size: 12px; }
+
+    /* Response */
+    .response-body { max-height: none; }
+    .resp-field { grid-template-columns: 120px 1fr; font-size: 12px; }
+
+    /* History panel */
+    .history-cb-label { font-size: 12px; }
+
+    /* Env pills */
+    .env-pill { padding: 8px 14px; font-size: 12px; min-height: 40px; }
+    .env-pills { gap: 8px; flex-wrap: wrap; }
+
+    /* Config fetch bar */
+    .config-fetch-bar { flex-direction: column; gap: 8px; align-items: flex-start; }
+    .config-fetch-btn { width: 100%; padding: 10px; font-size: 13px; text-align: center; min-height: 44px; }
+
+    /* Next mode inner */
+    .next-mode-inner { padding: 12px; }
+
+    /* Divider */
+    .divider { margin: 12px 0; }
+
+    /* Section overflow fix */
+    .section { overflow: visible; }
+    .section-body { overflow: visible; }
+
+    /* Section margin */
+    .section { margin-bottom: 14px; }
+
+    /* History rows */
+    #historyRows > div {
+      grid-template-columns: 36px 1fr 36px !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">CHEAT<span>API</span> BUILDER</div>
+  <div class="badge">QA Tool</div>
+  <button id="shortcutsHelpBtn" onclick="toggleShortcutsPopover()" title="Skróty klawiszowe (Ctrl+/)"
+    style="margin-left:auto;background:transparent;border:1px solid var(--border);color:var(--text-dim);width:28px;height:28px;border-radius:6px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;transition:all 0.15s;"
+    onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)';"
+    onmouseout="this.style.color='var(--text-dim)';this.style.borderColor='var(--border)';">?</button>
+  <div style="font-size:11px;color:var(--text-dim);letter-spacing:0.5px;margin-left:10px;">v1.36</div>
+</header>
+
+<div class="layout">
+  <!-- LEFT PANEL: FORM -->
+  <div class="left-panel">
+
+    <!-- GAME CONFIG -->
+    <!-- PRESETS -->
+    <div class="section">
+      <div class="section-header" style="cursor:pointer;" onclick="togglePresetsSection()">
+        <div class="section-icon ic-purple">💾</div>
+        <span class="section-title">Presets</span>
+        <span class="section-subtitle">SAVE / LOAD</span>
+        <span id="presetsCount" style="margin-left:auto;font-size:10px;color:var(--text-dim);"></span>
+        <span id="presetsChevron" style="margin-left:10px;color:var(--text-dim);transition:transform 0.2s;">▼</span>
+      </div>
+      <div class="section-body" id="presetsBody" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:10px;">
+          <input type="text" id="presetNameInput" placeholder="Nazwa presetu (np. FS1 MaxWin 5000x)" maxlength="80">
+          <button class="add-btn" style="margin:0;width:auto;padding:8px 14px;" onclick="presetSaveCurrent()">💾 Zapisz</button>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+          <button class="copy-btn" onclick="presetExportAll()" style="font-size:10px;">⬇ Eksportuj wszystkie</button>
+          <label class="copy-btn" style="font-size:10px;cursor:pointer;">
+            ⬆ Importuj
+            <input type="file" accept="application/json,.json" onchange="presetImportFile(event)" style="display:none;">
+          </label>
+          <button class="copy-btn" onclick="presetClearAll()" style="font-size:10px;background:rgba(255,80,80,0.08);border-color:rgba(255,80,80,0.3);color:var(--red);">🗑 Wyczyść wszystkie</button>
+          <span id="presetsToast" style="font-size:10px;color:var(--green);display:none;align-self:center;">✓</span>
+        </div>
+        <div id="presetsList" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;"></div>
+        <div id="presetsEmpty" style="font-size:11px;color:var(--text-dim);padding:8px 0;">Brak zapisanych presetów. Zapisz aktualny stan przyciskiem powyżej.</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-blue">⚙</div>
+        <span class="section-title">Game Config</span>
+        <span class="section-subtitle">REQUIRED</span>
+      </div>
+      <div class="section-body">
+        <div class="field-row">
+          <label>Game ID</label>
+          <input type="number" id="gameId" value="10857" oninput="update()">
+        </div>
+        <div class="field-row">
+          <label>RTP Variant</label>
+          <select id="rtpVariant" onchange="update()">
+            <option value="0.94">0.94</option>
+            <option value="0.96">0.96</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- GAME MODE -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-purple">◈</div>
+        <span class="section-title">Game Mode</span>
+        <span class="section-subtitle">ROOT</span>
+      </div>
+      <div class="section-body">
+        <div class="field-row">
+          <label>Mode Name</label>
+          <input type="text" id="gameModeName" value="BaseGame" list="gameModeList" oninput="update()" placeholder="np. BaseGame, base_game, FS1…">
+          <datalist id="gameModeList">
+            <option value="BaseGame">
+            <option value="base_game">
+            <option value="FS1">
+            <option value="FS2">
+            <option value="FS3">
+            <option value="FS4">
+          </datalist>
+        </div>
+        <div class="field-row">
+          <label>Json Index</label>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label class="toggle" style="margin:0;">
+              <input type="checkbox" id="jsonIndexEnabled" onchange="update()">
+              <span class="toggle-slider"></span>
+            </label>
+            <input type="number" id="jsonIndexValue" value="1" min="1" step="1" oninput="update()"
+              style="width:80px;text-align:center;" title="Przypina cheat do konkretnego deterministycznego wyniku">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MULTIPLIER CONDITIONS -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-green">✕</div>
+        <span class="section-title">Multiplier Conditions</span>
+        <span class="section-subtitle">WIN RANGE</span>
+      </div>
+      <div class="section-body">
+        <div class="toggle-row" style="margin-bottom:14px;">
+          <label class="toggle">
+            <input type="checkbox" id="multiplierEnabled">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Enable multiplier constraint</span>
+        </div>
+        <div id="multiplierFields" style="display:none;">
+          <div class="range-row">
+            <label>Win Range</label>
+            <input type="number" id="multFrom" placeholder="From" step="0.1" oninput="update()">
+            <span class="range-sep">—</span>
+            <input type="number" id="multTo" placeholder="To" step="0.1" oninput="update()">
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);margin-top:6px;">
+            Tip: ustaw FromValue = ToValue dla dokładnej wygranej
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOARD STATE CONDITIONS -->
+    <div class="section">
+      <div class="section-header" style="cursor:pointer;" onclick="toggleBoardSection()">
+        <div class="section-icon ic-orange">▦</div>
+        <span class="section-title">Board State Conditions</span>
+        <span class="section-subtitle">VISUAL GRID</span>
+        <span id="boardSectionChevron" style="margin-left:auto;color:var(--text-dim);transition:transform 0.2s;">▼</span>
+      </div>
+      <div class="section-body" id="boardSectionBody" style="padding:14px;display:none;">
+
+        <!-- Mode switcher -->
+        <div class="board-mode-tabs">
+          <button class="board-mode-tab active" id="modePaint" onclick="setBoardMode('paint')">🖌 Pędzel</button>
+          <button class="board-mode-tab" id="modeDrag" onclick="setBoardMode('drag')">✥ Drag & Drop</button>
+          <button class="board-mode-tab" id="modeType" onclick="setBoardMode('type')">⌨ Pisanie</button>
+        </div>
+
+        <!-- Palette (paint + drag modes) -->
+        <div id="paletteWrap">
+          <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;" id="paletteHint">Wybierz symbol (pędzel)</div>
+          <div class="board-palette" id="boardPalette">
+            <div id="boardPaletteSymbols" style="display:flex;flex-wrap:wrap;gap:4px;">
+              <span style="font-size:10px;color:var(--text-dim);padding:4px 0;">Pobierz config gry aby załadować symbole</span>
+            </div>
+            <div class="pal-group">
+              <span class="pal-sym eraser active" data-sym="" onclick="selectBrush('',this)">✕ Clear</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grid size controls -->
+        <div class="board-controls">
+          <div class="board-ctrl-group">
+            <span class="board-ctrl-label">Reele</span>
+            <button class="board-ctrl-btn" onclick="changeReels(-1)">−</button>
+            <span class="board-ctrl-val" id="reelCount">5</span>
+            <button class="board-ctrl-btn" onclick="changeReels(1)">+</button>
+          </div>
+          <div class="board-ctrl-group">
+            <span class="board-ctrl-label">Rzędy (glob.)</span>
+            <button class="board-ctrl-btn" onclick="changeRows(-1)">−</button>
+            <span class="board-ctrl-val" id="rowCount">3</span>
+            <button class="board-ctrl-btn" onclick="changeRows(1)">+</button>
+          </div>
+          <div class="board-ctrl-group" style="gap:6px;">
+            <label class="toggle" style="margin:0;">
+              <input type="checkbox" id="megawaysToggle" onchange="toggleMegaways()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="board-ctrl-label" style="margin:0;">Megaways</span>
+          </div>
+          <button id="undoBtnMain" class="board-clear-btn" onclick="undoMain()" style="margin-left:auto;background:rgba(0,229,255,0.07);border-color:rgba(0,229,255,0.25);color:var(--accent);" title="Cofnij (Ctrl+Z)">↶</button>
+          <button id="redoBtnMain" class="board-clear-btn" onclick="redoMain()" style="margin-left:4px;background:rgba(0,229,255,0.07);border-color:rgba(0,229,255,0.25);color:var(--accent);" title="Ponów (Ctrl+Shift+Z)">↷</button>
+          <button class="board-clear-btn" onclick="clearBoard()" style="margin-left:4px;">Wyczyść</button>
+        </div>
+
+        <!-- Per-reel height controls (Megaways mode) -->
+        <div id="megawaysControls" style="display:none;margin-bottom:12px;">
+          <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Wysokość każdej rolki</div>
+          <div class="megaways-reel-controls" id="megawaysReelControls"></div>
+        </div>
+
+        <!-- Visual grid -->
+        <div class="board-grid-wrap">
+          <div class="board-reel-labels" id="boardReelLabels"></div>
+          <div class="board-grid" id="boardGrid"></div>
+        </div>
+
+        <!-- Autocomplete dropdown -->
+        <div class="autocomplete-drop" id="autocompleteDrop" style="display:none;"></div>
+
+        <!-- Symbol count summary -->
+        <div class="board-summary" id="boardSummary"></div>
+
+        <!-- Manual symbol overrides -->
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+          <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Dodatkowe symbole (poza gridem)</div>
+          <div id="manualSymbolRows"></div>
+          <button class="add-btn" style="margin-top:6px;" onclick="addManualSymbol()">+ Dodaj symbol</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- OAK WIN CONDITIONS -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-red">★</div>
+        <span class="section-title">OAK Win Conditions</span>
+        <span class="section-subtitle">OF A KIND</span>
+      </div>
+      <div class="section-body">
+        <div id="oakRows"></div>
+        <button class="add-btn" onclick="addOAK()">+ Dodaj OAK condition</button>
+      </div>
+    </div>
+
+    <!-- COUNTER STATE -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-blue">⊞</div>
+        <span class="section-title">Counter State Conditions</span>
+        <span class="section-subtitle">COUNTERS</span>
+      </div>
+      <div class="section-body">
+        <div id="counterRows"></div>
+        <button class="add-btn" onclick="addCounter()">+ Dodaj counter condition</button>
+        <div id="megawaysCounterPreview" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+          <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">⚡ Auto — Megaways counters</div>
+          <div id="megawaysCounterRows"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BOARD TRANSFORMATIONS -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-purple">⟳</div>
+        <span class="section-title">Board Transformations</span>
+        <span class="section-subtitle">TRANSFORMATIONS</span>
+      </div>
+      <div class="section-body">
+        <div id="transformRows"></div>
+        <button class="add-btn" onclick="addTransform()">+ Dodaj transformation</button>
+      </div>
+    </div>
+
+    <!-- API CONNECTION -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-green">⚡</div>
+        <span class="section-title">API Connection</span>
+        <span class="section-subtitle">SEND REQUEST</span>
+      </div>
+      <div class="section-body">
+        <div style="font-size:10px;color:var(--text-dim);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px;">Środowisko</div>
+        <div class="env-pills">
+          <div class="env-pill dev active" data-env="dev" onclick="selectEnv('dev',this)">DEV-02</div>
+          <div class="env-pill staging" data-env="staging" onclick="selectEnv('staging',this)">STAGING</div>
+          <div class="env-pill prod" data-env="prod" onclick="selectEnv('prod',this)">PROD</div>
+          <div class="env-pill proxy" data-env="proxy" onclick="selectEnv('proxy',this)">⚡ LOCAL PROXY</div>
+          <div class="env-pill" data-env="custom" onclick="selectEnv('custom',this)">CUSTOM</div>
+        </div>
+
+        <!-- Proxy target selector (widoczny tylko w trybie proxy) -->
+        <div id="proxyTargetField" style="display:none;margin-bottom:10px;">
+          <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Środowisko docelowe przez proxy</div>
+          <select id="proxyTargetSelect" onchange="updateUrlPreview()" style="width:100%;">
+            <option value="https://ugs.dev-02.dev.yggops.io">DEV-02</option>
+            <option value="https://ugs.staging.yggops.io">STAGING</option>
+            <option value="https://ugs.yggops.io">PROD</option>
+          </select>
+          <div style="margin-top:8px;display:grid;grid-template-columns:auto 90px;gap:8px;align-items:center;">
+            <span style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;">Port proxy</span>
+            <input type="number" id="proxyPortInput" min="1" max="65535" value="3030"
+              oninput="onProxyPortChange(this.value)" style="text-align:center;font-size:11px;padding:6px 8px;">
+          </div>
+          <div style="margin-top:8px;padding:8px 10px;background:rgba(255,200,0,0.07);border:1px solid rgba(255,200,0,0.2);border-radius:6px;font-size:10px;color:#ffcc00;line-height:1.6;">
+            ⚡ Uruchom proxy: <code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px;">node proxy.js</code><br>
+            <span style="color:var(--text-dim);">Wymaga Node.js • proxy.js w tym samym folderze • domyślny port 3030</span>
+          </div>
+        </div>
+        <div id="customUrlField" style="display:none;margin-bottom:10px;">
+          <input type="text" id="customBaseUrl" placeholder="https://ugs.custom.yggops.io" oninput="updateUrlPreview()" style="width:100%;">
+        </div>
+        <div class="url-preview" id="urlPreview">
+          POST <span id="urlPreviewText">https://ugs.dev-02.dev.yggops.io/cheats/find-spin</span>
+        </div>
+        <div class="config-fetch-bar">
+          <div class="config-status">
+            <div class="config-dot" id="configDot"></div>
+            <span id="configStatus">Symbole nie załadowane z API</span>
+          </div>
+          <button class="config-fetch-btn" onclick="fetchGameConfig()">⬇ Pobierz config gry</button>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="send-btn" id="sendBtn" onclick="sendRequest()" style="flex:1;">
+            <span id="sendBtnIcon">▶</span>
+            <span id="sendBtnLabel">Wyślij zapytanie</span>
+          </button>
+          <button onclick="historySaveRequest()" title="Zapisz do historii bez wysyłania" style="flex:0 0 auto;padding:0 14px;height:44px;background:rgba(180,120,255,0.08);border:1px solid rgba(180,120,255,0.3);color:var(--accent2);border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;white-space:nowrap;transition:all 0.15s;" onmouseover="this.style.background='rgba(180,120,255,0.18)'" onmouseout="this.style.background='rgba(180,120,255,0.08)'">📋 Zapisz</button>
+          <button class="send-btn" id="cancelBtn" onclick="cancelRequest()" style="display:none;flex:0 0 auto;width:auto;padding:11px 16px;background:rgba(255,77,77,0.08);border-color:rgba(255,77,77,0.3);color:var(--red);" title="Przerwij">
+            ✕
+          </button>
+        </div>
+        <!-- Validation warning bar -->
+        <div id="validationBar" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(255,180,0,0.08);border:1px solid rgba(255,180,0,0.3);border-radius:6px;font-size:10px;color:#ffc04d;cursor:pointer;" onclick="toggleValidationDetails()">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span id="validationSummary">⚠ Brak błędów</span>
+            <span id="validationChevron" style="transition:transform 0.2s;">▼</span>
+          </div>
+          <ul id="validationDetails" style="display:none;margin:6px 0 0 16px;padding:0;font-size:10px;line-height:1.6;"></ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEXT MODE CHEAT -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-icon ic-green">→</div>
+        <span class="section-title">Next Mode Cheat</span>
+        <span class="section-subtitle">CHAINING</span>
+      </div>
+      <div class="section-body">
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="nextModeEnabled" onchange="toggleNextMode()">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="toggle-label">Enable next mode chaining</span>
+        </div>
+        <div id="nextModeFields" style="display:none;" class="next-mode-inner">
+
+          <!-- Target mode -->
+          <div class="field-row">
+            <label>Target Mode</label>
+            <input type="text" id="nextGameModeName" value="FS1" list="gameModeList" oninput="onNextModeChange()" placeholder="np. FS1, FS_level_1, base_game…">
+          </div>
+
+          <!-- Trigger info badge (auto-detect) -->
+          <div id="fsTriggerAutoBadge" style="margin:8px 0 4px;padding:6px 10px;background:rgba(0,255,157,0.08);border:1px solid rgba(0,255,157,0.2);border-radius:6px;font-size:10px;color:var(--green);display:none;align-items:center;gap:8px;">
+            <span>⚡</span>
+            <span id="fsTriggerAutoLabel">Auto-detect z nazwy trybu</span>
+          </div>
+
+          <!-- Trigger config (symbol + count w symbolsOnBoard) -->
+          <div id="fsTriggerFields" style="display:none;margin-top:10px;margin-bottom:12px;padding:10px;background:rgba(0,255,157,0.04);border:1px solid rgba(0,255,157,0.15);border-radius:6px;">
+            <div style="font-size:10px;color:var(--text-dim);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px;">Trigger (dodawany do symbolsOnBoard)</div>
+            <div class="field-row" style="margin-bottom:8px;">
+              <label>Trigger Symbol</label>
+              <input type="text" id="triggerSymbol" value="FS" list="symbolDatalist" oninput="onTriggerInputChange('symbol')" placeholder="np. Scatter, FS, Bonus">
+            </div>
+            <div class="field-row" style="margin-bottom:0;">
+              <label>Trigger Count</label>
+              <input type="number" id="triggerCount" value="3" min="0" max="50" oninput="onTriggerInputChange('count')" style="text-align:center;">
+            </div>
+            <div style="font-size:9px;color:var(--text-dim);margin-top:8px;">Ustaw <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">count = 0</code> żeby pominąć trigger.</div>
+          </div>
+
+          <!-- Hidden FS toggle (kept for backward compat — always true when next mode is on) -->
+          <div style="display:none;">
+            <input type="checkbox" id="fsTriggerEnabled" checked>
+          </div>
+          <div class="divider"></div>
+
+          <!-- Multiplier w next mode -->
+          <div class="toggle-row" style="margin-bottom:10px;">
+            <label class="toggle">
+              <input type="checkbox" id="nextMultEnabled" onchange="update()">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="toggle-label">Multiplier constraint w next mode</span>
+          </div>
+          <div id="nextMultFields" style="display:none;margin-bottom:12px;">
+            <div class="range-row">
+              <label>Win Range</label>
+              <input type="number" id="nextMultFrom" placeholder="From" step="0.1" oninput="update()">
+              <span class="range-sep">—</span>
+              <input type="number" id="nextMultTo" placeholder="To" step="0.1" oninput="update()">
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Counter State w next mode -->
+          <div style="font-size:10px;color:var(--text-dim);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px;">Counter State Conditions</div>
+          <div id="nextCounterRows"></div>
+          <button class="add-btn" onclick="addNextCounter()">+ Dodaj counter</button>
+
+          <div class="divider"></div>
+
+          <!-- OAK w next mode -->
+          <div style="font-size:10px;color:var(--text-dim);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px;">OAK w next mode</div>
+          <div id="nextOakRows"></div>
+          <button class="add-btn" onclick="addNextOAK()">+ Dodaj OAK w next mode</button>
+
+          <div class="divider"></div>
+
+          <!-- Board State Conditions w next mode -->
+          <div style="font-size:10px;color:var(--text-dim);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:10px;">Board State Conditions</div>
+
+          <div class="board-mode-tabs" style="margin-bottom:10px;">
+            <button class="board-mode-tab active" id="nbModePaint" onclick="nbSetBoardMode('paint')">🖌 Pędzel</button>
+            <button class="board-mode-tab" id="nbModeDrag"  onclick="nbSetBoardMode('drag')">✥ Drag & Drop</button>
+            <button class="board-mode-tab" id="nbModeType"  onclick="nbSetBoardMode('type')">⌨ Pisanie</button>
+          </div>
+
+          <div id="nbPaletteWrap">
+            <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;" id="nbPaletteHint">Wybierz symbol (pędzel)</div>
+            <div class="board-palette" id="nbBoardPalette">
+              <div id="nbBoardPaletteSymbols" style="display:flex;flex-wrap:wrap;gap:4px;">
+                <span style="font-size:10px;color:var(--text-dim);padding:4px 0;">Pobierz config gry aby załadować symbole</span>
+              </div>
+              <div class="pal-group">
+                <span class="pal-sym eraser active" data-sym="" onclick="nbSelectBrush('',this)">✕ Clear</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="board-controls">
+            <div class="board-ctrl-group">
+              <span class="board-ctrl-label">Reele</span>
+              <button class="board-ctrl-btn" onclick="nbChangeReels(-1)">−</button>
+              <span class="board-ctrl-val" id="nbReelCount">5</span>
+              <button class="board-ctrl-btn" onclick="nbChangeReels(1)">+</button>
+            </div>
+            <div class="board-ctrl-group" id="nbRowCtrlGroup">
+              <span class="board-ctrl-label">Rzędy (glob.)</span>
+              <button class="board-ctrl-btn" onclick="nbChangeRows(-1)">−</button>
+              <span class="board-ctrl-val" id="nbRowCount">3</span>
+              <button class="board-ctrl-btn" onclick="nbChangeRows(1)">+</button>
+            </div>
+            <div class="board-ctrl-group" style="gap:6px;">
+              <label class="toggle" style="margin:0;">
+                <input type="checkbox" id="nbMegawaysToggle" onchange="nbToggleMegaways()">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="board-ctrl-label" style="margin:0;">Megaways</span>
+            </div>
+            <button id="undoBtnNb" class="board-clear-btn" onclick="undoNb()" style="margin-left:auto;background:rgba(0,229,255,0.07);border-color:rgba(0,229,255,0.25);color:var(--accent);" title="Cofnij (Ctrl+Z gdy focus w next mode)">↶</button>
+            <button id="redoBtnNb" class="board-clear-btn" onclick="redoNb()" style="margin-left:4px;background:rgba(0,229,255,0.07);border-color:rgba(0,229,255,0.25);color:var(--accent);" title="Ponów (Ctrl+Shift+Z)">↷</button>
+            <button class="board-clear-btn" onclick="nbClearBoard()" style="margin-left:4px;">Wyczyść</button>
+          </div>
+
+          <div id="nbMegawaysControls" style="display:none;margin-bottom:12px;">
+            <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Wysokość każdej rolki</div>
+            <div class="megaways-reel-controls" id="nbMegawaysReelControls"></div>
+          </div>
+
+          <div class="board-grid-wrap">
+            <div class="board-reel-labels" id="nbBoardReelLabels"></div>
+            <div class="board-grid" id="nbBoardGrid"></div>
+          </div>
+
+          <div class="autocomplete-drop" id="nbAutocompleteDrop" style="display:none;"></div>
+          <div class="board-summary" id="nbBoardSummary"></div>
+
+          <!-- Manual symbol overrides (next mode) -->
+          <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);">
+            <div style="font-size:9px;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Dodatkowe symbole (poza gridem)</div>
+            <div id="nbManualSymbolRows"></div>
+            <button class="add-btn" style="margin-top:6px;" onclick="addNbManualSymbol()">+ Dodaj symbol</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL: OUTPUT -->
+  <div class="right-panel">
+    <div class="output-header">
+      <div class="output-title">
+        <div class="output-dot"></div>
+        JSON Output
+      </div>
+      <button class="copy-btn" id="copyBtn" onclick="copyJSON()">Copy</button>
+      <button class="copy-btn" onclick="downloadJSON()" style="margin-left:6px;background:rgba(0,255,157,0.08);border-color:rgba(0,255,157,0.3);color:var(--green);">⬇ .txt</button>
+    </div>
+    <div class="output-tabs">
+      <div class="tab active" onclick="switchTab('pretty', this)">Pretty</div>
+      <div class="tab" onclick="switchTab('minified', this)">Minified</div>
+      <div class="tab" onclick="switchTab('pascal', this)">PascalCase</div>
+    </div>
+    <div class="output-body">
+      <pre id="jsonOutput"></pre>
+    </div>
+    <div class="response-panel" id="responsePanel" style="display:none;">
+      <div class="response-header">
+        <span class="response-title">API Response</span>
+        <span id="responseStatus" style="font-size:10px;"></span>
+      </div>
+      <div class="resp-tabs">
+        <div class="resp-tab active" id="respTabResult" onclick="switchRespTab('result',this)">Wynik</div>
+        <div class="resp-tab" id="respTabPlay" onclick="switchRespTab('play',this)" style="display:none;">🎰 Real Spin</div>
+      </div>
+      <div class="response-body" id="responseBody"></div>
+      <div class="response-body" id="responseBodyPlay" style="display:none;">
+        <div style="color:var(--text-dim);font-size:11px;">Wyślij cheat z randomNumbers żeby zobaczyć prawdziwy spin gry.</div>
+      </div>
+    </div>
+    <div class="status-bar">
+      <div class="status-item"><div class="status-dot"></div><span id="statusSymbols">0 symbols</span></div>
+      <div class="status-item"><div class="status-dot" style="background:var(--accent2)"></div><span id="statusOAK">0 OAK</span></div>
+      <div class="status-item"><div class="status-dot" style="background:orange"></div><span id="statusMode">BaseGame</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- HISTORY PANEL -->
+<div style="max-width:1400px;margin:16px auto 32px;padding:0 16px;">
+  <div class="section" style="margin:0;">
+    <div class="section-header" style="cursor:pointer;" onclick="toggleHistoryPanel()">
+      <div class="section-icon ic-purple">📋</div>
+      <span class="section-title">Request History</span>
+      <span class="section-subtitle">ZAPISANE REQUESTY</span>
+      <span id="historyCount" style="margin-left:auto;font-size:10px;color:var(--text-dim);"></span>
+      <span id="historyChevron" style="margin-left:10px;color:var(--text-dim);transition:transform 0.2s;">▼</span>
+    </div>
+    <div class="section-body" id="historyPanel" style="display:none;">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+        <button class="add-btn" style="margin:0;" onclick="historySelectAll()">☑ Zaznacz wszystkie</button>
+        <button class="add-btn" style="margin:0;" onclick="historySelectNone()">☐ Odznacz wszystkie</button>
+        <button class="copy-btn" onclick="historyCopySelected()" style="margin:0;">📋 Kopiuj zaznaczone</button>
+        <button class="copy-btn" onclick="historyClearAll()" style="margin:0;background:rgba(255,80,80,0.08);border-color:rgba(255,80,80,0.3);color:var(--red);">🗑 Wyczyść historię</button>
+        <span id="historyCopyStatus" style="font-size:10px;color:var(--green);display:none;">✓ Skopiowano!</span>
+      </div>
+      <div id="historyRows" style="display:flex;flex-direction:column;gap:6px;max-height:400px;overflow-y:auto;"></div>
+      <div id="historyEmpty" style="font-size:11px;color:var(--text-dim);padding:8px 0;">Brak zapisanych requestów.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+let oakConditions = [];
+let counterConditions = [];
+let transformConditions = [];
+let nextOakConditions = [];
+let currentTab = 'pascal';
+
+// ---- VISUAL BOARD GRID ----
+let boardReels = 5;
+let boardRows = 3;
+let boardGrid = []; // [row][col] = symbolName | ''
+let activeBrush = '';
+let isPainting = false;
+let boardMode = 'paint'; // 'paint' | 'drag' | 'type'
+let dragSourcePos = null; // {ri, ci} when dragging from cell
+let dragFromPalette = null; // symbol string when dragging from palette
+let acFocusIndex = -1;
+let activeInputPos = null; // {ri, ci}
+
+// ---- UNDO / REDO ----
+const UNDO_LIMIT = 50;
+const mainUndoStack = [];
+const mainRedoStack = [];
+const nbUndoStack   = [];
+const nbRedoStack   = [];
+
+function snapshotMain() {
+  return {
+    grid: JSON.parse(JSON.stringify(boardGrid)),
+    reels: boardReels, rows: boardRows,
+    megawaysMode, reelHeights: [...reelHeights]
+  };
+}
+function snapshotNb() {
+  return {
+    grid: JSON.parse(JSON.stringify(nbBoardGrid)),
+    reels: nbBoardReels, rows: nbBoardRows,
+    megawaysMode: nbMegawaysMode, reelHeights: [...nbReelHeights]
+  };
+}
+function pushUndoMain() {
+  mainUndoStack.push(snapshotMain());
+  if (mainUndoStack.length > UNDO_LIMIT) mainUndoStack.shift();
+  mainRedoStack.length = 0;
+  updateUndoButtonsMain();
+}
+function pushUndoNb() {
+  nbUndoStack.push(snapshotNb());
+  if (nbUndoStack.length > UNDO_LIMIT) nbUndoStack.shift();
+  nbRedoStack.length = 0;
+  updateUndoButtonsNb();
+}
+function restoreMain(s) {
+  boardGrid = s.grid; boardReels = s.reels; boardRows = s.rows;
+  megawaysMode = s.megawaysMode; reelHeights = s.reelHeights;
+  const tog = document.getElementById('megawaysToggle');
+  const ctrls = document.getElementById('megawaysControls');
+  if (tog) tog.checked = megawaysMode;
+  if (ctrls) ctrls.style.display = megawaysMode ? 'block' : 'none';
+  if (megawaysMode) renderMegawaysControls();
+  renderBoard();
+  renderMegawaysCounterPreview();
+}
+function restoreNb(s) {
+  nbBoardGrid = s.grid; nbBoardReels = s.reels; nbBoardRows = s.rows;
+  nbMegawaysMode = s.megawaysMode; nbReelHeights = s.reelHeights;
+  const tog = document.getElementById('nbMegawaysToggle');
+  const ctrls = document.getElementById('nbMegawaysControls');
+  if (tog) tog.checked = nbMegawaysMode;
+  if (ctrls) ctrls.style.display = nbMegawaysMode ? 'block' : 'none';
+  if (nbMegawaysMode) nbRenderMegawaysControls();
+  nbRenderBoard();
+}
+function undoMain() {
+  if (!mainUndoStack.length) return;
+  mainRedoStack.push(snapshotMain());
+  restoreMain(mainUndoStack.pop());
+  updateUndoButtonsMain();
+  update();
+}
+function redoMain() {
+  if (!mainRedoStack.length) return;
+  mainUndoStack.push(snapshotMain());
+  restoreMain(mainRedoStack.pop());
+  updateUndoButtonsMain();
+  update();
+}
+function undoNb() {
+  if (!nbUndoStack.length) return;
+  nbRedoStack.push(snapshotNb());
+  restoreNb(nbUndoStack.pop());
+  updateUndoButtonsNb();
+  update();
+}
+function redoNb() {
+  if (!nbRedoStack.length) return;
+  nbUndoStack.push(snapshotNb());
+  restoreNb(nbRedoStack.pop());
+  updateUndoButtonsNb();
+  update();
+}
+function updateUndoButtonsMain() {
+  const u = document.getElementById('undoBtnMain');
+  const r = document.getElementById('redoBtnMain');
+  if (u) { u.disabled = mainUndoStack.length === 0; u.style.opacity = u.disabled ? '0.35' : '1'; u.title = `Cofnij (${mainUndoStack.length} kroków w stosie)`; }
+  if (r) { r.disabled = mainRedoStack.length === 0; r.style.opacity = r.disabled ? '0.35' : '1'; r.title = `Ponów (${mainRedoStack.length} kroków w stosie)`; }
+}
+function updateUndoButtonsNb() {
+  const u = document.getElementById('undoBtnNb');
+  const r = document.getElementById('redoBtnNb');
+  if (u) { u.disabled = nbUndoStack.length === 0; u.style.opacity = u.disabled ? '0.35' : '1'; u.title = `Cofnij (${nbUndoStack.length} kroków)`; }
+  if (r) { r.disabled = nbRedoStack.length === 0; r.style.opacity = r.disabled ? '0.35' : '1'; r.title = `Ponów (${nbRedoStack.length} kroków)`; }
+}
+// Detekcja: na którym boardzie user działa? Sprawdza closest #nextModeFields.
+function activeBoardName() {
+  const el = document.activeElement;
+  if (el && el.closest && el.closest('#nextModeFields')) return 'nb';
+  return 'main';
+}
+
+const ALL_SYMBOLS = [];
+const SYM_COLOR_BASE = {
+  Wild:'#00e5ff', Scatter:'#00ff9d', FS:'#ff4d7c', Bonus:'#ffdd44'
+};
+const SYM_COLOR_PATTERNS = [
+  { re: /^(h|hi|high)1$/i,    color: '#ffaa40' },
+  { re: /^(h|hi|high)2$/i,    color: '#ffcc40' },
+  { re: /^(h|hi|high)3$/i,    color: '#ff8060' },
+  { re: /^(h|hi|high)4$/i,    color: '#e06030' },
+  { re: /^(h|hi|high)5$/i,    color: '#cc5020' },
+  { re: /^(h|hi|high)6$/i,    color: '#aa3010' },
+  { re: /^(m|mi|mid)1$/i,     color: '#a080ff' },
+  { re: /^(m|mi|mid)2$/i,     color: '#c090ff' },
+  { re: /^(l|lo|low)1$/i,     color: '#94a3b8' },
+  { re: /^(l|lo|low)2$/i,     color: '#7a9ab0' },
+  { re: /^(l|lo|low)3$/i,     color: '#6080a0' },
+  { re: /wild/i,               color: '#00e5ff' },
+  { re: /scatter/i,            color: '#00ff9d' },
+  { re: /^fs/i,                color: '#ff4d7c' },
+  { re: /bonus/i,              color: '#ffdd44' },
+];
+const SYM_COLOR_FALLBACKS = ['#ffaa40','#ffcc40','#ff8060','#e06030','#a080ff','#c090ff','#94a3b8','#7a9ab0','#6080a0','#00e5ff','#00ff9d','#ff4d7c'];
+const SYM_COLOR_CACHE = {};
+const SYM_COLOR = new Proxy({}, {
+  get(_, sym) {
+    if (!sym || typeof sym !== 'string') return '#fff';
+    if (SYM_COLOR_CACHE[sym]) return SYM_COLOR_CACHE[sym];
+    // Exact match first
+    if (SYM_COLOR_BASE[sym]) { SYM_COLOR_CACHE[sym] = SYM_COLOR_BASE[sym]; return SYM_COLOR_CACHE[sym]; }
+    // Pattern match
+    for (const {re, color} of SYM_COLOR_PATTERNS) {
+      if (re.test(sym)) { SYM_COLOR_CACHE[sym] = color; return color; }
+    }
+    // Fallback — hash-based color from palette
+    let hash = 0;
+    for (let i = 0; i < sym.length; i++) hash = (hash * 31 + sym.charCodeAt(i)) & 0xffff;
+    const color = SYM_COLOR_FALLBACKS[hash % SYM_COLOR_FALLBACKS.length];
+    SYM_COLOR_CACHE[sym] = color;
+    return color;
+  },
+  set(_, sym, val) { SYM_COLOR_CACHE[sym] = val; return true; }
+});
+
+function setBoardMode(mode) {
+  boardMode = mode;
+  document.querySelectorAll('.board-mode-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('mode' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
+
+  const paletteWrap = document.getElementById('paletteWrap');
+  const hint = document.getElementById('paletteHint');
+  if (mode === 'type') {
+    paletteWrap.style.display = 'none';
+  } else {
+    paletteWrap.style.display = 'block';
+    hint.textContent = mode === 'drag' ? 'Przeciągnij symbol na pole siatki' : 'Wybierz symbol (pędzel)';
+  }
+  // update draggable on palette items
+  document.querySelectorAll('.pal-sym[data-sym]').forEach(el => {
+    if (el.dataset.sym !== '') el.draggable = (mode === 'drag');
+  });
+  hideAutocomplete();
+  renderBoard();
+}
+
+function initBoard() {
+  boardGrid = Array.from({length: boardRows}, () => Array(boardReels).fill(''));
+  renderBoard();
+}
+
+function renderBoard() {
+  const labelsEl = document.getElementById('boardReelLabels');
+  const gridEl   = document.getElementById('boardGrid');
+  gridEl.innerHTML = '';
+
+  if (megawaysMode) {
+    // ── MEGAWAYS layout: columns side by side, cells stretch to fill reel height ──
+    const FIXED_HEIGHT = 260; // px — total reel height (constant for all reels)
+    const CELL_GAP     = 3;   // px gap between cells
+
+    // Reel labels
+    labelsEl.innerHTML = reelHeights.map((_, i) =>
+      `<div class="reel-label" style="flex:1;min-width:52px;">R${i+1}</div>`
+    ).join(`<div style="width:${CELL_GAP}px;flex-shrink:0;"></div>`);
+
+    // Grid: flex-row of reel columns
+    gridEl.style.cssText = `display:flex;flex-direction:row;gap:${CELL_GAP}px;height:${FIXED_HEIGHT}px;align-items:stretch;`;
+
+    reelHeights.forEach((numRows, ci) => {
+      const reelEl = document.createElement('div');
+      reelEl.style.cssText = `flex:1;min-width:52px;display:flex;flex-direction:column;gap:${CELL_GAP}px;`;
+
+      for (let ri = 0; ri < numRows; ri++) {
+        const sym = (boardGrid[ri] && boardGrid[ri][ci] !== undefined) ? boardGrid[ri][ci] : '';
+        const cell = document.createElement('div');
+        cell.className = 'board-cell ' + (sym ? 'sym-' + sym : 'empty');
+        cell.style.cssText = `flex:1;width:100%;height:auto;`;
+        cell.dataset.row = ri;
+        cell.dataset.col = ci;
+        attachCellEvents(cell, ri, ci, sym);
+        reelEl.appendChild(cell);
+      }
+      gridEl.appendChild(reelEl);
+    });
+
+  } else {
+    // ── STANDARD row-based layout ──
+    gridEl.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+
+    labelsEl.innerHTML = Array.from({length: boardReels}, (_,i) =>
+      `<div class="reel-label" style="width:52px;flex-shrink:0;">R${i+1}</div>`
+    ).join('<div style="width:3px;flex-shrink:0;"></div>');
+
+    boardGrid.forEach((row, ri) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'board-row';
+      row.forEach((sym, ci) => {
+        const cell = document.createElement('div');
+        if (sym === null) {
+          cell.className = 'board-cell inactive';
+          cell.style.cssText = 'background:rgba(0,0,0,0.2);border-color:rgba(255,255,255,0.04);cursor:default;';
+          rowEl.appendChild(cell);
+          return;
+        }
+        cell.className = 'board-cell ' + (sym ? 'sym-' + sym : 'empty');
+        cell.dataset.row = ri;
+        cell.dataset.col = ci;
+        attachCellEvents(cell, ri, ci, sym);
+        rowEl.appendChild(cell);
+      });
+      gridEl.appendChild(rowEl);
+    });
+  }
+
+  document.getElementById('reelCount').textContent = boardReels;
+  document.getElementById('rowCount').textContent = boardRows;
+  updateBoardSummary();
+  if (boardMode === 'drag') initPaletteDrag();
+}
+
+// Attach paint/drag/type events to a cell element
+function attachCellEvents(cell, ri, ci, sym) {
+  if (boardMode === 'type') {
+    const inp = document.createElement('input');
+    inp.className = 'cell-input';
+    inp.value = sym || '';
+    inp.style.color = sym ? (SYM_COLOR[sym] || '#fff') : 'var(--text-dim)';
+    inp.placeholder = '···';
+    inp.maxLength = 7;
+    inp.setAttribute('data-row', ri);
+    inp.setAttribute('data-col', ci);
+    inp.addEventListener('input', (e) => onCellInput(e, ri, ci));
+    inp.addEventListener('keydown', (e) => onCellKeydown(e, ri, ci));
+    inp.addEventListener('focus', () => { activeInputPos = {ri, ci}; });
+    inp.addEventListener('blur', () => { setTimeout(hideAutocomplete, 150); });
+    cell.appendChild(inp);
+    cell.style.padding = '0';
+    cell.style.cursor = 'text';
+    cell.textContent = '';
+  } else {
+    cell.textContent = sym || '·';
+
+    if (boardMode === 'paint') {
+      cell.addEventListener('mousedown', (e) => { if (boardGrid[ri][ci] !== activeBrush) pushUndoMain(); isPainting = true; paintCell(ri, ci); e.preventDefault(); });
+      cell.addEventListener('mouseenter', () => { if (isPainting) paintCell(ri, ci); });
+    }
+
+    if (boardMode === 'drag') {
+      if (sym) {
+        cell.draggable = true;
+        cell.addEventListener('dragstart', (e) => {
+          dragSourcePos = {ri, ci};
+          dragFromPalette = null;
+          cell.classList.add('drag-source');
+          e.dataTransfer.setData('text/plain', sym);
+          e.dataTransfer.effectAllowed = 'move';
+        });
+        cell.addEventListener('dragend', () => cell.classList.remove('drag-source'));
+      }
+      cell.addEventListener('dragover', (e) => { e.preventDefault(); cell.classList.add('drag-over'); e.dataTransfer.dropEffect = 'move'; });
+      cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+      cell.addEventListener('drop', (e) => {
+        e.preventDefault();
+        cell.classList.remove('drag-over');
+        const droppedSym = e.dataTransfer.getData('text/plain');
+        if (droppedSym !== undefined) {
+          pushUndoMain();
+          if (dragSourcePos) {
+            boardGrid[dragSourcePos.ri][dragSourcePos.ci] = '';
+            dragSourcePos = null;
+          }
+          boardGrid[ri][ci] = droppedSym;
+          renderBoard();
+          updateBoardSummary();
+          update();
+        }
+      });
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (boardGrid[ri][ci] === '') return;
+        pushUndoMain();
+        boardGrid[ri][ci] = '';
+        renderBoard();
+        updateBoardSummary();
+        update();
+      });
+    }
+  }
+}
+
+function selectBrush(sym, el) {
+  activeBrush = sym;
+  document.querySelectorAll('.pal-sym').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function paintCell(ri, ci) {
+  if (boardGrid[ri][ci] === activeBrush) return; // no change needed
+  boardGrid[ri][ci] = activeBrush;
+  // Update just this cell's appearance without full re-render
+  const cell = document.querySelector(`.board-cell[data-row="${ri}"][data-col="${ci}"]`);
+  if (cell) {
+    cell.className = 'board-cell ' + (activeBrush ? 'sym-' + activeBrush : 'empty');
+    cell.textContent = activeBrush || '·';
+  }
+  updateBoardSummary();
+  update();
+}
+
+document.addEventListener('mouseup', () => { isPainting = false; });
+
+// ---- DRAG MODE (palette) ----
+function initPaletteDrag() {
+  document.querySelectorAll('.pal-sym[data-sym]').forEach(el => {
+    if (!el.dataset.sym) return;
+    el.addEventListener('dragstart', (e) => {
+      dragFromPalette = el.dataset.sym;
+      dragSourcePos = null;
+      el.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', el.dataset.sym);
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  });
+}
+
+// ---- TYPE MODE ----
+function onCellInput(e, ri, ci) {
+  const raw = e.target.value;
+  // Normalize: capitalize first letter, rest lowercase then fix casing to match symbols
+  const val = raw.toUpperCase();
+
+  // Strip characters that can't be part of any symbol name
+  const cleaned = val.replace(/[^A-Z0-9]/g, '');
+  if (cleaned !== val) {
+    e.target.value = cleaned;
+  }
+
+  const matches = ALL_SYMBOLS.filter(s => s.toUpperCase().startsWith(cleaned) && cleaned.length > 0);
+
+  if (cleaned === '') {
+    hideAutocomplete();
+    boardGrid[ri][ci] = '';
+    e.target.style.color = 'var(--text-dim)';
+    updateBoardSummary();
+    update();
+    return;
+  }
+
+  // Exact match — apply immediately
+  const exact = ALL_SYMBOLS.find(s => s.toUpperCase() === cleaned);
+  if (exact) {
+    applySymbol(exact, ri, ci, e.target);
+    hideAutocomplete();
+    return;
+  }
+
+  // Show autocomplete for partial matches
+  if (matches.length > 0) {
+    showAutocomplete(matches, e.target, ri, ci);
+  } else {
+    // No match at all — strip last character (reject invalid input)
+    hideAutocomplete();
+    e.target.value = cleaned.slice(0, -1);
+    e.target.style.color = 'var(--text-dim)';
+  }
+}
+
+function onCellKeydown(e, ri, ci) {
+  const drop = document.getElementById('autocompleteDrop');
+  if (drop.style.display === 'none') return;
+  const items = drop.querySelectorAll('.ac-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    acFocusIndex = Math.min(acFocusIndex + 1, items.length - 1);
+    items.forEach((it, i) => it.classList.toggle('focused', i === acFocusIndex));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    acFocusIndex = Math.max(acFocusIndex - 1, 0);
+    items.forEach((it, i) => it.classList.toggle('focused', i === acFocusIndex));
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault();
+    if (acFocusIndex >= 0 && items[acFocusIndex]) {
+      const sym = items[acFocusIndex].dataset.sym;
+      const inp = document.querySelector(`.cell-input[data-row="${ri}"][data-col="${ci}"]`);
+      applySymbol(sym, ri, ci, inp);
+      hideAutocomplete();
+    }
+  } else if (e.key === 'Escape') {
+    hideAutocomplete();
+  }
+}
+
+function applySymbol(sym, ri, ci, inputEl) {
+  if (boardGrid[ri][ci] !== sym) pushUndoMain();
+  boardGrid[ri][ci] = sym;
+  if (inputEl) {
+    inputEl.value = sym;
+    inputEl.style.color = SYM_COLOR[sym] || '#fff';
+  }
+  // update cell background class
+  const cells = document.querySelectorAll('.board-cell');
+  cells.forEach(cell => {
+    if (parseInt(cell.dataset.row) === ri && parseInt(cell.dataset.col) === ci) {
+      cell.className = 'board-cell sym-' + sym;
+    }
+  });
+  hideAutocomplete();
+  updateBoardSummary();
+  update();
+}
+
+function showAutocomplete(matches, inputEl, ri, ci) {
+  acFocusIndex = -1;
+  const drop = document.getElementById('autocompleteDrop');
+  drop.innerHTML = matches.map(sym => {
+    const c = SYM_COLOR[sym] || '#fff';
+    return `<div class="ac-item" data-sym="${sym}" onmousedown="applySymbol('${sym}',${ri},${ci},document.querySelector('.cell-input[data-row=\\'${ri}\\'][data-col=\\'${ci}\\']'));hideAutocomplete();">
+      <div class="ac-dot" style="background:${c};box-shadow:0 0 4px ${c}60;"></div>
+      <span style="color:${c};">${sym}</span>
+    </div>`;
+  }).join('');
+  const rect = inputEl.getBoundingClientRect();
+  drop.style.display = 'block';
+  drop.style.left = rect.left + 'px';
+  drop.style.top = (rect.bottom + 4) + 'px';
+}
+
+function hideAutocomplete() {
+  document.getElementById('autocompleteDrop').style.display = 'none';
+  acFocusIndex = -1;
+}
+
+// ---- GRID RESIZE ----
+let megawaysMode = false;
+let reelHeights = []; // per-reel row count when megaways active
+
+function toggleMegaways() {
+  pushUndoMain();
+  megawaysMode = document.getElementById('megawaysToggle').checked;
+  const ctrl = document.getElementById('megawaysControls');
+  const globalRowCtrl = document.querySelector('.board-ctrl-group:nth-child(2)');
+  if (megawaysMode) {
+    // Init reelHeights from current boardRows
+    reelHeights = Array(boardReels).fill(boardRows);
+    ctrl.style.display = 'block';
+    if (globalRowCtrl) globalRowCtrl.style.opacity = '0.3';
+    renderMegawaysControls();
+  } else {
+    ctrl.style.display = 'none';
+    if (globalRowCtrl) globalRowCtrl.style.opacity = '1';
+  }
+  syncBoardToHeights();
+  renderBoard();
+  renderMegawaysCounterPreview();
+  update();
+}
+
+function renderMegawaysControls() {
+  const container = document.getElementById('megawaysReelControls');
+  container.innerHTML = reelHeights.map((h, i) => `
+    <div class="mw-reel-ctrl">
+      <span class="mw-reel-label">R${i+1}</span>
+      <span class="mw-reel-val" id="mwVal${i}">${h}</span>
+      <div class="mw-reel-btns">
+        <button class="mw-reel-btn" onclick="changeReelHeight(${i},-1)">−</button>
+        <button class="mw-reel-btn" onclick="changeReelHeight(${i},1)">+</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function changeReelHeight(reelIdx, delta) {
+  const next = reelHeights[reelIdx] + delta;
+  if (next < 1 || next > 10) return;
+  pushUndoMain();
+  reelHeights[reelIdx] = next;
+  document.getElementById('mwVal' + reelIdx).textContent = next;
+  syncBoardToHeights();
+  renderBoard();
+  renderMegawaysCounterPreview();
+  update();
+}
+
+function syncBoardToHeights() {
+  if (!megawaysMode) return;
+  const maxRows = Math.max(...reelHeights);
+  // Extend boardGrid to maxRows if needed, preserving existing data
+  while (boardGrid.length < maxRows) boardGrid.push(Array(boardReels).fill(''));
+  // Trim excess rows beyond maxRows
+  boardGrid = boardGrid.slice(0, maxRows);
+  // Ensure each row has boardReels columns
+  boardGrid = boardGrid.map(row => {
+    while (row.length < boardReels) row.push('');
+    return row.slice(0, boardReels);
+  });
+}
+
+function renderMegawaysCounterPreview() {
+  const preview = document.getElementById('megawaysCounterPreview');
+  const rows    = document.getElementById('megawaysCounterRows');
+  if (!preview || !rows) return;
+  if (!megawaysMode || reelHeights.length === 0) {
+    preview.style.display = 'none'; return;
+  }
+  preview.style.display = 'block';
+  rows.innerHTML = reelHeights.map((h, i) => `
+    <div style="display:grid;grid-template-columns:1fr 90px 90px;gap:8px;align-items:center;margin-bottom:8px;opacity:0.75;">
+      <input type="text" value="NumberOfSymbols${i}" readonly
+        style="background:var(--surface2);color:var(--text-dim);cursor:default;font-size:10px;">
+      <input type="number" value="${h}" readonly
+        style="background:var(--surface2);color:var(--accent);cursor:default;text-align:center;font-size:11px;font-weight:600;"
+        title="fromValue">
+      <input type="number" value="${h}" readonly
+        style="background:var(--surface2);color:var(--accent);cursor:default;text-align:center;font-size:11px;font-weight:600;"
+        title="toValue">
+    </div>`).join('');
+}
+
+function changeReels(delta) {
+  const next = boardReels + delta;
+  if (next < 1 || next > 12) return;
+  pushUndoMain();
+  if (delta > 0) {
+    boardGrid = boardGrid.map(row => [...row, '']);
+    if (megawaysMode) { reelHeights.push(boardRows); renderMegawaysControls(); }
+  } else {
+    boardGrid = boardGrid.map(row => row.slice(0, -1));
+    if (megawaysMode) { reelHeights.pop(); renderMegawaysControls(); }
+  }
+  boardReels = next;
+  renderBoard();
+  renderMegawaysCounterPreview();
+  update();
+}
+
+function changeRows(delta) {
+  if (megawaysMode) return; // in megaways mode use per-reel controls
+  const next = boardRows + delta;
+  if (next < 1 || next > 10) return;
+  pushUndoMain();
+  if (delta > 0) boardGrid.push(Array(boardReels).fill(''));
+  else boardGrid.pop();
+  boardRows = next;
+  renderBoard();
+  update();
+}
+
+function clearBoard() {
+  pushUndoMain();
+  if (megawaysMode) {
+    const maxRows = Math.max(...reelHeights);
+    boardGrid = Array.from({length: maxRows}, (_, ri) =>
+      Array.from({length: boardReels}, (_, ci) => ri < reelHeights[ci] ? '' : null)
+    );
+  } else {
+    boardGrid = Array.from({length: boardRows}, () => Array(boardReels).fill(''));
+  }
+  renderBoard();
+  update();
+}
+
+// ---- SUMMARY & JSON ----
+
+
+function getBoardSymbols() {
+  const counts = {};
+  boardGrid.forEach(row => row.forEach(sym => { if (sym) counts[sym] = (counts[sym] || 0) + 1; }));
+  return Object.entries(counts).map(([symbol, count]) => ({ symbol, count }));
+}
+
+function updateBoardSummary() {
+  const counts = {};
+  boardGrid.forEach(row => row.forEach(sym => { if (sym && sym !== null) counts[sym] = (counts[sym] || 0) + 1; }));
+  const el = document.getElementById('boardSummary');
+  if (Object.keys(counts).length === 0) {
+    el.innerHTML = '<span style="font-size:10px;color:var(--text-dim);">Brak symboli — wypełnij board</span>';
+    return;
+  }
+  el.innerHTML = Object.entries(counts).map(([sym, cnt]) => {
+    const c = SYM_COLOR[sym] || '#fff';
+    return `<div class="sum-chip" style="color:${c};border-color:${c}40;background:${c}12;">${sym}<span class="sum-count">${cnt}</span></div>`;
+  }).join('');
+}
+
+// init
+initBoard();
+initPaletteDrag();
+
+// ---- NB BOARD (Next Board — Board State Conditions w next mode) ----
+let nbBoardReels     = 5;
+let nbBoardRows      = 3;
+let nbBoardGrid      = [];
+let nbActiveBrush    = '';
+let nbIsPainting     = false;
+let nbBoardMode      = 'paint';
+let nbDragSourcePos  = null;
+let nbAcFocusIndex   = -1;
+let nbMegawaysMode   = false;
+let nbReelHeights    = [];
+
+function nbInitBoard() {
+  nbBoardGrid = Array.from({length: nbBoardRows}, () => Array(nbBoardReels).fill(''));
+  nbRenderBoard();
+}
+
+function nbRenderBoard() {
+  const labelsEl = document.getElementById('nbBoardReelLabels');
+  const gridEl   = document.getElementById('nbBoardGrid');
+  if (!gridEl) return;
+  gridEl.innerHTML = '';
+
+  if (nbMegawaysMode) {
+    const FIXED_HEIGHT = 260, GAP = 3;
+    labelsEl.innerHTML = nbReelHeights.map((_,i) =>
+      `<div class="reel-label" style="flex:1;min-width:52px;">R${i+1}</div>`
+    ).join(`<div style="width:${GAP}px;flex-shrink:0;"></div>`);
+    gridEl.style.cssText = `display:flex;flex-direction:row;gap:${GAP}px;height:${FIXED_HEIGHT}px;align-items:stretch;`;
+    nbReelHeights.forEach((numRows, ci) => {
+      const reelEl = document.createElement('div');
+      reelEl.style.cssText = `flex:1;min-width:52px;display:flex;flex-direction:column;gap:${GAP}px;`;
+      for (let ri = 0; ri < numRows; ri++) {
+        const sym = (nbBoardGrid[ri] && nbBoardGrid[ri][ci] !== undefined) ? nbBoardGrid[ri][ci] : '';
+        const cell = document.createElement('div');
+        cell.className = 'board-cell ' + (sym ? 'sym-'+sym : 'empty');
+        cell.style.cssText = 'flex:1;width:100%;height:auto;';
+        cell.dataset.row = ri; cell.dataset.col = ci;
+        nbAttachCellEvents(cell, ri, ci, sym);
+        reelEl.appendChild(cell);
+      }
+      gridEl.appendChild(reelEl);
+    });
+  } else {
+    gridEl.style.cssText = 'display:flex;flex-direction:column;gap:3px;';
+    labelsEl.innerHTML = Array.from({length: nbBoardReels}, (_,i) =>
+      `<div class="reel-label" style="width:52px;flex-shrink:0;">R${i+1}</div>`
+    ).join('<div style="width:3px;flex-shrink:0;"></div>');
+    nbBoardGrid.forEach((row, ri) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'board-row';
+      row.forEach((sym, ci) => {
+        const cell = document.createElement('div');
+        if (sym === null) {
+          cell.className = 'board-cell inactive';
+          cell.style.cssText = 'background:rgba(0,0,0,0.2);border-color:rgba(255,255,255,0.04);cursor:default;';
+          rowEl.appendChild(cell); return;
+        }
+        cell.className = 'board-cell ' + (sym ? 'sym-'+sym : 'empty');
+        cell.dataset.row = ri; cell.dataset.col = ci;
+        nbAttachCellEvents(cell, ri, ci, sym);
+        rowEl.appendChild(cell);
+      });
+      gridEl.appendChild(rowEl);
+    });
+  }
+
+  if (document.getElementById('nbReelCount')) document.getElementById('nbReelCount').textContent = nbBoardReels;
+  if (document.getElementById('nbRowCount'))  document.getElementById('nbRowCount').textContent  = nbBoardRows;
+  nbUpdateBoardSummary();
+  if (nbBoardMode === 'drag') nbInitPaletteDrag();
+}
+
+function nbAttachCellEvents(cell, ri, ci, sym) {
+  if (nbBoardMode === 'type') {
+    const inp = document.createElement('input');
+    inp.className = 'cell-input';
+    inp.value = sym || ''; inp.placeholder = '···'; inp.maxLength = 7;
+    inp.style.color = sym ? (SYM_COLOR[sym] || '#fff') : 'var(--text-dim)';
+    inp.setAttribute('data-row', ri); inp.setAttribute('data-col', ci);
+    inp.addEventListener('input',   (e) => nbOnCellInput(e, ri, ci));
+    inp.addEventListener('keydown', (e) => nbOnCellKeydown(e, ri, ci));
+    inp.addEventListener('focus',   () => {});
+    inp.addEventListener('blur',    () => { setTimeout(nbHideAutocomplete, 150); });
+    cell.appendChild(inp); cell.style.padding = '0'; cell.style.cursor = 'text'; cell.textContent = '';
+  } else {
+    cell.textContent = sym || '·';
+    if (nbBoardMode === 'paint') {
+      cell.addEventListener('mousedown', (e) => { if (nbBoardGrid[ri][ci] !== nbActiveBrush) pushUndoNb(); nbIsPainting = true; nbPaintCell(ri, ci); e.preventDefault(); });
+      cell.addEventListener('mouseenter', () => { if (nbIsPainting) nbPaintCell(ri, ci); });
+    }
+    if (nbBoardMode === 'drag') {
+      if (sym) {
+        cell.draggable = true;
+        cell.addEventListener('dragstart', (e) => {
+          nbDragSourcePos = {ri, ci};
+          cell.classList.add('drag-source');
+          e.dataTransfer.setData('text/plain', sym); e.dataTransfer.effectAllowed = 'move';
+        });
+        cell.addEventListener('dragend', () => cell.classList.remove('drag-source'));
+      }
+      cell.addEventListener('dragover',  (e) => { e.preventDefault(); cell.classList.add('drag-over'); });
+      cell.addEventListener('dragleave', () => cell.classList.remove('drag-over'));
+      cell.addEventListener('drop', (e) => {
+        e.preventDefault(); cell.classList.remove('drag-over');
+        const s = e.dataTransfer.getData('text/plain');
+        pushUndoNb();
+        if (nbDragSourcePos) { nbBoardGrid[nbDragSourcePos.ri][nbDragSourcePos.ci] = ''; nbDragSourcePos = null; }
+        nbBoardGrid[ri][ci] = s; nbRenderBoard(); nbUpdateBoardSummary(); update();
+      });
+      cell.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (nbBoardGrid[ri][ci] === '') return;
+        pushUndoNb();
+        nbBoardGrid[ri][ci] = ''; nbRenderBoard(); nbUpdateBoardSummary(); update();
+      });
+    }
+  }
+}
+
+function nbSetBoardMode(mode) {
+  nbBoardMode = mode;
+  ['nbModePaint','nbModeDrag','nbModeType'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('active'); });
+  const modeId = {paint:'nbModePaint', drag:'nbModeDrag', type:'nbModeType'}[mode];
+  const modeEl = document.getElementById(modeId); if (modeEl) modeEl.classList.add('active');
+  const pw = document.getElementById('nbPaletteWrap');
+  const hint = document.getElementById('nbPaletteHint');
+  if (pw) pw.style.display = mode === 'type' ? 'none' : 'block';
+  if (hint) hint.textContent = mode === 'drag' ? 'Przeciągnij symbol na pole siatki' : 'Wybierz symbol (pędzel)';
+  document.querySelectorAll('#nbBoardPalette .pal-sym[data-sym]').forEach(el => {
+    if (el.dataset.sym !== '') el.draggable = (mode === 'drag');
+  });
+  nbHideAutocomplete(); nbRenderBoard();
+}
+
+function nbSelectBrush(sym, el) {
+  nbActiveBrush = sym;
+  document.querySelectorAll('#nbBoardPalette .pal-sym').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+}
+
+function nbPaintCell(ri, ci) {
+  if (nbBoardGrid[ri][ci] === nbActiveBrush) return;
+  nbBoardGrid[ri][ci] = nbActiveBrush;
+  const cell = document.querySelector(`#nbBoardGrid .board-cell[data-row="${ri}"][data-col="${ci}"]`);
+  if (cell) { cell.className = 'board-cell ' + (nbActiveBrush ? 'sym-'+nbActiveBrush : 'empty'); cell.textContent = nbActiveBrush || '·'; }
+  nbUpdateBoardSummary(); update();
+}
+
+document.addEventListener('mouseup', () => { nbIsPainting = false; });
+
+function nbInitPaletteDrag() {
+  document.querySelectorAll('#nbBoardPalette .pal-sym[data-sym]').forEach(el => {
+    if (!el.dataset.sym) return;
+    el.addEventListener('dragstart', (e) => {
+      nbDragSourcePos = null; el.classList.add('dragging');
+      e.dataTransfer.setData('text/plain', el.dataset.sym); e.dataTransfer.effectAllowed = 'copy';
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  });
+}
+
+function nbOnCellInput(e, ri, ci) {
+  const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (val !== e.target.value) e.target.value = val;
+  if (val === '') { nbHideAutocomplete(); nbBoardGrid[ri][ci] = ''; e.target.style.color = 'var(--text-dim)'; nbUpdateBoardSummary(); update(); return; }
+  const exact = ALL_SYMBOLS.find(s => s.toUpperCase() === val);
+  if (exact) { nbApplySymbol(exact, ri, ci, e.target); nbHideAutocomplete(); return; }
+  const matches = ALL_SYMBOLS.filter(s => s.toUpperCase().startsWith(val));
+  if (matches.length > 0) nbShowAutocomplete(matches, e.target, ri, ci);
+  else { nbHideAutocomplete(); e.target.value = val.slice(0,-1); e.target.style.color = 'var(--text-dim)'; }
+}
+
+function nbOnCellKeydown(e, ri, ci) {
+  const drop = document.getElementById('nbAutocompleteDrop');
+  if (!drop || drop.style.display === 'none') return;
+  const items = drop.querySelectorAll('.ac-item');
+  if (e.key === 'ArrowDown')  { e.preventDefault(); nbAcFocusIndex = Math.min(nbAcFocusIndex+1, items.length-1); items.forEach((it,i) => it.classList.toggle('focused', i===nbAcFocusIndex)); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); nbAcFocusIndex = Math.max(nbAcFocusIndex-1, 0); items.forEach((it,i) => it.classList.toggle('focused', i===nbAcFocusIndex)); }
+  else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); if (nbAcFocusIndex >= 0 && items[nbAcFocusIndex]) { const sym = items[nbAcFocusIndex].dataset.sym; const inp = document.querySelector(`#nbBoardGrid .cell-input[data-row="${ri}"][data-col="${ci}"]`); nbApplySymbol(sym, ri, ci, inp); nbHideAutocomplete(); } }
+  else if (e.key === 'Escape') nbHideAutocomplete();
+}
+
+function nbApplySymbol(sym, ri, ci, inputEl) {
+  if (nbBoardGrid[ri][ci] !== sym) pushUndoNb();
+  nbBoardGrid[ri][ci] = sym;
+  if (inputEl) { inputEl.value = sym; inputEl.style.color = SYM_COLOR[sym] || '#fff'; }
+  document.querySelectorAll('#nbBoardGrid .board-cell').forEach(cell => {
+    if (parseInt(cell.dataset.row)===ri && parseInt(cell.dataset.col)===ci) cell.className = 'board-cell sym-'+sym;
+  });
+  nbHideAutocomplete(); nbUpdateBoardSummary(); update();
+}
+
+function nbShowAutocomplete(matches, inputEl, ri, ci) {
+  nbAcFocusIndex = -1;
+  const drop = document.getElementById('nbAutocompleteDrop');
+  drop.innerHTML = matches.map(sym => {
+    const c = SYM_COLOR[sym] || '#fff';
+    return `<div class="ac-item" data-sym="${sym}" onmousedown="nbApplySymbol('${sym}',${ri},${ci},document.querySelector('#nbBoardGrid .cell-input[data-row=\\'${ri}\\'][data-col=\\'${ci}\\']'));nbHideAutocomplete();">
+      <div class="ac-dot" style="background:${c};box-shadow:0 0 4px ${c}60;"></div>
+      <span style="color:${c};">${sym}</span></div>`;
+  }).join('');
+  const rect = inputEl.getBoundingClientRect();
+  drop.style.display = 'block'; drop.style.left = rect.left+'px'; drop.style.top = (rect.bottom+4)+'px';
+}
+
+function nbHideAutocomplete() {
+  const drop = document.getElementById('nbAutocompleteDrop');
+  if (drop) drop.style.display = 'none';
+  nbAcFocusIndex = -1;
+}
+
+function nbToggleMegaways() {
+  pushUndoNb();
+  nbMegawaysMode = document.getElementById('nbMegawaysToggle').checked;
+  const ctrl = document.getElementById('nbMegawaysControls');
+  const rowCtrl = document.getElementById('nbRowCtrlGroup');
+  if (nbMegawaysMode) {
+    nbReelHeights = Array(nbBoardReels).fill(nbBoardRows);
+    ctrl.style.display = 'block';
+    if (rowCtrl) rowCtrl.style.opacity = '0.3';
+    nbRenderMegawaysControls();
+  } else {
+    ctrl.style.display = 'none';
+    if (rowCtrl) rowCtrl.style.opacity = '1';
+  }
+  nbSyncBoardToHeights(); nbRenderBoard(); update();
+}
+
+function nbRenderMegawaysControls() {
+  const container = document.getElementById('nbMegawaysReelControls');
+  container.innerHTML = nbReelHeights.map((h, i) => `
+    <div class="mw-reel-ctrl">
+      <span class="mw-reel-label">R${i+1}</span>
+      <span class="mw-reel-val" id="nbMwVal${i}">${h}</span>
+      <div class="mw-reel-btns">
+        <button class="mw-reel-btn" onclick="nbChangeReelHeight(${i},-1)">−</button>
+        <button class="mw-reel-btn" onclick="nbChangeReelHeight(${i},1)">+</button>
+      </div>
+    </div>`).join('');
+}
+
+function nbChangeReelHeight(reelIdx, delta) {
+  const next = nbReelHeights[reelIdx] + delta;
+  if (next < 1 || next > 10) return;
+  pushUndoNb();
+  nbReelHeights[reelIdx] = next;
+  const el = document.getElementById('nbMwVal'+reelIdx); if (el) el.textContent = next;
+  nbSyncBoardToHeights(); nbRenderBoard(); update();
+}
+
+function nbSyncBoardToHeights() {
+  if (!nbMegawaysMode) return;
+  const maxRows = Math.max(...nbReelHeights);
+  while (nbBoardGrid.length < maxRows) nbBoardGrid.push(Array(nbBoardReels).fill(''));
+  nbBoardGrid = nbBoardGrid.slice(0, maxRows).map(row => { while (row.length < nbBoardReels) row.push(''); return row.slice(0, nbBoardReels); });
+}
+
+function nbChangeReels(delta) {
+  const next = nbBoardReels + delta;
+  if (next < 1 || next > 12) return;
+  pushUndoNb();
+  if (delta > 0) { nbBoardGrid = nbBoardGrid.map(row => [...row, '']); if (nbMegawaysMode) { nbReelHeights.push(nbBoardRows); nbRenderMegawaysControls(); } }
+  else           { nbBoardGrid = nbBoardGrid.map(row => row.slice(0,-1)); if (nbMegawaysMode) { nbReelHeights.pop(); nbRenderMegawaysControls(); } }
+  nbBoardReels = next; nbRenderBoard(); update();
+}
+
+function nbChangeRows(delta) {
+  if (nbMegawaysMode) return;
+  const next = nbBoardRows + delta;
+  if (next < 1 || next > 10) return;
+  pushUndoNb();
+  if (delta > 0) nbBoardGrid.push(Array(nbBoardReels).fill(''));
+  else nbBoardGrid.pop();
+  nbBoardRows = next; nbRenderBoard(); update();
+}
+
+function nbClearBoard() {
+  pushUndoNb();
+  if (nbMegawaysMode) {
+    const maxRows = Math.max(...nbReelHeights);
+    nbBoardGrid = Array.from({length: maxRows}, (_,ri) => Array.from({length: nbBoardReels}, (_,ci) => ri < nbReelHeights[ci] ? '' : null));
+  } else {
+    nbBoardGrid = Array.from({length: nbBoardRows}, () => Array(nbBoardReels).fill(''));
+  }
+  nbRenderBoard(); update();
+}
+
+function nbGetBoardSymbols() {
+  const counts = {};
+  nbBoardGrid.forEach(row => row.forEach(sym => { if (sym) counts[sym] = (counts[sym]||0)+1; }));
+  return Object.entries(counts).map(([symbol, count]) => ({symbol, count}));
+}
+
+function nbUpdateBoardSummary() {
+  const counts = {};
+  nbBoardGrid.forEach(row => row.forEach(sym => { if (sym && sym !== null) counts[sym] = (counts[sym]||0)+1; }));
+  const el = document.getElementById('nbBoardSummary');
+  if (!el) return;
+  if (!Object.keys(counts).length) { el.innerHTML = '<span style="font-size:10px;color:var(--text-dim);">Brak symboli — wypełnij board</span>'; return; }
+  el.innerHTML = Object.entries(counts).map(([sym, cnt]) => {
+    const c = SYM_COLOR[sym] || '#fff';
+    return `<div class="sum-chip" style="color:${c};border-color:${c}40;background:${c}12;">${sym}<span class="sum-count">${cnt}</span></div>`;
+  }).join('');
+}
+
+// ---- OAK ----
+let oakId = 0;
+function addOAK() {
+  const id = oakId++;
+  oakConditions.push({ id, symbol: 'Hi1', count: 3 });
+  renderOAK();
+  update();
+}
+
+function removeOAK(id) {
+  oakConditions = oakConditions.filter(o => o.id !== id);
+  renderOAK();
+  update();
+}
+
+const SYMBOLS_ALL = ['Hi1','Hi2','Hi3','Hi4','Mi1','Mi2','Lo1','Lo2','Lo3','Wild','Scatter','FS'];
+
+function renderOAK() {
+  const container = document.getElementById('oakRows');
+  container.innerHTML = '';
+  oakConditions.forEach(o => {
+    const row = document.createElement('div');
+    row.className = 'sym-count-row';
+    row.innerHTML = `
+      <input type="text" value="${o.symbol}" placeholder="Symbol" list="symbolDatalist"
+        oninput="updateOAK(${o.id},'symbol',this.value)" style="color:var(--accent);">
+      <input type="number" value="${o.count}" min="2" max="999" placeholder="OAK"
+        onchange="updateOAK(${o.id},'count',this.value)" style="text-align:center;">
+      <button class="remove-btn" onclick="removeOAK(${o.id})">×</button>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function updateOAK(id, field, val) {
+  const o = oakConditions.find(o => o.id === id);
+  if (o) { o[field] = field === 'count' ? (parseInt(val)||3) : val; update(); }
+}
+
+// ---- NEXT MODE COUNTERS ----
+let nextCounterConditions = [];
+let nextCounterId = 0;
+
+function addNextCounter() {
+  const id = nextCounterId++;
+  nextCounterConditions.push({ id, name: 'C_Multiplier', from: 0, to: 0 });
+  renderNextCounters();
+  update();
+}
+
+function removeNextCounter(id) {
+  nextCounterConditions = nextCounterConditions.filter(c => c.id !== id);
+  renderNextCounters();
+  update();
+}
+
+function updateNextCounter(id, field, val) {
+  const c = nextCounterConditions.find(c => c.id === id);
+  if (c) { c[field] = (field !== 'name') ? (parseFloat(val)||0) : val; update(); }
+}
+
+function renderNextCounters() {
+  const container = document.getElementById('nextCounterRows');
+  if (!container) return;
+  container.innerHTML = '';
+  nextCounterConditions.forEach(c => {
+    const row = document.createElement('div');
+    row.className = 'sym-count-row';
+    row.style.marginBottom = '10px';
+    row.innerHTML = `
+      <input type="text" value="${c.name}" placeholder="Counter name"
+        oninput="updateNextCounter(${c.id},'name',this.value)" style="flex:2;">
+      <input type="number" value="${c.from}" placeholder="From"
+        oninput="updateNextCounter(${c.id},'from',this.value)" style="text-align:center;flex:1;">
+      <input type="number" value="${c.to}" placeholder="To"
+        oninput="updateNextCounter(${c.id},'to',this.value)" style="text-align:center;flex:1;">
+      <button class="remove-btn" onclick="removeNextCounter(${c.id})">×</button>
+    `;
+    container.appendChild(row);
+  });
+}
+
+// ---- NEXT MODE OAK ----
+let nextOakId = 0;
+function addNextOAK() {
+  const id = nextOakId++;
+  nextOakConditions.push({ id, symbol: 'Hi1', count: 3 });
+  renderNextOAK();
+  update();
+}
+
+function removeNextOAK(id) {
+  nextOakConditions = nextOakConditions.filter(o => o.id !== id);
+  renderNextOAK();
+  update();
+}
+
+function renderNextOAK() {
+  const container = document.getElementById('nextOakRows');
+  container.innerHTML = '';
+  nextOakConditions.forEach(o => {
+    const row = document.createElement('div');
+    row.className = 'sym-count-row';
+    row.innerHTML = `
+      <input type="text" value="${o.symbol}" placeholder="Symbol" list="symbolDatalist"
+        oninput="updateNextOAK(${o.id},'symbol',this.value)" style="color:var(--accent);">
+      <input type="number" value="${o.count}" min="2" max="999" placeholder="OAK"
+        onchange="updateNextOAK(${o.id},'count',this.value)" style="text-align:center;">
+      <button class="remove-btn" onclick="removeNextOAK(${o.id})">×</button>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function updateNextOAK(id, field, val) {
+  const o = nextOakConditions.find(o => o.id === id);
+  if (o) { o[field] = field === 'count' ? (parseInt(val)||3) : val; update(); }
+}
+
+// ---- COUNTERS ----
+let counterId = 0;
+function addCounter() {
+  const id = counterId++;
+  counterConditions.push({ id, name: 'spinsLeft', from: 10, to: 10 });
+  renderCounters();
+  update();
+}
+
+function removeCounter(id) {
+  counterConditions = counterConditions.filter(c => c.id !== id);
+  renderCounters();
+  update();
+}
+
+function renderCounters() {
+  const container = document.getElementById('counterRows');
+  container.innerHTML = '';
+  counterConditions.forEach(c => {
+    const row = document.createElement('div');
+    row.style.marginBottom = '10px';
+    row.style.animation = 'fadeIn 0.15s ease';
+    row.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 70px 12px 70px 28px;gap:8px;align-items:center;">
+        <input type="text" value="${c.name}" placeholder="counterName" oninput="updateCounter(${c.id},'name',this.value)">
+        <input type="number" value="${c.from}" placeholder="From" oninput="updateCounter(${c.id},'from',this.value)" style="text-align:center;">
+        <span style="text-align:center;color:var(--text-dim);font-size:11px;">—</span>
+        <input type="number" value="${c.to}" placeholder="To" oninput="updateCounter(${c.id},'to',this.value)" style="text-align:center;">
+        <button class="remove-btn" onclick="removeCounter(${c.id})">×</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function updateCounter(id, field, val) {
+  const c = counterConditions.find(c => c.id === id);
+  if (c) { c[field] = (field !== 'name') ? (parseFloat(val)||0) : val; update(); }
+}
+
+// ---- TRANSFORMS ----
+let transformId = 0;
+function addTransform() {
+  const id = transformId++;
+  transformConditions.push({ id, name: 'ExpandReels', count: 1 });
+  renderTransforms();
+  update();
+}
+
+function removeTransform(id) {
+  transformConditions = transformConditions.filter(t => t.id !== id);
+  renderTransforms();
+  update();
+}
+
+function renderTransforms() {
+  const container = document.getElementById('transformRows');
+  container.innerHTML = '';
+  transformConditions.forEach(t => {
+    const row = document.createElement('div');
+    row.style.marginBottom = '10px';
+    row.style.animation = 'fadeIn 0.15s ease';
+    row.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 80px 28px;gap:8px;align-items:center;">
+        <input type="text" value="${t.name}" placeholder="transformationType" oninput="updateTransform(${t.id},'name',this.value)">
+        <input type="number" value="${t.count}" min="1" placeholder="Count" oninput="updateTransform(${t.id},'count',this.value)" style="text-align:center;">
+        <button class="remove-btn" onclick="removeTransform(${t.id})">×</button>
+      </div>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function updateTransform(id, field, val) {
+  const t = transformConditions.find(t => t.id === id);
+  if (t) { t[field] = field === 'count' ? (parseInt(val)||1) : val; update(); }
+}
+
+// ---- TOGGLE HELPERS ----
+// Trigger config: per-game-id w localStorage żeby nie tracić ustawień przy zmianie trybu
+const TRIGGER_KEY = 'cheat_tool_trigger_config'; // { gameId: { symbol, count, userSet:{symbol,count} } }
+const PREFERRED_TRIGGER_SYMBOLS = ['FS', 'Scatter', 'Bonus'];
+
+function loadTriggerConfig() {
+  try { return JSON.parse(localStorage.getItem(TRIGGER_KEY) || '{}'); } catch { return {}; }
+}
+function saveTriggerConfig(cfg) {
+  localStorage.setItem(TRIGGER_KEY, JSON.stringify(cfg));
+}
+function getTriggerForGame() {
+  const gameId = document.getElementById('gameId').value || 'default';
+  const all = loadTriggerConfig();
+  return all[gameId] || { userSet: {} };
+}
+function setTriggerForGame(patch) {
+  const gameId = document.getElementById('gameId').value || 'default';
+  const all = loadTriggerConfig();
+  all[gameId] = { ...(all[gameId] || { userSet: {} }), ...patch };
+  saveTriggerConfig(all);
+}
+
+// Wywoływane gdy user RĘCZNIE zmieni input — flag "userSet" żeby auto-detect nie nadpisywał
+function onTriggerInputChange(field) {
+  const cfg = getTriggerForGame();
+  const sym = document.getElementById('triggerSymbol').value.trim();
+  const cnt = parseInt(document.getElementById('triggerCount').value);
+  setTriggerForGame({
+    symbol: sym,
+    count: isNaN(cnt) ? 0 : cnt,
+    userSet: { ...(cfg.userSet || {}), [field]: true }
+  });
+  update();
+}
+
+function onNextModeChange() {
+  const modeRaw = document.getElementById('nextGameModeName').value;
+  const mode = modeRaw.trim();
+  const badge = document.getElementById('fsTriggerAutoBadge');
+  const label = document.getElementById('fsTriggerAutoLabel');
+  const fields = document.getElementById('fsTriggerFields');
+  const symInput = document.getElementById('triggerSymbol');
+  const cntInput = document.getElementById('triggerCount');
+
+  // Brak trybu lub BaseGame → ukryj trigger
+  if (!mode || /^base/i.test(mode)) {
+    badge.style.display = 'none';
+    fields.style.display = 'none';
+    update();
+    return;
+  }
+
+  fields.style.display = 'block';
+
+  // Smart auto-detect: regex /(\d+)$/ zwraca trailing number
+  const numMatch = mode.match(/(\d+)$/);
+  const detectedNum = numMatch ? parseInt(numMatch[1]) : null;
+
+  // Smart symbol: jeśli ALL_SYMBOLS załadowane, znajdź pierwszy z preferowanych
+  let detectedSym = null;
+  if (ALL_SYMBOLS.length > 0) {
+    detectedSym = PREFERRED_TRIGGER_SYMBOLS.find(s => ALL_SYMBOLS.includes(s)) || null;
+  }
+
+  // Wczytaj per-gameId zapamiętane userSet flags
+  const cfg = getTriggerForGame();
+  const userSet = cfg.userSet || {};
+
+  // Wypełnij inputy: jeśli user już ręcznie ustawił, nie ruszaj
+  if (!userSet.symbol && detectedSym) {
+    symInput.value = detectedSym;
+  }
+  if (!userSet.count && detectedNum !== null) {
+    cntInput.value = detectedNum;
+  }
+
+  // Pokaż badge z info
+  const info = [];
+  if (detectedNum !== null && !userSet.count) info.push(`count=${detectedNum} (z nazwy trybu)`);
+  if (detectedSym && !userSet.symbol) info.push(`symbol=${detectedSym} (z config gry)`);
+  if (info.length) {
+    badge.style.display = 'flex';
+    label.textContent = `Auto: ${info.join(', ')} — możesz nadpisać`;
+  } else if (Object.keys(userSet).length) {
+    badge.style.display = 'flex';
+    label.textContent = `Trigger ustawiony ręcznie dla tej gry`;
+  } else {
+    badge.style.display = 'none';
+  }
+
+  update();
+}
+
+function toggleNextMode() {
+  const en = document.getElementById('nextModeEnabled').checked;
+  document.getElementById('nextModeFields').style.display = en ? 'block' : 'none';
+  if (en) { onNextModeChange(); nbRenderBoard(); }
+  update();
+}
+
+document.getElementById('multiplierEnabled').addEventListener('change', function() {
+  document.getElementById('multiplierFields').style.display = this.checked ? 'block' : 'none';
+  update();
+});
+
+document.getElementById('nextMultEnabled').addEventListener('change', function() {
+  document.getElementById('nextMultFields').style.display = this.checked ? 'block' : 'none';
+  update();
+});
+
+// ---- BUILD JSON ----
+function buildJSON() {
+  const gameId = parseInt(document.getElementById('gameId').value) || 10857;
+  const rtpVariant = parseFloat(document.getElementById('rtpVariant').value);
+  const gameModeName = document.getElementById('gameModeName').value;
+
+  const multiplierEnabled = document.getElementById('multiplierEnabled').checked;
+  const multFrom = parseFloat(document.getElementById('multFrom').value);
+  const multTo = parseFloat(document.getElementById('multTo').value);
+
+  const nextModeEnabled = document.getElementById('nextModeEnabled').checked;
+  const nextGameModeName = document.getElementById('nextGameModeName').value;
+  const nextMultEnabled = document.getElementById('nextMultEnabled').checked;
+  const nextMultFrom = parseFloat(document.getElementById('nextMultFrom').value);
+  const nextMultTo = parseFloat(document.getElementById('nextMultTo').value);
+
+  // Build root board symbols from visual grid + manual overrides + trigger symbols
+  let rootBoardSymbols = mergeSymbols(getBoardSymbols(), manualSymbols);
+
+  // Trigger w next mode: dodaj symbol do symbolsOnBoard (jeśli skonfigurowany)
+  if (nextModeEnabled) {
+    const triggerSymbolEl = document.getElementById('triggerSymbol');
+    const triggerCountEl  = document.getElementById('triggerCount');
+    const triggerSymbol = triggerSymbolEl ? triggerSymbolEl.value.trim() : '';
+    const triggerCount  = triggerCountEl ? parseInt(triggerCountEl.value) || 0 : 0;
+    if (triggerSymbol && triggerCount > 0) {
+      const existingIdx = rootBoardSymbols.findIndex(s => s.symbol === triggerSymbol);
+      if (existingIdx === -1) {
+        rootBoardSymbols.push({ symbol: triggerSymbol, count: triggerCount });
+      } else {
+        rootBoardSymbols[existingIdx] = { ...rootBoardSymbols[existingIdx], count: triggerCount };
+      }
+    }
+  }
+
+  const nextModeCheat = nextModeEnabled ? {
+    gameModeName: nextGameModeName,
+    multiplierConditions: nextMultEnabled ? { fromValue: isNaN(nextMultFrom)?0:nextMultFrom, toValue: isNaN(nextMultTo)?0:nextMultTo } : {},
+    boardStateConditions: { symbolsOnBoard: mergeSymbols(nbGetBoardSymbols(), nbManualSymbols) },
+    counterStateConditions: [
+      ...nextCounterConditions.map(c => ({ counterName: c.name, fromValue: c.from, toValue: c.to })),
+      ...(nbMegawaysMode && nbReelHeights.length > 0
+        ? nbReelHeights.map((h,i) => ({ counterName: `NumberOfSymbols${i}`, fromValue: h, toValue: h }))
+        : [])
+    ],
+    specificBoardTransformationCount: [],
+    oakWinConditions: nextOakConditions.map(o => ({ symbol: o.symbol, count: o.count })),
+    nextModeCheat: null
+  } : null;
+
+  // Build boardStateConditions
+  const rootBoardState = { symbolsOnBoard: rootBoardSymbols };
+
+  // Build counterStateConditions - merge user counters + megaways NumberOfSymbolsN
+  const megawaysCounters = (megawaysMode && reelHeights.length > 0)
+    ? reelHeights.map((h, i) => ({ counterName: `NumberOfSymbols${i}`, fromValue: h, toValue: h }))
+    : [];
+  const allCounters = [
+    ...counterConditions.map(c => ({ counterName: c.name, fromValue: c.from, toValue: c.to })),
+    ...megawaysCounters
+  ];
+
+  const jsonIndexEnabled = document.getElementById('jsonIndexEnabled').checked;
+  const jsonIndexValue   = parseInt(document.getElementById('jsonIndexValue').value) || 1;
+
+  const rootMode = {
+    gameModeName,
+    ...(jsonIndexEnabled && { jsonIndex: jsonIndexValue }),
+    multiplierConditions: multiplierEnabled ? { fromValue: isNaN(multFrom)?0:multFrom, toValue: isNaN(multTo)?0:multTo } : {},
+    boardStateConditions: rootBoardState,
+    counterStateConditions: allCounters,
+    specificBoardTransformationCount: transformConditions.map(t => ({ transformationTypeName: t.name, count: t.count })),
+    oakWinConditions: oakConditions.map(o => ({ symbol: o.symbol, count: o.count })),
+    nextModeCheat
+  };
+
+  return { gameId, rtpVariant, rootGameMode: rootMode };
+}
+
+// ---- HISTORY ----
+const HISTORY_KEY = 'cheat_tool_history';
+
+function historyLoad() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+}
+function historySave(list) {
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+}
+
+function describeCheat(pascal) {
+  const root = pascal.RootGameMode || {};
+  const mode = root.GameModeName || '?';
+  const parts = [];
+
+  // Game mode
+  parts.push(mode);
+
+  // Megaways — detect from CounterStateConditions
+  const counters = root.CounterStateConditions || [];
+  const mwCounters = counters.filter(c => c.CounterName?.startsWith('NumberOfSymbols'));
+  if (mwCounters.length > 0) {
+    const heights = mwCounters.map(c => c.FromValue);
+    const allSame = heights.every(h => h === heights[0]);
+    if (allSame) {
+      parts.push(`Megaways ${mwCounters.length}×${heights[0]}`);
+    } else {
+      parts.push(`Megaways [${heights.join(',')}]`);
+    }
+  }
+
+  // Symbols on board
+  const symbols = root.BoardStateConditions?.SymbolsOnBoard || [];
+  if (symbols.length > 0) {
+    const symStr = symbols.map(s => `${s.Count}×${s.Symbol}`).join(' ');
+    parts.push(symStr);
+  }
+
+  // OAK win conditions
+  const oak = root.OakWinConditions || [];
+  if (oak.length > 0) {
+    const oakStr = oak.map(o => `OAK ${o.Count}×${o.Symbol}`).join(' ');
+    parts.push(oakStr);
+  }
+
+  // Multiplier
+  const mult = root.MultiplierConditions;
+  if (mult && (mult.FromValue || mult.ToValue)) {
+    parts.push(`mult ${mult.FromValue}–${mult.ToValue}x`);
+  }
+
+  // Next mode
+  const next = root.NextModeCheat;
+  if (next) {
+    parts.push(`→ ${next.GameModeName}`);
+    const nextOak = next.OakWinConditions || [];
+    if (nextOak.length > 0) {
+      parts.push(`(${nextOak.map(o => `OAK ${o.Count}×${o.Symbol}`).join(' ')})`);
+    }
+  }
+
+  return parts.join(' | ');
+}
+
+function historySaveRequest() {
+  const data = buildJSON();
+  const clean = stripEmpty(data);
+  const pascal = toPascal(clean);
+  const entry = {
+    id: Date.now(),
+    ts: new Date().toLocaleString('pl-PL'),
+    label: describeCheat(pascal),
+    json: JSON.stringify(pascal)
+  };
+  const list = historyLoad();
+  list.unshift(entry);
+  historySave(list);
+  renderHistory();
+  // toast
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:20px;right:20px;background:rgba(180,120,255,0.15);border:1px solid rgba(180,120,255,0.4);color:var(--accent2);font-family:"JetBrains Mono",monospace;font-size:11px;padding:10px 16px;border-radius:8px;z-index:9999;animation:fadeIn 0.2s ease;';
+  t.textContent = '📋 Zapisano do historii';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+function renderHistory() {
+  const list = historyLoad();
+  const rows = document.getElementById('historyRows');
+  const empty = document.getElementById('historyEmpty');
+  const count = document.getElementById('historyCount');
+  if (!rows) return;
+  count.textContent = list.length ? `(${list.length})` : '';
+  if (!list.length) { rows.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  rows.innerHTML = list.map(e => `
+    <div style="display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;">
+      <input type="checkbox" class="history-cb" data-id="${e.id}" style="width:16px;height:16px;cursor:pointer;accent-color:var(--accent);">
+      <div>
+        <div style="font-size:11px;color:var(--text-mid);font-weight:600;">${e.label}</div>
+        <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">${e.ts}</div>
+        <div style="font-size:9px;color:var(--text-dim);margin-top:3px;font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:600px;">${e.json.slice(0,120)}…</div>
+      </div>
+      <button class="remove-btn" onclick="historyDeleteEntry(${e.id})" title="Usuń">×</button>
+    </div>`).join('');
+}
+
+function historyDeleteEntry(id) {
+  const list = historyLoad().filter(e => e.id !== id);
+  historySave(list);
+  renderHistory();
+}
+
+function historySelectAll() {
+  document.querySelectorAll('.history-cb').forEach(cb => cb.checked = true);
+}
+function historySelectNone() {
+  document.querySelectorAll('.history-cb').forEach(cb => cb.checked = false);
+}
+
+function historyCopySelected() {
+  const list = historyLoad();
+  const selected = Array.from(document.querySelectorAll('.history-cb:checked')).map(cb => parseInt(cb.dataset.id));
+  const lines = list.filter(e => selected.includes(e.id)).map(e => e.json);
+  if (!lines.length) return;
+  copyToClipboard(lines.join('\n')).then(ok => {
+    if (!ok) return;
+    const status = document.getElementById('historyCopyStatus');
+    status.style.display = 'inline';
+    setTimeout(() => status.style.display = 'none', 2000);
+  });
+}
+
+// ---- CLIPBOARD HELPER (fallback dla niezabezpieczonego kontekstu http://) ----
+async function copyToClipboard(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (_) { /* fall through */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.left = '0';
+    ta.style.opacity = '0';
+    ta.style.pointerEvents = 'none';
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (_) {
+    return false;
+  }
+}
+
+function historyClearAll() {
+  if (!confirm('Wyczyścić całą historię?')) return;
+  historySave([]);
+  renderHistory();
+}
+
+function toggleHistoryPanel() {
+  const panel = document.getElementById('historyPanel');
+  const chevron = document.getElementById('historyChevron');
+  const open = panel.style.display === 'none';
+  panel.style.display = open ? 'block' : 'none';
+  chevron.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ---- MANUAL SYMBOL COUNTS ----
+let manualSymbols   = [];
+let nbManualSymbols = [];
+let manualSymId = 0;
+
+function addManualSymbol() {
+  manualSymbols.push({ id: manualSymId++, symbol: ALL_SYMBOLS[0] || '', count: 1 });
+  renderManualSymbols(); update();
+}
+function removeManualSymbol(id) {
+  manualSymbols = manualSymbols.filter(s => s.id !== id);
+  renderManualSymbols(); update();
+}
+function updateManualSymbol(id, field, val) {
+  const s = manualSymbols.find(s => s.id === id);
+  if (s) { s[field] = field === 'count' ? (parseInt(val)||1) : val; update(); }
+}
+function renderManualSymbols() {
+  const c = document.getElementById('manualSymbolRows');
+  if (!c) return;
+  c.innerHTML = manualSymbols.map(s => `
+    <div style="display:grid;grid-template-columns:1fr 80px 28px;gap:8px;align-items:center;margin-bottom:8px;">
+      <input type="text" value="${s.symbol}" placeholder="np. Scatter" list="symbolDatalist"
+        oninput="updateManualSymbol(${s.id},'symbol',this.value)" style="color:var(--accent);">
+      <input type="number" value="${s.count}" min="1" max="999" placeholder="Ilość"
+        oninput="updateManualSymbol(${s.id},'count',this.value)" style="text-align:center;">
+      <button class="remove-btn" onclick="removeManualSymbol(${s.id})">×</button>
+    </div>`).join('');
+}
+
+function addNbManualSymbol() {
+  nbManualSymbols.push({ id: manualSymId++, symbol: ALL_SYMBOLS[0] || '', count: 1 });
+  renderNbManualSymbols(); update();
+}
+function removeNbManualSymbol(id) {
+  nbManualSymbols = nbManualSymbols.filter(s => s.id !== id);
+  renderNbManualSymbols(); update();
+}
+function updateNbManualSymbol(id, field, val) {
+  const s = nbManualSymbols.find(s => s.id === id);
+  if (s) { s[field] = field === 'count' ? (parseInt(val)||1) : val; update(); }
+}
+function renderNbManualSymbols() {
+  const c = document.getElementById('nbManualSymbolRows');
+  if (!c) return;
+  c.innerHTML = nbManualSymbols.map(s => `
+    <div style="display:grid;grid-template-columns:1fr 80px 28px;gap:8px;align-items:center;margin-bottom:8px;">
+      <input type="text" value="${s.symbol}" placeholder="np. Scatter" list="symbolDatalist"
+        oninput="updateNbManualSymbol(${s.id},'symbol',this.value)" style="color:var(--accent);">
+      <input type="number" value="${s.count}" min="1" max="999" placeholder="Ilość"
+        oninput="updateNbManualSymbol(${s.id},'count',this.value)" style="text-align:center;">
+      <button class="remove-btn" onclick="removeNbManualSymbol(${s.id})">×</button>
+    </div>`).join('');
+}
+
+function mergeSymbols(gridSymbols, manualList) {
+  const counts = {};
+  gridSymbols.forEach(s => { if (s.symbol) counts[s.symbol] = (counts[s.symbol]||0) + s.count; });
+  manualList.forEach(s => { if (s.symbol) counts[s.symbol] = (counts[s.symbol]||0) + s.count; });
+  return Object.entries(counts).map(([symbol, count]) => ({ symbol, count }));
+}
+
+function toggleBoardSection() {
+  const body = document.getElementById('boardSectionBody');
+  const chevron = document.getElementById('boardSectionChevron');
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  chevron.style.transform = open ? 'rotate(180deg)' : '';
+  if (open) renderBoard();
+}
+
+// ---- DOWNLOAD JSON ----
+function downloadJSON() {
+  const data = buildJSON();
+  const cleanData = stripEmpty(data);
+  const pascalData = toPascal(cleanData);
+  const text = JSON.stringify(pascalData);
+  const now = new Date();
+  const ts = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}${String(now.getSeconds()).padStart(2,'0')}`;
+  const filename = `cheat_${ts}.txt`;
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ---- PASCAL CASE ----
+function toPascal(obj) {
+  if (Array.isArray(obj)) return obj.map(toPascal);
+  if (obj !== null && typeof obj === 'object') {
+    const res = {};
+    for (const [k,v] of Object.entries(obj)) {
+      const pk = k.charAt(0).toUpperCase() + k.slice(1);
+      res[pk] = toPascal(v);
+    }
+    return res;
+  }
+  return obj;
+}
+
+// ---- STRIP EMPTY FIELDS ----
+function stripEmpty(obj) {
+  if (Array.isArray(obj)) return obj.map(stripEmpty);
+  if (obj !== null && typeof obj === 'object') {
+    const res = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v === null) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      if (typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0) continue;
+      res[k] = stripEmpty(v);
+    }
+    return res;
+  }
+  return obj;
+}
+
+// ---- SYNTAX HIGHLIGHT ----
+function syntaxHL(json) {
+  return json
+    .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(?:\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, match => {
+      let cls = 'json-num';
+      if (/^"/.test(match)) {
+        cls = /:$/.test(match) ? 'json-key' : 'json-str';
+      } else if (/true|false/.test(match)) {
+        cls = 'json-bool';
+      } else if (/null/.test(match)) {
+        cls = 'json-null';
+      }
+      return `<span class="${cls}">${match}</span>`;
+    });
+}
+
+// ---- VALIDATION ----
+const VALIDATION_TOOLTIP = '__validationMsg';
+
+function markInvalid(el, msg) {
+  if (!el) return;
+  el.style.borderColor = 'var(--red)';
+  el.style.boxShadow = '0 0 0 1px rgba(255,77,77,0.2)';
+  el.title = msg;
+  el.dataset[VALIDATION_TOOLTIP] = msg;
+}
+function clearInvalid(el) {
+  if (!el) return;
+  // Tylko jeśli to my dodaliśmy podświetlenie — nie nadpisuj proxy port logic
+  if (el.dataset[VALIDATION_TOOLTIP]) {
+    el.style.borderColor = '';
+    el.style.boxShadow = '';
+    el.title = '';
+    delete el.dataset[VALIDATION_TOOLTIP];
+  }
+}
+
+function getEl(id) { return document.getElementById(id); }
+
+function validateAll() {
+  const errors = [];
+
+  // Wyczyść poprzednie podświetlenia (wszystkie inputy z dataset.validationMsg)
+  document.querySelectorAll(`[data-${VALIDATION_TOOLTIP.replace(/_/g, '-').toLowerCase()}]`)
+    .forEach(clearInvalid);
+  // Fallback — niektóre przeglądarki nie obsługują selektora po podkreśleniu
+  document.querySelectorAll('input, select').forEach(el => {
+    if (el.dataset[VALIDATION_TOOLTIP]) clearInvalid(el);
+  });
+
+  // 1. Game ID
+  const gameIdEl = getEl('gameId');
+  const gameIdVal = parseInt(gameIdEl?.value);
+  if (!gameIdVal || gameIdVal < 1) {
+    errors.push('Game ID musi być dodatnią liczbą');
+    markInvalid(gameIdEl, 'Wymagane: dodatnia liczba całkowita');
+  }
+
+  // 2. Multiplier root: from > to
+  if (getEl('multiplierEnabled')?.checked) {
+    const f = parseFloat(getEl('multFrom')?.value);
+    const t = parseFloat(getEl('multTo')?.value);
+    if (!isNaN(f) && !isNaN(t) && f > t) {
+      errors.push(`Multiplier root: From (${f}) > To (${t})`);
+      markInvalid(getEl('multFrom'), `From (${f}) większe niż To (${t})`);
+      markInvalid(getEl('multTo'),   `From (${f}) większe niż To (${t})`);
+    }
+  }
+
+  // 3. Multiplier next mode: from > to
+  if (getEl('nextMultEnabled')?.checked) {
+    const f = parseFloat(getEl('nextMultFrom')?.value);
+    const t = parseFloat(getEl('nextMultTo')?.value);
+    if (!isNaN(f) && !isNaN(t) && f > t) {
+      errors.push(`Multiplier next mode: From (${f}) > To (${t})`);
+      markInvalid(getEl('nextMultFrom'), `From (${f}) większe niż To (${t})`);
+      markInvalid(getEl('nextMultTo'),   `From (${f}) większe niż To (${t})`);
+    }
+  }
+
+  // 4. Counter root: from > to
+  counterConditions.forEach((c, i) => {
+    if (c.from > c.to) {
+      errors.push(`Counter "${c.name || '#'+(i+1)}": From (${c.from}) > To (${c.to})`);
+      // znajdź inputy (counterRows zawiera generic divy bez ID — szukamy po wartości pierwszego inputa)
+      const rows = document.querySelectorAll('#counterRows > div');
+      if (rows[i]) {
+        const inputs = rows[i].querySelectorAll('input');
+        if (inputs[1]) markInvalid(inputs[1], `From > To`);
+        if (inputs[2]) markInvalid(inputs[2], `From > To`);
+      }
+    }
+  });
+
+  // 5. Counter next mode: from > to
+  nextCounterConditions.forEach((c, i) => {
+    if (c.from > c.to) {
+      errors.push(`Next counter "${c.name || '#'+(i+1)}": From (${c.from}) > To (${c.to})`);
+      const rows = document.querySelectorAll('#nextCounterRows > div');
+      if (rows[i]) {
+        const inputs = rows[i].querySelectorAll('input');
+        if (inputs[1]) markInvalid(inputs[1], `From > To`);
+        if (inputs[2]) markInvalid(inputs[2], `From > To`);
+      }
+    }
+  });
+
+  // 6. Custom URL
+  if (currentEnv === 'custom') {
+    const url = getEl('customBaseUrl')?.value?.trim() || '';
+    if (!url) {
+      errors.push('Custom URL: pole nie może być puste');
+      markInvalid(getEl('customBaseUrl'), 'Wymagany URL z http:// lub https://');
+    } else if (!/^https?:\/\//i.test(url)) {
+      errors.push('Custom URL: musi zaczynać się od http:// lub https://');
+      markInvalid(getEl('customBaseUrl'), 'Musi zaczynać się od http:// lub https://');
+    }
+  }
+
+  // 7. Proxy port — markowanie już robi onProxyPortChange, walidacja dla raportu
+  if (currentEnv === 'proxy') {
+    const port = parseInt(getEl('proxyPortInput')?.value);
+    if (!port || port < 1 || port > 65535) {
+      errors.push(`Port proxy: niepoprawny (${port || 'puste'})`);
+      markInvalid(getEl('proxyPortInput'), 'Port musi być w zakresie 1–65535');
+    }
+  }
+
+  // 8. Trigger count — gdy next mode jest aktywny i count < 0
+  if (getEl('nextModeEnabled')?.checked) {
+    const cntEl = getEl('triggerCount');
+    const cnt = parseInt(cntEl?.value);
+    if (!isNaN(cnt) && cnt < 0) {
+      errors.push(`Trigger count: ujemna wartość (${cnt})`);
+      markInvalid(cntEl, 'Count nie może być ujemny');
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+function renderValidationBar(result) {
+  const bar = getEl('validationBar');
+  const summary = getEl('validationSummary');
+  const details = getEl('validationDetails');
+  if (!bar || !summary || !details) return;
+
+  if (result.ok) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'block';
+  summary.textContent = `⚠ ${result.errors.length} ${result.errors.length === 1 ? 'błąd walidacji' : 'błędy walidacji'} — kliknij aby ${details.style.display === 'none' ? 'rozwinąć' : 'zwinąć'}`;
+  details.innerHTML = result.errors.map(e => `<li>${e}</li>`).join('');
+}
+
+function toggleValidationDetails() {
+  const details = getEl('validationDetails');
+  const chev = getEl('validationChevron');
+  if (!details || !chev) return;
+  const open = details.style.display === 'none';
+  details.style.display = open ? 'block' : 'none';
+  chev.style.transform = open ? 'rotate(180deg)' : '';
+}
+
+// ---- UPDATE OUTPUT ----
+function update() {
+  const data = buildJSON();
+  const cleanData = stripEmpty(data);
+  const pascalData = toPascal(cleanData);
+  const output = document.getElementById('jsonOutput');
+
+  if (currentTab === 'pretty') {
+    output.innerHTML = syntaxHL(JSON.stringify(cleanData, null, 2));
+  } else if (currentTab === 'minified') {
+    output.innerHTML = `<span class="minified-output">${JSON.stringify(pascalData)}</span>`;
+  } else {
+    output.innerHTML = syntaxHL(JSON.stringify(pascalData, null, 2));
+  }
+
+  // status bar
+  const nextEnabled = document.getElementById('nextModeEnabled').checked;
+  const nextMode = document.getElementById('nextGameModeName').value;
+  document.getElementById('statusSymbols').textContent = `${getBoardSymbols().length} symbols`;
+  document.getElementById('statusOAK').textContent = `${oakConditions.length} OAK`;
+  document.getElementById('statusMode').textContent = nextEnabled
+    ? `${document.getElementById('gameModeName').value} → ${nextMode}`
+    : document.getElementById('gameModeName').value;
+
+  // walidacja (opóźniona — niech inputy się odrenderują)
+  try { renderValidationBar(validateAll()); } catch (e) { /* defensywne */ }
+}
+
+function switchTab(tab, el) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  update();
+}
+
+function copyJSON() {
+  const data = buildJSON();
+  const cleanData = stripEmpty(data);
+  const pascalData = toPascal(cleanData);
+  let text;
+  if (currentTab === 'pretty') {
+    text = JSON.stringify(cleanData, null, 2);
+  } else if (currentTab === 'minified') {
+    text = JSON.stringify(pascalData);
+  } else {
+    text = JSON.stringify(pascalData, null, 2);
+  }
+  copyToClipboard(text).then(ok => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = ok ? '✓ Copied!' : '✗ Błąd';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// ---- API CONNECTION ----
+const PROXY_PORT_KEY = 'cheat_tool_proxy_port';
+function getProxyPort() {
+  const stored = parseInt(localStorage.getItem(PROXY_PORT_KEY));
+  return (stored && stored >= 1 && stored <= 65535) ? stored : 3030;
+}
+function setProxyPort(p) {
+  const v = parseInt(p);
+  if (!v || v < 1 || v > 65535) return false;
+  localStorage.setItem(PROXY_PORT_KEY, String(v));
+  return true;
+}
+function proxyBase() { return 'http://localhost:' + getProxyPort(); }
+
+const ENVS = {
+  dev:     'https://ugs.dev-02.dev.yggops.io',
+  staging: 'https://ugs.staging.yggops.io',
+  prod:    'https://ugs.yggops.io',
+  get proxy() { return proxyBase(); },
+  custom:  ''
+};
+
+let currentEnv = 'dev';
+
+function getEndpointUrl() {
+  if (currentEnv === 'proxy') return proxyBase() + '/cheats/find-spin';
+  return `${getBaseUrl()}/cheats/find-spin`;
+}
+
+// Buduje headers i URL uwzględniając tryb proxy
+function buildFetchOptions(method, body, extraHeaders = {}) {
+  const rtpVariant = document.getElementById('rtpVariant').value || '0.94';
+
+  if (currentEnv === 'proxy') {
+    // Wybieramy środowisko docelowe przez X-Target-Url
+    // Proxy czyta ten nagłówek i przekazuje request dalej
+    const targetBase = document.getElementById('proxyTargetSelect').value;
+    const endpoint   = body ? '/cheats/find-spin' : extraHeaders['_endpoint'] || '';
+    return {
+      url: proxyBase() + endpoint,
+      options: {
+        method,
+        headers: {
+          'Content-Type':   'application/json',
+          'Accept':         'application/json',
+          'X-Rtp-Variant':  rtpVariant,
+          'X-Target-Url':   targetBase + endpoint,
+          ...extraHeaders,
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      }
+    };
+  }
+
+  return {
+    url: getEndpointUrl(),
+    options: {
+      method,
+      headers: {
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'X-Rtp-Variant': rtpVariant,
+        ...extraHeaders,
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    }
+  };
+}
+
+function selectEnv(env, el) {
+  currentEnv = env;
+  document.querySelectorAll('.env-pill').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('customUrlField').style.display    = env === 'custom' ? 'block' : 'none';
+  document.getElementById('proxyTargetField').style.display  = env === 'proxy'  ? 'block' : 'none';
+  updateUrlPreview();
+}
+
+function getBaseUrl() {
+  if (currentEnv === 'custom') return document.getElementById('customBaseUrl').value.trim();
+  return ENVS[currentEnv];
+}
+
+function updateUrlPreview() {
+  document.getElementById('urlPreviewText').textContent = getEndpointUrl();
+}
+
+function onProxyPortChange(val) {
+  const inp = document.getElementById('proxyPortInput');
+  const v = parseInt(val);
+  if (!v || v < 1 || v > 65535) {
+    inp.style.borderColor = 'var(--red)';
+    inp.title = 'Port musi być w zakresie 1–65535';
+    return;
+  }
+  inp.style.borderColor = '';
+  inp.title = '';
+  setProxyPort(v);
+  updateUrlPreview();
+}
+
+// Init port input z localStorage przy starcie
+(function initProxyPort() {
+  const inp = document.getElementById('proxyPortInput');
+  if (inp) inp.value = getProxyPort();
+})();
+
+let currentAbortController = null;
+
+function cancelRequest() {
+  if (currentAbortController) {
+    currentAbortController.abort();
+    currentAbortController = null;
+  }
+}
+
+async function sendRequest() {
+  const btn = document.getElementById('sendBtn');
+  const cancelBtn = document.getElementById('cancelBtn');
+  const icon = document.getElementById('sendBtnIcon');
+  const label = document.getElementById('sendBtnLabel');
+  const panel = document.getElementById('responsePanel');
+  const body = document.getElementById('responseBody');
+  const statusEl = document.getElementById('responseStatus');
+
+  currentAbortController = new AbortController();
+
+  btn.disabled = true;
+  btn.classList.add('loading');
+  cancelBtn.style.display = 'block';
+  icon.textContent = '◌';
+  label.textContent = 'Wysyłanie...';
+  panel.style.display = 'block';
+  body.innerHTML = '<div style="color:var(--text-dim);font-size:11px;">Oczekiwanie na odpowiedź...</div>';
+  statusEl.textContent = '';
+  document.getElementById('responseBodyPlay').innerHTML = '<div style="color:var(--text-dim);font-size:11px;">Wyślij cheat z randomNumbers żeby zobaczyć prawdziwy spin gry.</div>';
+  document.getElementById('respTabPlay').style.display = 'none';
+  switchRespTab('result', document.getElementById('respTabResult'));
+
+  const payload = toPascal(buildJSON());
+  const { url, options } = buildFetchOptions('POST', payload);
+  const timeoutId = setTimeout(() => currentAbortController.abort(), 30000);
+
+  try {
+    const res = await fetch(url, { ...options, signal: currentAbortController.signal });
+    clearTimeout(timeoutId);
+
+    const data = await res.json();
+    const ok = data.ReverseEngineerSuccess ?? data.reverseEngineerSuccess;
+    const winMult = data.WinMultiplier ?? data.winMultiplier;
+    // Backend zwraca spinId w 2 formatach: pojedynczy string LUB obiekt {modeName: spinId}
+    const singleSpinId = data.SpinId ?? data.spinId;
+    const spinIdsMap   = data.SpinIds ?? data.spinIds;
+    const allSpinIds = spinIdsMap && typeof spinIdsMap === 'object'
+      ? Object.entries(spinIdsMap).filter(([_, v]) => v) // [[mode, id], ...]
+      : [];
+    const spinId = singleSpinId ?? (allSpinIds[0]?.[1] ?? null);
+    const mode = data.GameModeName ?? data.gameModeName ?? allSpinIds[0]?.[0];
+    const features = data.FeaturesKey ?? data.featuresKey;
+    const error = data.ReverseEngineerError ?? data.reverseEngineerError;
+    const method = data.ReverseEngineerMethod ?? data.reverseEngineerMethod;
+    const rng = data.RandomNumbers ?? data.randomNumbers;
+
+    statusEl.textContent = res.ok ? '✓ ' + res.status : '✗ ' + res.status;
+    statusEl.style.color = res.ok ? 'var(--green)' : 'var(--red)';
+
+    // Render helper — Spin IDs jako kopiowalne wiersze
+    const renderSpinIds = () => {
+      if (allSpinIds.length === 0 && !spinId) return '';
+      const ids = allSpinIds.length ? allSpinIds : (spinId ? [[mode || '?', spinId]] : []);
+      return ids.map(([m, id]) => `
+        <div class="resp-field" style="align-items:start;">
+          <span class="resp-key">Spin ID${ids.length > 1 ? ` (${m})` : ''}</span>
+          <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <code style="font-size:10px;color:var(--accent);background:rgba(0,229,255,0.06);padding:2px 6px;border-radius:4px;">${id}</code>
+            <button onclick="copyToClipboard('${id}').then(ok=>{this.textContent=ok?'✓':'✗';setTimeout(()=>this.textContent='📋',1500)})" style="background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:var(--accent);font-size:10px;width:24px;height:22px;border-radius:4px;cursor:pointer;" title="Kopiuj spinId">📋</button>
+          </span>
+        </div>`).join('');
+    };
+
+    const renderMethodSql = () => method ? `
+      <details style="margin-top:8px;">
+        <summary style="font-size:10px;color:var(--text-dim);cursor:pointer;letter-spacing:0.3px;">▶ Pokaż SQL backendu (reverseEngineerMethod)</summary>
+        <pre style="margin-top:6px;padding:8px 10px;background:var(--surface3);border:1px solid var(--border);border-radius:4px;font-size:9px;color:var(--text-mid);line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;">${method}</pre>
+      </details>` : '';
+
+    // Trzy stany: partial success (spin found ale RE failed), full success, full failure
+    const partialSuccess = ok === false && (allSpinIds.length > 0 || singleSpinId);
+
+    if (partialSuccess) {
+      body.innerHTML = `
+        <div style="background:rgba(255,180,0,0.08);border:1px solid rgba(255,180,0,0.3);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+          <div style="font-size:11px;color:#ffc04d;font-weight:600;margin-bottom:4px;">⚠ Częściowy sukces</div>
+          <div style="font-size:10px;color:var(--text-mid);line-height:1.5;">
+            Solver znalazł spin w bazie, ale reverse-engineer nie domknął się.<br>
+            Możesz spróbować użyć <code style="background:rgba(0,0,0,0.3);padding:1px 4px;border-radius:3px;">SpinId</code> bezpośrednio.<br>
+            <span style="color:var(--text-dim);font-size:9px;">Backend error: ${error || '?'}</span>
+          </div>
+        </div>
+        <div class="resp-field"><span class="resp-key">Win Multiplier</span><span class="resp-val highlight">${winMult ?? '—'}×</span></div>
+        <div class="resp-field"><span class="resp-key">Game Mode</span><span class="resp-val">${mode ?? '—'}</span></div>
+        ${features ? `<div class="resp-field"><span class="resp-key">Features</span><span class="resp-val" style="color:${features==='None'?'var(--text-dim)':'var(--accent2)'}">${features}</span></div>` : ''}
+        ${renderSpinIds()}
+        ${renderMethodSql()}
+      `;
+    } else if (ok === false) {
+      body.innerHTML = `<div class="error-box">❌ Solver failed<br><br>${error || 'Brak szczegółów błędu.'}</div>${renderMethodSql()}`;
+    } else {
+      const cheatString = (rng && rng.length) ? rng.join(',') : null;
+      body.innerHTML = `
+        <div class="resp-field"><span class="resp-key">Status</span><span class="resp-val success">✓ Znaleziono spin</span></div>
+        <div class="resp-field"><span class="resp-key">Win Multiplier</span><span class="resp-val highlight">${winMult ?? '—'}×</span></div>
+        <div class="resp-field"><span class="resp-key">Game Mode</span><span class="resp-val">${mode ?? '—'}</span></div>
+        <div class="resp-field"><span class="resp-key">Features</span><span class="resp-val" style="color:${features==='None'?'var(--text-dim)':'var(--accent2)'}">${features ?? '—'}</span></div>
+        ${renderSpinIds()}
+        ${cheatString ? `<div class="resp-field" style="align-items:start"><span class="resp-key">Random Numbers</span>
+          <span style="display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;">
+            <code style="font-size:10px;color:var(--accent);background:rgba(0,229,255,0.06);padding:3px 7px;border-radius:4px;word-break:break-all;line-height:1.5;">${rng.join(', ')}</code>
+            <button onclick="copyToClipboard('${cheatString}').then(ok=>{this.textContent=ok?'✓':'✗';setTimeout(()=>this.textContent='📋',1500)})" style="background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:var(--accent);font-size:11px;width:26px;height:24px;border-radius:4px;cursor:pointer;flex-shrink:0;" title="Kopiuj random numbers (format CSV bez nawiasów)">📋</button>
+          </span>
+        </div>` : ''}
+        ${cheatString ? renderPlayCheatButton(cheatString) : ''}
+        ${renderMethodSql()}
+      `;
+      // Auto-play: jeśli mamy randomNumbers, od razu wywołujemy /v2/games/{id}/play
+      // żeby user nie musiał klikać ręcznie. Stake bierze się z localStorage.
+      // switchTab=false → zakładka "Real Spin" otrzymuje dane w tle, aktywna zostaje "Wynik".
+      if (cheatString) {
+        setTimeout(() => playWithCheat(cheatString, false), 100);
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const wasTimeout = !currentAbortController; // null means timeout fired
+      statusEl.textContent = wasTimeout ? '✕ Timeout' : '✕ Przerwano';
+      statusEl.style.color = 'var(--text-dim)';
+      body.innerHTML = wasTimeout
+        ? `<div class="error-box">⏱ Timeout — brak odpowiedzi po 30s<br><br>
+            <span style="color:var(--text-dim);font-size:10px;">
+            Możliwe przyczyny:<br>
+            • CORS — serwer blokuje requesty z przeglądarki (działa w Postmanie bo Postman nie wysyła preflight)<br>
+            • Serwer niedostępny lub zły URL<br><br>
+            Rozwiązanie: użyj <strong style="color:var(--accent)">CORS proxy</strong> lub uruchom tool z tego samego originu co API
+            </span></div>`
+        : `<div style="color:var(--text-dim);font-size:11px;padding:4px 0;">Zapytanie zostało przerwane.</div>`;
+    } else {
+      statusEl.textContent = '✗ Error';
+      statusEl.style.color = 'var(--red)';
+      const isCors = err.message.includes('Failed to fetch') || err.message.includes('NetworkError');
+      body.innerHTML = `<div class="error-box">
+        ${isCors ? '🚫 CORS Error' : '❌ Błąd połączenia'}<br><br>
+        ${err.message}<br><br>
+        ${isCors ? `<span style="color:var(--text-dim);font-size:10px;">
+          Postman działa bo nie wysyła CORS preflight.<br>
+          Przeglądarka wymaga że serwer zwróci nagłówek <code>Access-Control-Allow-Origin</code>.<br><br>
+          <strong style="color:var(--accent)">Opcje:</strong><br>
+          1. Otwórz tool z tego samego hosta co API<br>
+          2. Dodaj CORS headers na serwerze<br>
+          3. Użyj rozszerzenia CORS Unblock w Chrome
+        </span>` : `<span style="color:var(--text-dim)">Sprawdź URL i dostępność środowiska.</span>`}
+      </div>`;
+    }
+  } finally {
+    currentAbortController = null;
+    btn.disabled = false;
+    btn.classList.remove('loading');
+    cancelBtn.style.display = 'none';
+    icon.textContent = '▶';
+    label.textContent = 'Wyślij zapytanie';
+  }
+}
+
+// Normalizuj pozycje wygrywających komórek — obsługa różnych nazw pól w API response.
+// Zwraca tablicę {reel, row} albo [] jeśli nie znaleziono.
+function extractWinPositions(combo) {
+  if (!combo || typeof combo !== 'object') return [];
+  const candidates = [
+    combo.positions, combo.Positions,
+    combo.winningPositions, combo.WinningPositions,
+    combo.cells, combo.Cells,
+    combo.winningCells, combo.WinningCells,
+    combo.path, combo.Path,
+    combo.coords, combo.Coords,
+  ];
+  const arr = candidates.find(c => Array.isArray(c) && c.length > 0);
+  if (!arr) return [];
+  return arr.map(p => {
+    if (typeof p !== 'object' || p === null) return null;
+    // Possible field names for reel/col and row
+    const reel = p.reel ?? p.Reel ?? p.column ?? p.Column ?? p.col ?? p.Col ?? p.x ?? p.X;
+    const row  = p.row ?? p.Row ?? p.y ?? p.Y ?? p.position ?? p.Position;
+    if (reel === undefined || row === undefined) return null;
+    return { reel: parseInt(reel), row: parseInt(row) };
+  }).filter(Boolean);
+}
+
+// Pomocnik — opis kombinacji (symbol + count)
+function describeCombination(combo) {
+  if (!combo) return '';
+  const symbol = combo.symbol?.symbolCode ?? combo.Symbol?.SymbolCode
+              ?? combo.symbolCode ?? combo.SymbolCode
+              ?? combo.symbol ?? combo.Symbol ?? '';
+  const count  = combo.count ?? combo.Count ?? combo.symbolCount ?? combo.SymbolCount
+              ?? combo.kind ?? combo.Kind ?? null;
+  if (symbol && count) return `${symbol} ×${count}`;
+  if (symbol) return symbol;
+  return '';
+}
+
+// Spróbuj znaleźć tablicę stepów w różnych możliwych formatach response
+function findSpinSteps(data) {
+  if (!data || typeof data !== 'object') return null;
+  const candidates = [
+    data?.spin?.steps,
+    data?.Spin?.Steps,
+    data?.gameRound?.spin?.steps,
+    data?.GameRound?.Spin?.Steps,
+    data?.result?.spin?.steps,
+    data?.Result?.Spin?.Steps,
+    data?.spinResult?.steps,
+    data?.SpinResult?.Steps,
+    data?.steps,
+    data?.Steps,
+    Array.isArray(data) ? data : null,
+  ];
+  const found = candidates.find(c => Array.isArray(c) && c.length > 0);
+  if (found) return found;
+  // Fallback: format action-based z /v2/games/{id}/play (results[].clientData.actions[])
+  const actionSteps = parsePlayActionsResponse(data);
+  if (actionSteps && actionSteps.length > 0) return actionSteps;
+  return null;
+}
+
+// Parser action-based response (np. z /v2/games/{id}/play)
+// Śledzi ewolucję boardu przez akcje:
+//   NewSpin → board init
+//   PresentWinCombination → win na obecnym boardzie
+//   SymbolsRemove → flush step (snapshot boardu PRZED usunięciem) + delete cells
+//   SymbolsSet → set/replace cells (np. Wild dodany)
+//   BoardCascade → przenieś cells wg positionChanges
+//   FillEmptyCells → wypełnij puste pozycje nowymi symbolami
+// Dzięki temu cascade-style games (cluster pays) dostają osobny step per cascade.
+function parsePlayActionsResponse(data) {
+  const results = data?.results ?? data?.Results;
+  if (!Array.isArray(results) || results.length === 0) return null;
+
+  const allSteps = [];
+
+  for (const result of results) {
+    const actions = result?.clientData?.actions ?? result?.ClientData?.Actions;
+    if (!Array.isArray(actions)) continue;
+
+    // Stan boardu jako Map<"x,y", symbolCode>
+    const board = new Map();
+    let pendingCombos = [];
+    let pendingStepWin = 0;
+    let boardInitialized = false;
+
+    const boardKey = (x, y) => `${x},${y}`;
+    const applyCells = (cells) => {
+      cells.forEach(c => {
+        const pos = c.position ?? c.Position;
+        if (!pos) return;
+        const x = pos.x ?? pos.X;
+        const y = pos.y ?? pos.Y;
+        const sym = c.symbol?.symbolCode ?? c.Symbol?.SymbolCode ?? '?';
+        board.set(boardKey(x, y), sym);
+      });
+    };
+
+    const snapshotBoard = () => {
+      const cells = [];
+      board.forEach((symCode, key) => {
+        const [x, y] = key.split(',').map(Number);
+        cells.push({ position: { x, y }, symbol: { symbolCode: symCode } });
+      });
+      return { cells };
+    };
+
+    const flushStep = () => {
+      if (!boardInitialized) return;
+      const stepBoard = snapshotBoard();
+      // Wnioskowanie symbolu kombinacji (dla podpisu) — z bieżącego boardu
+      const combosWithSymbols = pendingCombos.map(c => ({
+        ...c,
+        symbol: c.symbol || findCommonSymbolAtPositions(stepBoard, c.positions),
+      }));
+      allSteps.push(buildStepFromBoard(stepBoard, combosWithSymbols, pendingStepWin));
+      pendingCombos = [];
+      pendingStepWin = 0;
+    };
+
+    for (const action of actions) {
+      const t = action.$type ?? action.type ?? action.Type;
+      if (!t) continue;
+
+      if (t.endsWith('NewSpin') || t.endsWith('Respin') || t.endsWith('Reevaluate')) {
+        flushStep();
+        board.clear();
+        const newCells = action.board?.cells ?? action.Board?.Cells ?? [];
+        applyCells(newCells);
+        boardInitialized = true;
+      } else if (t.endsWith('PresentWinCombination')) {
+        const winningCells = action.winningCells ?? action.WinningCells ?? [];
+        const winObj = action.win ?? action.Win;
+        if (winningCells.length > 0 && winObj) {
+          const positions = winningCells.map(c => ({
+            reel: c.x ?? c.X,
+            row: c.y ?? c.Y
+          })).filter(p => p.reel !== undefined && p.row !== undefined);
+          pendingCombos.push({
+            combinationPayout: winObj.amountNormalizedToBet ?? winObj.AmountNormalizedToBet
+                            ?? winObj.amount ?? winObj.Amount ?? 0,
+            symbol: null, // wyznaczone w flushStep z aktualnego boardu
+            count: positions.length,
+            positions: positions,
+          });
+        }
+      } else if (t.endsWith('PresentIntermediateWin')) {
+        // Per-step win total (uwzględnia mnożniki, więc !== sumie combos)
+        const winObj = action.win ?? action.Win;
+        if (winObj) {
+          pendingStepWin = winObj.amountNormalizedToBet ?? winObj.AmountNormalizedToBet
+                        ?? winObj.amount ?? winObj.Amount ?? pendingStepWin;
+        }
+      } else if (t.endsWith('PresentModeWin')) {
+        // Końcowy total — jeśli pendingCombos jest niepuste a stepWin niezdefiniowany, użyj modeWin
+        if (pendingCombos.length > 0 && pendingStepWin === 0) {
+          const winObj = action.modeWin ?? action.ModeWin;
+          if (winObj) pendingStepWin = winObj.amountNormalizedToBet ?? winObj.amount ?? 0;
+        }
+      } else if (t.endsWith('SymbolsRemove')) {
+        // Mutacja boardu — najpierw flush kroku z aktualną planszą (z winningCells nadal w boardzie)
+        flushStep();
+        const positions = action.positions ?? action.Positions ?? [];
+        positions.forEach(p => board.delete(boardKey(p.x ?? p.X, p.y ?? p.Y)));
+      } else if (t.endsWith('SymbolsSet')) {
+        // Cells set/replace (np. Wild zostaje w miejscu zwycięskiej kombinacji)
+        const cells = action.cells ?? action.Cells ?? [];
+        applyCells(cells);
+      } else if (t.endsWith('BoardCascade')) {
+        // Przesunięcia symboli wg positionChanges (from → to)
+        const changes = action.positionChanges ?? action.PositionChanges ?? [];
+        // Najpierw zapisz stare wartości, potem usuń stare klucze, potem set nowe
+        const moves = changes.map(c => {
+          const from = c.from ?? c.From;
+          const to   = c.to ?? c.To;
+          const fx = from.x ?? from.X, fy = from.y ?? from.Y;
+          const tx = to.x ?? to.X,     ty = to.y ?? to.Y;
+          return { fx, fy, tx, ty, sym: board.get(boardKey(fx, fy)) };
+        });
+        moves.forEach(m => board.delete(boardKey(m.fx, m.fy)));
+        moves.forEach(m => { if (m.sym !== undefined) board.set(boardKey(m.tx, m.ty), m.sym); });
+      } else if (t.endsWith('FillEmptyCells')) {
+        // Wypełnienie pustych celli nowymi symbolami
+        const cells = action.cells ?? action.Cells ?? [];
+        applyCells(cells);
+      }
+      // SetCounterReel, SetCounterBoard, FeatureHappened, SpecialSymbolTrigger, PresentModeStart — nie zmieniają boardu
+    }
+
+    // Flush ostatni step (np. końcowy stan boardu z ostatnią wygraną)
+    flushStep();
+  }
+  return allSteps;
+}
+
+// Znajdź dominujący (non-Wild) symbol w komórkach o podanych pozycjach
+function findCommonSymbolAtPositions(board, positions) {
+  const cells = board.cells ?? board.Cells ?? [];
+  if (!cells.length || !positions.length) return null;
+  const syms = positions.map(p => {
+    const cell = cells.find(c => {
+      const pos = c.position ?? c.Position;
+      return pos && (pos.x ?? pos.X) === p.reel && (pos.y ?? pos.Y) === p.row;
+    });
+    return cell?.symbol?.symbolCode ?? cell?.Symbol?.SymbolCode ?? null;
+  }).filter(Boolean);
+  if (!syms.length) return null;
+  const counts = {};
+  syms.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+  const nonWild = Object.keys(counts).filter(s => s !== 'Wild' && s !== 'Scatter');
+  if (nonWild.length > 0) {
+    nonWild.sort((a, b) => counts[b] - counts[a]);
+    return nonWild[0];
+  }
+  return syms[0];
+}
+
+// Konwertuj płaski board { cells: [{position:{x,y}, symbol:{symbolCode}}] }
+// na strukturę { evaluatedBoard: { reels: [{cells: [{symbol:{symbolCode}}]}] } } którą rozumie renderSpinStepHtml
+function buildStepFromBoard(board, combos, stepWin) {
+  const cells = board?.cells ?? board?.Cells ?? [];
+  // Najpierw policz wymiary
+  let maxX = -1, maxY = -1;
+  cells.forEach(c => {
+    const pos = c.position ?? c.Position;
+    if (!pos) return;
+    const x = pos.x ?? pos.X;
+    const y = pos.y ?? pos.Y;
+    if (x !== undefined) maxX = Math.max(maxX, x);
+    if (y !== undefined) maxY = Math.max(maxY, y);
+  });
+  // Zbuduj prostokątną siatkę (maxX+1) rolek × (maxY+1) celli każda
+  const reels = Array.from({ length: maxX + 1 }, () => ({
+    cells: Array.from({ length: maxY + 1 }, () => ({ symbol: { symbolCode: '·' } }))
+  }));
+  cells.forEach(c => {
+    const pos = c.position ?? c.Position;
+    if (!pos) return;
+    const x = pos.x ?? pos.X;
+    const y = pos.y ?? pos.Y;
+    if (x === undefined || y === undefined) return;
+    reels[x].cells[y] = {
+      symbol: { symbolCode: c.symbol?.symbolCode ?? c.Symbol?.SymbolCode ?? '?' }
+    };
+  });
+  return {
+    evaluatedBoard: { reels: reels },
+    stepWin: stepWin,
+    wonCombinations: combos,
+  };
+}
+
+// Wyciągnij rolki z evaluatedBoard (różne nazwy pól w API)
+function extractBoardReels(step) {
+  if (!step) return null;
+  const board = step.evaluatedBoard ?? step.EvaluatedBoard
+             ?? step.board ?? step.Board
+             ?? step.finalBoard ?? step.FinalBoard;
+  if (!board) return null;
+  return board.reels ?? board.Reels ?? null;
+}
+
+// Renderuj pojedynczy step jako HTML (grid + win combos)
+function renderSpinStepHtml(step, si) {
+  const stepWin = step.stepWin ?? step.StepWin ?? step.win ?? step.Win ?? 0;
+  const combos = step.wonCombinations ?? step.WonCombinations ?? step.wins ?? step.Wins ?? [];
+  const reels = extractBoardReels(step);
+
+  // Mapa "reel,row" → [{payout, desc, idx}]
+  const winMap = new Map();
+  combos.forEach((combo, ci) => {
+    const payout = combo.combinationPayout ?? combo.CombinationPayout ?? combo.payout ?? combo.Payout ?? 0;
+    const desc = describeCombination(combo);
+    const positions = extractWinPositions(combo);
+    positions.forEach(({reel, row}) => {
+      const key = `${reel},${row}`;
+      if (!winMap.has(key)) winMap.set(key, []);
+      winMap.get(key).push({ payout, desc, idx: ci });
+    });
+  });
+
+  let html = `<div class="spin-mode-block">`;
+  html += `<div class="spin-mode-header"><span>Step ${si + 1}</span><span class="spin-mode-win">${stepWin > 0 ? stepWin + '×' : '—'}</span></div>`;
+  html += `<div class="spin-board-grid">`;
+
+  if (reels && Array.isArray(reels)) {
+    reels.forEach((reel, ri) => {
+      html += `<div class="spin-reel">`;
+      const cells = reel.cells ?? reel.Cells ?? reel.symbols ?? reel.Symbols ?? [];
+      cells.forEach((cell, ci) => {
+        // Symbol może być w cell.symbol.symbolCode, cell.symbolCode, cell.symbol, ...
+        const sym = cell.symbol?.symbolCode ?? cell.Symbol?.SymbolCode
+                 ?? cell.symbolCode ?? cell.SymbolCode
+                 ?? cell.symbol ?? cell.Symbol
+                 ?? (typeof cell === 'string' ? cell : '?');
+        const cls = SYM_CLASS_MAP[sym] || '';
+        // Fallback color przez SYM_COLOR proxy gdy brak hardcoded CSS klasy
+        const inlineStyle = (!cls && sym && sym !== '?' && sym !== '·')
+          ? `background:${SYM_COLOR[sym]}1f;border-color:${SYM_COLOR[sym]}55;color:${SYM_COLOR[sym]};`
+          : '';
+        const wins = winMap.get(`${ri},${ci}`) || [];
+        const isWin = wins.length > 0;
+        const tooltip = isWin
+          ? wins.map(w => `+${w.payout}× ${w.desc}`).join('\n')
+          : '';
+        html += `<div class="spin-cell ${cls}${isWin ? ' winning' : ''}"${tooltip ? ` title="${tooltip}"` : ''}${inlineStyle ? ` style="${inlineStyle}"` : ''}>${sym}</div>`;
+      });
+      html += `</div>`;
+    });
+  } else {
+    html += `<div style="color:var(--text-dim);font-size:10px;padding:6px;">Brak danych boardu w tym stepie.</div>`;
+  }
+
+  html += `</div>`; // board-grid
+
+  if (combos.length > 0) {
+    html += `<div style="padding:6px 10px;">`;
+    combos.forEach(combo => {
+      const payout = combo.combinationPayout ?? combo.CombinationPayout ?? combo.payout ?? combo.Payout ?? 0;
+      const desc = describeCombination(combo);
+      const positions = extractWinPositions(combo);
+      const posLabel = positions.length > 0
+        ? positions.map(p => `R${p.reel+1}:${p.row+1}`).join(' ')
+        : '';
+      html += `<div class="combo-row">
+        <span class="combo-payout">+${payout}×</span>
+        <span class="combo-desc">${desc || '<i style="color:var(--text-dim)">brak opisu</i>'}</span>
+        ${posLabel ? `<span class="combo-pos">${posLabel}</span>` : ''}
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  html += `</div>`; // spin-mode-block
+  return html;
+}
+
+const SYM_CLASS_MAP = {
+  Hi1:'board-cell sym-Hi1',Hi2:'board-cell sym-Hi2',Hi3:'board-cell sym-Hi3',Hi4:'board-cell sym-Hi4',
+  Mi1:'board-cell sym-Mi1',Mi2:'board-cell sym-Mi2',
+  Lo1:'board-cell sym-Lo1',Lo2:'board-cell sym-Lo2',Lo3:'board-cell sym-Lo3',
+  Wild:'board-cell sym-Wild',Scatter:'board-cell sym-Scatter',FS:'board-cell sym-FS'
+};
+
+// ---- RESP TABS ----
+function switchRespTab(tab, el) {
+  document.querySelectorAll('.resp-tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('responseBody').style.display     = tab === 'result' ? 'block' : 'none';
+  document.getElementById('responseBodyPlay').style.display = tab === 'play'   ? 'block' : 'none';
+}
+
+// ---- PLAY WITH CHEAT — wywołuje /v2/games/{id}/play z cheat=randomNumbers ----
+const PLAY_STAKE_KEY = 'cheat_tool_play_stake';
+function getPlayStake() {
+  try { return JSON.parse(localStorage.getItem(PLAY_STAKE_KEY) || '{"cashBet":1,"currency":"EUR"}'); }
+  catch { return { cashBet: 1, currency: 'EUR' }; }
+}
+function setPlayStake(s) { localStorage.setItem(PLAY_STAKE_KEY, JSON.stringify(s)); }
+
+async function playWithCheat(cheatString, switchTab = true) {
+  const gameId = document.getElementById('gameId').value || '10894';
+  const stake = getPlayStake();
+  const cashBet = parseFloat(document.getElementById('playStakeCashBet')?.value) || stake.cashBet;
+  const currency = (document.getElementById('playStakeCurrency')?.value || stake.currency).trim();
+  setPlayStake({ cashBet, currency });
+
+  const tab = document.getElementById('respTabPlay');
+  tab.style.display = 'inline-block'; // pokaż zakładkę
+  if (switchTab) switchRespTab('play', tab); // przełącz tylko gdy explicit (manualny klik "Powtórz")
+
+  const out = document.getElementById('responseBodyPlay');
+  out.innerHTML = `<div style="color:var(--text-dim);font-size:11px;padding:8px 0;"><span style="animation:pulse 1s infinite;display:inline-block;">◌</span> Wysyłanie play request...</div>`;
+
+  const baseUrl = (currentEnv === 'proxy') ? proxyBase() : getBaseUrl();
+  const playUrl = `${baseUrl}/v2/games/${gameId}/play`;
+  const body = { stakeValue: { cashBet, currency }, cheat: cheatString };
+
+  // Proxy: dodaj X-Target-Url
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'X-Rtp-Variant': document.getElementById('rtpVariant').value || '0.94',
+  };
+  if (currentEnv === 'proxy') {
+    const targetBase = document.getElementById('proxyTargetSelect').value;
+    headers['X-Target-Url'] = targetBase + `/v2/games/${gameId}/play`;
+  }
+
+  try {
+    const res = await fetch(playUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = text; }
+    renderPlayResponse(res, data, { url: playUrl, body });
+  } catch (err) {
+    out.innerHTML = `<div class="error-box">❌ ${err.message || 'Błąd połączenia'}<br><br><span style="color:var(--text-dim);font-size:10px;">URL: ${playUrl}</span></div>`;
+  }
+}
+
+function renderPlayResponse(res, data, ctx) {
+  const out = document.getElementById('responseBodyPlay');
+  const statusOk = res.ok;
+  const statusColor = statusOk ? 'var(--green)' : 'var(--red)';
+
+  // Spróbuj wyciągnąć kluczowe pola (defensywnie — różne formaty możliwe)
+  const firstResult = data?.results?.[0] ?? data?.Results?.[0];
+  const firstActions = firstResult?.clientData?.actions ?? firstResult?.ClientData?.Actions ?? [];
+  const findAction = (suffix) => firstActions.find(a => (a.$type ?? a.type ?? '').endsWith(suffix));
+  const modeStartAction = findAction('PresentModeStart');
+  const modeWinAction = findAction('PresentModeWin');
+
+  const totalWin = data?.totalWin ?? data?.TotalWin
+                ?? data?.win ?? data?.Win
+                ?? firstResult?.cashWin ?? firstResult?.CashWin
+                ?? modeWinAction?.modeWin?.amountNormalizedToBet ?? modeWinAction?.modeWin?.amount;
+  const balance  = data?.balance ?? data?.Balance ?? data?.playerBalance?.cash;
+  const spinId   = data?.spinId ?? data?.SpinId ?? data?.gameRound?.id;
+  const gameMode = data?.gameModeName ?? data?.GameModeName ?? data?.mode
+                ?? modeStartAction?.modeName ?? modeStartAction?.ModeName;
+  const featuresKey = data?.featuresKey ?? data?.FeaturesKey;
+  const nextMode = data?.nextGameMode?.identifier ?? data?.NextGameMode?.Identifier
+                ?? data?.nextCommands?.[0]?.modeName;
+  const finished = data?.finished ?? data?.Finished;
+
+  const summary = `
+    <div style="background:rgba(0,229,255,0.05);border:1px solid rgba(0,229,255,0.15);border-radius:6px;padding:10px 12px;margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <strong style="font-size:11px;color:var(--accent);">🎰 Real Spin Result</strong>
+        <span style="font-size:10px;color:${statusColor};">${statusOk ? '✓' : '✗'} ${res.status}</span>
+      </div>
+      ${totalWin !== undefined ? `<div class="resp-field"><span class="resp-key">Total Win</span><span class="resp-val highlight">${totalWin}</span></div>` : ''}
+      ${gameMode ? `<div class="resp-field"><span class="resp-key">Game Mode</span><span class="resp-val">${gameMode}</span></div>` : ''}
+      ${featuresKey ? `<div class="resp-field"><span class="resp-key">Features</span><span class="resp-val" style="color:${featuresKey==='None'?'var(--text-dim)':'var(--accent2)'}">${featuresKey}</span></div>` : ''}
+      ${nextMode ? `<div class="resp-field"><span class="resp-key">Next Mode</span><span class="resp-val" style="color:var(--accent2)">${nextMode}</span></div>` : ''}
+      ${balance !== undefined ? `<div class="resp-field"><span class="resp-key">Balance</span><span class="resp-val">${balance}</span></div>` : ''}
+      ${spinId ? `<div class="resp-field" style="align-items:start;"><span class="resp-key">Spin ID</span><span class="resp-val" style="font-size:10px;color:var(--text-dim);word-break:break-all;">${spinId}</span></div>` : ''}
+    </div>`;
+
+  // Spróbuj zrenderować grid stepów — używa tej samej logiki co Spin Inspector
+  const steps = findSpinSteps(data);
+  const gridHtml = (steps && steps.length > 0)
+    ? `<div class="spin-inspector" style="margin-bottom:10px;">${steps.map((s, i) => renderSpinStepHtml(s, i)).join('')}</div>`
+    : `<div style="color:var(--text-dim);font-size:10px;padding:8px 10px;background:var(--surface3);border-radius:6px;margin-bottom:10px;">ℹ Nie udało się znaleźć stepów spinu w odpowiedzi. Sprawdź raw JSON poniżej — być może response ma inną strukturę i parser potrzebuje doszlifowania.</div>`;
+
+  const requestEcho = `
+    <details style="margin-bottom:10px;">
+      <summary style="font-size:10px;color:var(--text-dim);cursor:pointer;letter-spacing:0.3px;">▶ Request</summary>
+      <div style="margin-top:6px;font-size:10px;color:var(--text-dim);"><strong>POST</strong> ${ctx.url}</div>
+      <pre style="margin-top:4px;padding:8px;background:var(--surface3);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--text-mid);white-space:pre-wrap;word-break:break-all;">${JSON.stringify(ctx.body, null, 2)}</pre>
+    </details>`;
+
+  const rawJson = `
+    <details open>
+      <summary style="font-size:10px;color:var(--text-dim);cursor:pointer;letter-spacing:0.3px;">▶ Pełna odpowiedź (JSON)</summary>
+      <pre style="margin-top:6px;padding:10px;background:var(--surface3);border:1px solid var(--border);border-radius:4px;font-size:10px;color:var(--text);line-height:1.5;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto;">${typeof data === 'string' ? data : JSON.stringify(data, null, 2)}</pre>
+      <button onclick="copyToClipboard(${JSON.stringify(typeof data === 'string' ? data : JSON.stringify(data, null, 2)).replace(/"/g, '&quot;')}).then(ok=>{this.textContent=ok?'✓ Skopiowano':'✗ Błąd';setTimeout(()=>this.textContent='📋 Kopiuj JSON',1500)})" style="margin-top:6px;background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:10px;padding:4px 10px;border-radius:4px;cursor:pointer;">📋 Kopiuj JSON</button>
+    </details>`;
+
+  out.innerHTML = summary + gridHtml + requestEcho + rawJson;
+}
+
+// Helper do renderowania przycisku "Zagraj cheatem" w wyniku find-spin
+function renderPlayCheatButton(cheatString) {
+  const stake = getPlayStake();
+  return `
+    <div style="margin-top:10px;padding:10px;background:rgba(124,77,255,0.05);border:1px solid rgba(124,77,255,0.2);border-radius:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="font-size:10px;color:var(--accent2);font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">🎰 Zagraj prawdziwym spinem</div>
+        <div style="font-size:9px;color:var(--green);letter-spacing:0.3px;">⚡ auto-play w tle → zakładka 🎰 Real Spin</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 80px auto;gap:6px;align-items:center;margin-bottom:6px;">
+        <input type="number" id="playStakeCashBet" value="${stake.cashBet}" step="0.1" min="0.01" placeholder="cashBet" style="font-size:11px;padding:5px 8px;">
+        <input type="text"   id="playStakeCurrency" value="${stake.currency}" maxlength="3" placeholder="EUR" style="font-size:11px;padding:5px 8px;text-align:center;text-transform:uppercase;">
+        <button onclick="playWithCheat('${cheatString.replace(/'/g, "\\'")}')" style="background:rgba(124,77,255,0.15);border:1px solid rgba(124,77,255,0.4);color:var(--accent2);font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 14px;border-radius:5px;cursor:pointer;white-space:nowrap;" title="Zagraj ponownie z aktualnymi wartościami stake">↻ Powtórz</button>
+      </div>
+      <div style="font-size:9px;color:var(--text-dim);">Real spin renderowany w zakładce "🎰 Real Spin". Zmień stake i kliknij <strong>↻ Powtórz</strong> żeby zagrać raz jeszcze.</div>
+    </div>`;
+}
+
+// ---- GAME CONFIG FETCH ----
+let gameSymbols = null;
+
+async function fetchGameConfig() {
+  const gameId = document.getElementById('gameId').value || '10857';
+  const baseUrl = getBaseUrl();
+  const rtpVariant = document.getElementById('rtpVariant').value || '0.94';
+  const url = `${baseUrl}/v2/games/${gameId}/config`;
+
+  const dot = document.getElementById('configDot');
+  const status = document.getElementById('configStatus');
+  dot.className = 'config-dot';
+  status.textContent = 'Pobieranie...';
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'Accept': 'application/json', 'X-Rtp-Variant': rtpVariant }
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+
+    // Extract symbols from paytable
+    const paytable = data.paytable ?? data.Paytable;
+    const symPayouts = paytable?.symbolPayouts ?? paytable?.SymbolPayouts ?? [];
+
+    if (symPayouts.length > 0) {
+      gameSymbols = symPayouts.map(s => s.symbol ?? s.Symbol).filter(Boolean);
+      updatePaletteFromConfig(gameSymbols);
+      // Po załadowaniu symboli odśwież auto-detect triggera
+      if (document.getElementById('nextModeEnabled').checked) onNextModeChange();
+    } else {
+      throw new Error('Brak symbolPayouts w paytable');
+    }
+
+    // Extract game modes
+    const modes = extractGameModes(data);
+    if (modes.length > 0) {
+      updateGameModeSelects(modes);
+      dot.className = 'config-dot loaded';
+      status.textContent = `Załadowano ${gameSymbols.length} symboli, ${modes.length} trybów gry`;
+    } else {
+      dot.className = 'config-dot loaded';
+      status.textContent = `Załadowano ${gameSymbols.length} symboli`;
+    }
+  } catch (err) {
+    dot.className = 'config-dot error';
+    status.textContent = `Błąd: ${err.message}`;
+  }
+}
+
+function extractGameModes(data) {
+  // Try common config structures
+  const candidates = [
+    data.gameModes, data.GameModes,
+    data.modes, data.Modes,
+    data.gameConfiguration?.gameModes, data.GameConfiguration?.GameModes,
+    data.configuration?.gameModes, data.Configuration?.GameModes,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) {
+      return c.map(m => m.name ?? m.Name ?? m.gameModeName ?? m.GameModeName ?? m).filter(s => typeof s === 'string');
+    }
+  }
+  return [];
+}
+
+function updateGameModeSelects(modes) {
+  // Update datalist
+  const dl = document.getElementById('gameModeList');
+  if (dl) dl.innerHTML = modes.map(m => `<option value="${m}">`).join('');
+  update();
+}
+
+function updatePaletteFromConfig(symbols) {
+  ALL_SYMBOLS.length = 0;
+  symbols.forEach(s => ALL_SYMBOLS.push(s));
+
+  // Assign colors — cycle through known colors, rest get white
+  const colorPalette = [
+    '#ffaa40','#ffcc40','#ff8060','#e06030',
+    '#a080ff','#c0a0ff',
+    '#8899aa','#99aaaa','#aabbbb',
+    '#00ff9d','#ff4488','#44aaff','#ffdd44','#ff8844'
+  ];
+  symbols.forEach((s, i) => {
+    if (!SYM_COLOR[s]) SYM_COLOR[s] = colorPalette[i % colorPalette.length];
+  });
+
+  // Update datalist for manual symbol inputs
+  const dl = document.getElementById('symbolDatalist');
+  if (dl) dl.innerHTML = symbols.map(s => `<option value="${s}">`).join('');
+
+  // Render main palette
+  renderDynamicPalette('boardPaletteSymbols', symbols, 'selectBrush');
+  // Render next board palette
+  renderDynamicPalette('nbBoardPaletteSymbols', symbols, 'nbSelectBrush');
+
+  // Reinit drag listeners
+  if (boardMode === 'drag') initPaletteDrag();
+  if (nbBoardMode === 'drag') nbInitPaletteDrag();
+
+  const toast = document.createElement('div');
+  toast.style.cssText = `position:fixed;bottom:20px;right:20px;background:rgba(0,255,157,0.15);border:1px solid var(--green);color:var(--green);font-family:'JetBrains Mono',monospace;font-size:11px;padding:10px 16px;border-radius:8px;z-index:9999;animation:fadeIn 0.2s ease;`;
+  toast.textContent = `✓ Załadowano ${symbols.length} symboli`;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+}
+
+function renderDynamicPalette(containerId, symbols, brushFn) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = symbols.map(s => {
+    const c = SYM_COLOR[s] || '#fff';
+    return `<span class="pal-sym" data-sym="${s}" style="color:${c};border-color:${c}40;background:${c}12;"
+      onclick="${brushFn}('${s}',this)">${s}</span>`;
+  }).join('');
+}
+
+// ---- KEYBOARD SHORTCUTS ----
+const SHORTCUTS = [
+  { keys: 'Ctrl/Cmd + Enter',     desc: 'Wyślij zapytanie' },
+  { keys: 'Ctrl/Cmd + S',         desc: 'Zapisz request do historii' },
+  { keys: 'Ctrl/Cmd + Shift + C', desc: 'Kopiuj JSON output' },
+  { keys: 'Ctrl/Cmd + Z',         desc: 'Cofnij edycję gridu' },
+  { keys: 'Ctrl/Cmd + Shift + Z', desc: 'Ponów edycję gridu' },
+  { keys: 'Ctrl/Cmd + /',         desc: 'Pokaż/ukryj tę pomoc' },
+  { keys: 'Esc',                  desc: 'Zamknij popovery / autocomplete' },
+];
+
+function isModKey(e) { return e.ctrlKey || e.metaKey; }
+function isTextInputFocused() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+function isCellInputFocused() {
+  return document.activeElement && document.activeElement.classList?.contains('cell-input');
+}
+
+document.addEventListener('keydown', (e) => {
+  // Cell input ma własne shortcuty (Tab/Enter/Esc dla autocomplete)
+  if (isCellInputFocused()) return;
+
+  // Ctrl/Cmd + Enter → wyślij
+  if (isModKey(e) && e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (typeof sendRequest === 'function') sendRequest();
+    return;
+  }
+  // Ctrl/Cmd + S → zapisz do historii
+  if (isModKey(e) && (e.key === 's' || e.key === 'S') && !e.shiftKey) {
+    e.preventDefault();
+    if (typeof historySaveRequest === 'function') historySaveRequest();
+    return;
+  }
+  // Ctrl/Cmd + Shift + C → copy JSON (tylko gdy focus poza inputem)
+  if (isModKey(e) && e.shiftKey && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
+    if (!isTextInputFocused()) {
+      e.preventDefault();
+      if (typeof copyJSON === 'function') copyJSON();
+      return;
+    }
+  }
+  // Ctrl/Cmd + Z → undo (Ctrl+Shift+Z → redo) — tylko gdy poza zwykłym inputem tekstowym
+  if (isModKey(e) && (e.key === 'z' || e.key === 'Z' || e.code === 'KeyZ')) {
+    if (isTextInputFocused()) return; // niech browser obsłuży undo w textboxach
+    e.preventDefault();
+    const board = activeBoardName();
+    if (e.shiftKey) {
+      board === 'nb' ? redoNb() : redoMain();
+    } else {
+      board === 'nb' ? undoNb() : undoMain();
+    }
+    return;
+  }
+  // Ctrl/Cmd + / → toggle popover
+  if (isModKey(e) && e.key === '/') {
+    e.preventDefault();
+    toggleShortcutsPopover();
+    return;
+  }
+  // Esc → zamknij popover jeśli otwarty
+  if (e.key === 'Escape') {
+    const pop = document.getElementById('shortcutsPopover');
+    if (pop && pop.style.display !== 'none') {
+      pop.style.display = 'none';
+    }
+  }
+});
+
+function toggleShortcutsPopover() {
+  let pop = document.getElementById('shortcutsPopover');
+  if (!pop) {
+    pop = document.createElement('div');
+    pop.id = 'shortcutsPopover';
+    pop.style.cssText = `
+      position:fixed;top:64px;right:20px;z-index:10000;
+      background:var(--surface2);border:1px solid var(--border-bright);
+      border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,0.6);
+      padding:14px 16px;min-width:300px;
+      font-family:'JetBrains Mono',monospace;
+    `;
+    pop.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+        <div style="font-family:'Syne',sans-serif;font-weight:600;font-size:13px;color:var(--accent);">⌨ Skróty klawiszowe</div>
+        <button onclick="toggleShortcutsPopover()" style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;border-radius:4px;" onmouseover="this.style.background='var(--surface3)'" onmouseout="this.style.background='transparent'">×</button>
+      </div>
+      ${SHORTCUTS.map(s => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:11px;">
+          <span style="color:var(--text-mid);">${s.desc}</span>
+          <code style="background:var(--surface3);border:1px solid var(--border);border-radius:4px;padding:2px 8px;color:var(--accent);font-size:10px;letter-spacing:0.3px;">${s.keys}</code>
+        </div>
+      `).join('')}
+      <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:9px;color:var(--text-dim);">Skróty nie działają gdy edytujesz komórkę boardu (Tab/Enter są zarezerwowane dla autocomplete'u).</div>
+    `;
+    document.body.appendChild(pop);
+  } else {
+    pop.style.display = pop.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+// ---- PRESETS ----
+const PRESETS_KEY = 'cheat_tool_presets';
+const PRESET_VERSION = 1;
+
+function presetsLoad() {
+  try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || '[]'); } catch { return []; }
+}
+function presetsSave(list) {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(list));
+}
+function presetsToast(msg, color = 'var(--green)') {
+  const el = document.getElementById('presetsToast');
+  if (!el) return;
+  el.textContent = msg;
+  el.style.color = color;
+  el.style.display = 'inline';
+  clearTimeout(presetsToast._t);
+  presetsToast._t = setTimeout(() => el.style.display = 'none', 2500);
+}
+
+function getInputVal(id, type = 'string') {
+  const el = document.getElementById(id);
+  if (!el) return null;
+  if (el.type === 'checkbox') return el.checked;
+  if (type === 'int')   return parseInt(el.value);
+  if (type === 'float') return parseFloat(el.value);
+  return el.value;
+}
+function setInputVal(id, val) {
+  const el = document.getElementById(id);
+  if (!el || val === undefined || val === null) return;
+  if (el.type === 'checkbox') el.checked = !!val;
+  else el.value = val;
+}
+
+// Zbierz pełen aktualny stan toola
+function presetSerializeState() {
+  return {
+    v: PRESET_VERSION,
+    form: {
+      gameId:            getInputVal('gameId'),
+      rtpVariant:        getInputVal('rtpVariant'),
+      gameModeName:      getInputVal('gameModeName'),
+      jsonIndexEnabled:  getInputVal('jsonIndexEnabled'),
+      jsonIndexValue:    getInputVal('jsonIndexValue'),
+      multiplierEnabled: getInputVal('multiplierEnabled'),
+      multFrom:          getInputVal('multFrom'),
+      multTo:            getInputVal('multTo'),
+      nextModeEnabled:   getInputVal('nextModeEnabled'),
+      nextGameModeName:  getInputVal('nextGameModeName'),
+      triggerSymbol:     getInputVal('triggerSymbol'),
+      triggerCount:      getInputVal('triggerCount'),
+      nextMultEnabled:   getInputVal('nextMultEnabled'),
+      nextMultFrom:      getInputVal('nextMultFrom'),
+      nextMultTo:        getInputVal('nextMultTo'),
+    },
+    arrays: {
+      oakConditions:        JSON.parse(JSON.stringify(oakConditions)),
+      counterConditions:    JSON.parse(JSON.stringify(counterConditions)),
+      transformConditions:  JSON.parse(JSON.stringify(transformConditions)),
+      nextOakConditions:    JSON.parse(JSON.stringify(nextOakConditions)),
+      nextCounterConditions:JSON.parse(JSON.stringify(nextCounterConditions)),
+      manualSymbols:        JSON.parse(JSON.stringify(manualSymbols)),
+      nbManualSymbols:      JSON.parse(JSON.stringify(nbManualSymbols)),
+    },
+    mainBoard: {
+      grid:         JSON.parse(JSON.stringify(boardGrid)),
+      reels:        boardReels,
+      rows:         boardRows,
+      megawaysMode: megawaysMode,
+      reelHeights:  [...reelHeights],
+    },
+    nextBoard: {
+      grid:         JSON.parse(JSON.stringify(nbBoardGrid)),
+      reels:        nbBoardReels,
+      rows:         nbBoardRows,
+      megawaysMode: nbMegawaysMode,
+      reelHeights:  [...nbReelHeights],
+    },
+  };
+}
+
+// Aplikuj zapamiętany stan
+function presetApplyState(data) {
+  if (!data || typeof data !== 'object') return false;
+
+  // Form values
+  const f = data.form || {};
+  Object.entries(f).forEach(([k, v]) => setInputVal(k, v));
+
+  // Pokaż/ukryj sekcje warunkowe
+  document.getElementById('multiplierFields').style.display = f.multiplierEnabled ? 'block' : 'none';
+  document.getElementById('nextModeFields').style.display   = f.nextModeEnabled ? 'block' : 'none';
+  document.getElementById('nextMultFields').style.display   = f.nextMultEnabled ? 'block' : 'none';
+
+  // Arrays of conditions
+  const a = data.arrays || {};
+  oakConditions         = a.oakConditions         || [];
+  counterConditions     = a.counterConditions     || [];
+  transformConditions   = a.transformConditions   || [];
+  nextOakConditions     = a.nextOakConditions     || [];
+  nextCounterConditions = a.nextCounterConditions || [];
+  manualSymbols         = a.manualSymbols         || [];
+  nbManualSymbols       = a.nbManualSymbols       || [];
+
+  // Main board
+  if (data.mainBoard) {
+    const mb = data.mainBoard;
+    boardGrid    = mb.grid || [];
+    boardReels   = mb.reels || 5;
+    boardRows    = mb.rows || 3;
+    megawaysMode = !!mb.megawaysMode;
+    reelHeights  = mb.reelHeights || [];
+    const tog = document.getElementById('megawaysToggle');
+    if (tog) tog.checked = megawaysMode;
+    const ctrls = document.getElementById('megawaysControls');
+    if (ctrls) ctrls.style.display = megawaysMode ? 'block' : 'none';
+    if (megawaysMode) renderMegawaysControls();
+  }
+
+  // Next board
+  if (data.nextBoard) {
+    const nb = data.nextBoard;
+    nbBoardGrid    = nb.grid || [];
+    nbBoardReels   = nb.reels || 5;
+    nbBoardRows    = nb.rows || 3;
+    nbMegawaysMode = !!nb.megawaysMode;
+    nbReelHeights  = nb.reelHeights || [];
+    const tog = document.getElementById('nbMegawaysToggle');
+    if (tog) tog.checked = nbMegawaysMode;
+    const ctrls = document.getElementById('nbMegawaysControls');
+    if (ctrls) ctrls.style.display = nbMegawaysMode ? 'block' : 'none';
+    if (nbMegawaysMode) nbRenderMegawaysControls();
+  }
+
+  // Re-render wszystko
+  renderOAK();
+  renderCounters();
+  renderTransforms();
+  renderNextOAK();
+  renderNextCounters();
+  renderManualSymbols();
+  renderNbManualSymbols();
+  renderBoard();
+  nbRenderBoard();
+  renderMegawaysCounterPreview();
+
+  // Czyść undo stacks (preset to fresh start)
+  mainUndoStack.length = 0; mainRedoStack.length = 0;
+  nbUndoStack.length   = 0; nbRedoStack.length   = 0;
+  updateUndoButtonsMain();
+  updateUndoButtonsNb();
+
+  // Aktualizuj badge triggera w next mode (auto-detect)
+  if (typeof onNextModeChange === 'function' && f.nextModeEnabled) onNextModeChange();
+
+  update();
+  return true;
+}
+
+function describePreset(data) {
+  const f = data?.form || {};
+  const parts = [];
+  if (f.gameId) parts.push(`#${f.gameId}`);
+  if (f.gameModeName) parts.push(f.gameModeName);
+  if (f.nextModeEnabled && f.nextGameModeName) parts.push(`→ ${f.nextGameModeName}`);
+  if (f.multiplierEnabled) parts.push(`mult ${f.multFrom||0}–${f.multTo||0}×`);
+  return parts.join(' · ') || '(pusty)';
+}
+
+function presetSaveCurrent() {
+  const nameEl = document.getElementById('presetNameInput');
+  let name = (nameEl?.value || '').trim();
+  const data = presetSerializeState();
+  if (!name) name = describePreset(data);
+  const entry = { id: Date.now(), ts: new Date().toLocaleString('pl-PL'), name, data };
+  const list = presetsLoad();
+  list.unshift(entry);
+  presetsSave(list);
+  if (nameEl) nameEl.value = '';
+  renderPresets();
+  presetsToast('💾 Zapisano');
+}
+
+function presetLoad(id) {
+  const list = presetsLoad();
+  const e = list.find(p => p.id === id);
+  if (!e) return;
+  const ok = presetApplyState(e.data);
+  if (ok) presetsToast(`▶ Wczytano: ${e.name}`);
+  else    presetsToast('✗ Nie udało się wczytać presetu', 'var(--red)');
+}
+
+function presetDelete(id) {
+  if (!confirm('Usunąć ten preset?')) return;
+  const list = presetsLoad().filter(p => p.id !== id);
+  presetsSave(list);
+  renderPresets();
+}
+
+function presetExportAll() {
+  const list = presetsLoad();
+  if (!list.length) { presetsToast('Brak presetów do eksportu', 'var(--text-dim)'); return; }
+  const blob = new Blob([JSON.stringify(list, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  a.href = url; a.download = `cheat_presets_${ts}.json`; a.click();
+  URL.revokeObjectURL(url);
+  presetsToast('⬇ Wyeksportowano');
+}
+
+function presetImportFile(ev) {
+  const file = ev.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (!Array.isArray(imported)) throw new Error('Plik musi zawierać tablicę presetów');
+      const existing = presetsLoad();
+      const existingIds = new Set(existing.map(p => p.id));
+      // Merge — przepisz id jeśli kolizja, żeby uniknąć duplikatów
+      const merged = [...imported.map(p => ({ ...p, id: existingIds.has(p.id) ? Date.now() + Math.random() : p.id })), ...existing];
+      presetsSave(merged);
+      renderPresets();
+      presetsToast(`⬆ Zaimportowano ${imported.length}`);
+    } catch (err) {
+      presetsToast(`✗ Błąd: ${err.message}`, 'var(--red)');
+    }
+  };
+  reader.readAsText(file);
+  ev.target.value = ''; // pozwala importować ten sam plik ponownie
+}
+
+function presetClearAll() {
+  if (!confirm('Usunąć wszystkie presety? Tej operacji nie można cofnąć.')) return;
+  presetsSave([]);
+  renderPresets();
+  presetsToast('🗑 Wyczyszczone');
+}
+
+function renderPresets() {
+  const list = presetsLoad();
+  const listEl = document.getElementById('presetsList');
+  const empty  = document.getElementById('presetsEmpty');
+  const count  = document.getElementById('presetsCount');
+  if (!listEl) return;
+  count.textContent = list.length ? `(${list.length})` : '';
+  if (!list.length) { listEl.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  listEl.innerHTML = list.map(e => {
+    const desc = describePreset(e.data);
+    return `
+      <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;">
+        <div style="min-width:0;">
+          <div style="font-size:12px;color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${e.name}</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:2px;">${desc}</div>
+          <div style="font-size:9px;color:var(--text-dim);margin-top:1px;">${e.ts}</div>
+        </div>
+        <button onclick="presetLoad(${e.id})" title="Wczytaj" style="background:rgba(0,229,255,0.08);border:1px solid rgba(0,229,255,0.25);color:var(--accent);font-family:'JetBrains Mono',monospace;font-size:11px;padding:6px 12px;border-radius:5px;cursor:pointer;">▶ Wczytaj</button>
+        <button class="remove-btn" onclick="presetDelete(${e.id})" title="Usuń">×</button>
+      </div>`;
+  }).join('');
+}
+
+function togglePresetsSection() {
+  const body = document.getElementById('presetsBody');
+  const chev = document.getElementById('presetsChevron');
+  const open = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  chev.style.transform = open ? 'rotate(180deg)' : '';
+  if (open) renderPresets();
+}
+
+// init — domyślnie PascalCase
+updateUrlPreview();
+update();
+nbInitBoard();
+renderHistory();
+updateUndoButtonsMain();
+updateUndoButtonsNb();
+renderPresets();
+</script>
+<datalist id="symbolDatalist"></datalist>
+</body>
+</html>

@@ -16,6 +16,7 @@ import { SoundBrowserTool, soundBrowserMeta } from './SoundBrowserTool.jsx';
 import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerTool.jsx';
 import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.jsx';
 import { CharExtractorTool, charExtractorMeta } from './CharExtractorTool.jsx';
+import { CheatTool, cheatToolMeta } from './CheatTool.jsx';
 
 const ART = [
   { meta: cropMeta, Component: CropTool },
@@ -44,10 +45,15 @@ const REVIEW = [
   { meta: charExtractorMeta, Component: CharExtractorTool }
 ];
 
+const CHEETS = [
+  { meta: cheatToolMeta, Component: CheatTool }
+];
+
 export const TOOL_CATEGORIES = [
   { id: 'arttools', label: 'Art Tools', icon: '🎨', tools: ART },
   { id: 'browser', label: 'Content', icon: '📦', tools: BROWSER },
-  { id: 'review', label: 'Asset Pipeline', icon: '🏗️', tools: REVIEW }
+  { id: 'review', label: 'Asset Pipeline', icon: '🏗️', tools: REVIEW },
+  { id: 'cheets', label: 'Cheets', icon: '🎲', tools: CHEETS }
 ];
 
 // Flattened convenience list — used by anything that needs to look up a tool
