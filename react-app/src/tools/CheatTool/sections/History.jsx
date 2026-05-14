@@ -20,7 +20,7 @@ export function HistorySection() {
     if (ok) { setCopied(true); setTimeout(() => setCopied(false), 2000); }
   };
   const clearAll = () => {
-    if (!confirm('Wyczyścić całą historię?')) return;
+      if (!confirm('Clear entire history?')) return;
     historyClearAll();
     setSelected(new Set());
   };
@@ -30,21 +30,21 @@ export function HistorySection() {
       icon="📋"
       iconKind="purple"
       title="Request History"
-      subtitle="ZAPISANE REQUESTY"
+      subtitle="SAVED REQUESTS"
       collapsible
       defaultOpen={false}
       rightSlot={<span className="ct-section-count">{history.length ? `(${history.length})` : ''}</span>}
     >
       <div className="ct-history-actions">
-        <button className="ct-add-btn" onClick={selectAll}>☑ Zaznacz wszystkie</button>
-        <button className="ct-add-btn" onClick={selectNone}>☐ Odznacz wszystkie</button>
-        <button className="ct-copy-btn" onClick={copySelected}>📋 Kopiuj zaznaczone</button>
-        <button className="ct-copy-btn danger" onClick={clearAll}>🗑 Wyczyść historię</button>
-        {copied ? <span className="ct-history-copied">✓ Skopiowano!</span> : null}
+        <button className="ct-add-btn" onClick={selectAll}>☑ Select all</button>
+        <button className="ct-add-btn" onClick={selectNone}>☐ Deselect all</button>
+        <button className="ct-copy-btn" onClick={copySelected}>📋 Copy selected</button>
+        <button className="ct-copy-btn danger" onClick={clearAll}>🗑 Clear history</button>
+        {copied ? <span className="ct-history-copied">✓ Copied!</span> : null}
       </div>
       <div className="ct-history-rows">
         {history.length === 0 ? (
-          <div className="ct-empty">Brak zapisanych requestów.</div>
+          <div className="ct-empty">No saved requests.</div>
         ) : history.map((e) => (
           <div className="ct-history-row" key={e.id}>
             <input
@@ -57,7 +57,7 @@ export function HistorySection() {
               <div className="ct-history-ts">{e.ts}</div>
               <div className="ct-history-json">{e.json.slice(0, 120)}…</div>
             </div>
-            <button className="ct-remove-btn" onClick={() => historyDelete(e.id)} title="Usuń">×</button>
+            <button className="ct-remove-btn" onClick={() => historyDelete(e.id)} title="Delete">×</button>
           </div>
         ))}
       </div>

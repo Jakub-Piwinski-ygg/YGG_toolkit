@@ -40,20 +40,20 @@ export function NextModeSection() {
               value={nextGameModeName}
               list="ct-game-modes"
               onChange={(e) => setNextGameModeName(e.target.value)}
-              placeholder="np. FS1, FS_level_1, base_game…"
+              placeholder="e.g. FS1, FS_level_1, base_game..."
             />
           </FieldRow>
 
           {showTrigger ? (
             <div className="ct-trigger-fields">
-              <div className="ct-sub-heading">Trigger (dodawany do symbolsOnBoard)</div>
+              <div className="ct-sub-heading">Trigger (added to symbolsOnBoard)</div>
               <FieldRow label="Trigger Symbol">
                 <input
                   type="text"
                   value={triggerSymbol}
                   list="ct-symbol-list"
                   onChange={(e) => updateTriggerSymbol(e.target.value)}
-                  placeholder="np. Scatter, FS, Bonus"
+                  placeholder="e.g. Scatter, FS, Bonus"
                 />
               </FieldRow>
               <FieldRow label="Trigger Count">
@@ -67,13 +67,13 @@ export function NextModeSection() {
                   title={validation.fieldErrors.triggerCount || ''}
                 />
               </FieldRow>
-              <div className="ct-hint">Ustaw <code>count = 0</code> żeby pominąć trigger.</div>
+              <div className="ct-hint">Set <code>count = 0</code> to skip trigger.</div>
             </div>
           ) : null}
 
           <div className="ct-divider" />
 
-          <Toggle checked={nextMultEnabled} onChange={setNextMultEnabled} label="Multiplier constraint w next mode" />
+          <Toggle checked={nextMultEnabled} onChange={setNextMultEnabled} label="Multiplier constraint in next mode" />
           {nextMultEnabled ? (
             <RangeRow
               label="Win Range"
@@ -114,11 +114,11 @@ export function NextModeSection() {
               <button className="ct-remove-btn" onClick={() => removeNextCounter(c.id)}>×</button>
             </div>
           ))}
-          <button className="ct-add-btn" onClick={addNextCounter}>+ Dodaj counter</button>
+          <button className="ct-add-btn" onClick={addNextCounter}>+ Add counter</button>
 
           <div className="ct-divider" />
 
-          <div className="ct-sub-heading">OAK w next mode</div>
+          <div className="ct-sub-heading">OAK in next mode</div>
           {nextOakConditions.map((o) => (
             <div className="ct-sym-count-row" key={o.id}>
               <input
@@ -140,7 +140,7 @@ export function NextModeSection() {
               <button className="ct-remove-btn" onClick={() => removeNextOak(o.id)}>×</button>
             </div>
           ))}
-          <button className="ct-add-btn" onClick={addNextOak}>+ Dodaj OAK w next mode</button>
+          <button className="ct-add-btn" onClick={addNextOak}>+ Add OAK in next mode</button>
 
           <div className="ct-divider" />
 
@@ -149,17 +149,17 @@ export function NextModeSection() {
             symbols={allSymbols}
             active={brush}
             onSelect={setBrush}
-            hint="Wybierz symbol (pędzel) — prawy klik czyści komórkę"
+            hint="Select symbol (brush) - right click clears cell"
           />
           <div className="ct-board-controls">
             <div className="ct-board-ctrl-group">
-              <span className="ct-board-ctrl-label">Reele</span>
+              <span className="ct-board-ctrl-label">Reels</span>
               <button className="ct-board-ctrl-btn" onClick={() => changeNbReels(-1)}>−</button>
               <span className="ct-board-ctrl-val">{nbBoard.reels}</span>
               <button className="ct-board-ctrl-btn" onClick={() => changeNbReels(1)}>+</button>
             </div>
             <div className={`ct-board-ctrl-group${nbBoard.megawaysMode ? ' dimmed' : ''}`}>
-              <span className="ct-board-ctrl-label">Rzędy (glob.)</span>
+              <span className="ct-board-ctrl-label">Rows (global)</span>
               <button className="ct-board-ctrl-btn" onClick={() => changeNbRows(-1)}>−</button>
               <span className="ct-board-ctrl-val">{nbBoard.rows}</span>
               <button className="ct-board-ctrl-btn" onClick={() => changeNbRows(1)}>+</button>
@@ -171,11 +171,11 @@ export function NextModeSection() {
               </label>
               <span className="ct-board-ctrl-label" style={{ margin: 0 }}>Megaways</span>
             </div>
-            <button className="ct-board-clear-btn" onClick={clearNbBoard} style={{ marginLeft: 'auto' }}>Wyczyść</button>
+            <button className="ct-board-clear-btn" onClick={clearNbBoard} style={{ marginLeft: 'auto' }}>Clear</button>
           </div>
           {nbBoard.megawaysMode ? (
             <div className="ct-mw-controls">
-              <div className="ct-sub-heading">Wysokość każdej rolki</div>
+              <div className="ct-sub-heading">Height of each reel</div>
               <div className="ct-mw-reel-controls">
                 {nbBoard.reelHeights.map((h, i) => (
                   <div key={i} className="ct-mw-reel-ctrl">
@@ -194,13 +194,13 @@ export function NextModeSection() {
           <BoardSummary grid={nbBoard.grid} />
 
           <div className="ct-manual-block">
-            <div className="ct-sub-heading">Dodatkowe symbole (poza gridem)</div>
+            <div className="ct-sub-heading">Additional symbols (outside grid)</div>
             {nbManualSymbols.map((s) => (
               <div key={s.id} className="ct-manual-row">
                 <input
                   type="text"
                   value={s.symbol}
-                  placeholder="np. Scatter"
+                  placeholder="e.g. Scatter"
                   list="ct-symbol-list"
                   onChange={(e) => updateNbManualSymbol(s.id, 'symbol', e.target.value)}
                   style={{ color: symColor(s.symbol) }}
@@ -216,7 +216,7 @@ export function NextModeSection() {
                 <button className="ct-remove-btn" onClick={() => removeNbManualSymbol(s.id)}>×</button>
               </div>
             ))}
-            <button className="ct-add-btn" onClick={addNbManualSymbol}>+ Dodaj symbol</button>
+            <button className="ct-add-btn" onClick={addNbManualSymbol}>+ Add symbol</button>
           </div>
         </div>
       )}

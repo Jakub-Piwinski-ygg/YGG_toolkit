@@ -33,18 +33,18 @@ export function BoardSection() {
         symbols={allSymbols}
         active={brush}
         onSelect={setBrush}
-        hint="Wybierz symbol (pędzel) — prawy klik czyści komórkę"
+        hint="Select symbol (brush) - right click clears cell"
       />
 
       <div className="ct-board-controls">
         <div className="ct-board-ctrl-group">
-          <span className="ct-board-ctrl-label">Reele</span>
+          <span className="ct-board-ctrl-label">Reels</span>
           <button className="ct-board-ctrl-btn" onClick={() => changeMainReels(-1)}>−</button>
           <span className="ct-board-ctrl-val">{mainBoard.reels}</span>
           <button className="ct-board-ctrl-btn" onClick={() => changeMainReels(1)}>+</button>
         </div>
         <div className={`ct-board-ctrl-group${mainBoard.megawaysMode ? ' dimmed' : ''}`}>
-          <span className="ct-board-ctrl-label">Rzędy (glob.)</span>
+          <span className="ct-board-ctrl-label">Rows (global)</span>
           <button className="ct-board-ctrl-btn" onClick={() => changeMainRows(-1)}>−</button>
           <span className="ct-board-ctrl-val">{mainBoard.rows}</span>
           <button className="ct-board-ctrl-btn" onClick={() => changeMainRows(1)}>+</button>
@@ -56,12 +56,12 @@ export function BoardSection() {
           </label>
           <span className="ct-board-ctrl-label" style={{ margin: 0 }}>Megaways</span>
         </div>
-        <button className="ct-board-clear-btn" onClick={clearMainBoard} style={{ marginLeft: 'auto' }}>Wyczyść</button>
+        <button className="ct-board-clear-btn" onClick={clearMainBoard} style={{ marginLeft: 'auto' }}>Clear</button>
       </div>
 
       {mainBoard.megawaysMode ? (
         <div className="ct-mw-controls">
-          <div className="ct-sub-heading">Wysokość każdej rolki</div>
+          <div className="ct-sub-heading">Height of each reel</div>
           <div className="ct-mw-reel-controls">
             {mainBoard.reelHeights.map((h, i) => (
               <div key={i} className="ct-mw-reel-ctrl">
@@ -81,13 +81,13 @@ export function BoardSection() {
       <BoardSummary grid={mainBoard.grid} />
 
       <div className="ct-manual-block">
-        <div className="ct-sub-heading">Dodatkowe symbole (poza gridem)</div>
+        <div className="ct-sub-heading">Additional symbols (outside grid)</div>
         {manualSymbols.map((s) => (
           <div key={s.id} className="ct-manual-row">
             <input
               type="text"
               value={s.symbol}
-              placeholder="np. Scatter"
+              placeholder="e.g. Scatter"
               list="ct-symbol-list"
               onChange={(e) => updateManualSymbol(s.id, 'symbol', e.target.value)}
               style={{ color: symColor(s.symbol) }}
@@ -99,12 +99,12 @@ export function BoardSection() {
               max={999}
               onChange={(e) => updateManualSymbol(s.id, 'count', e.target.value)}
               className="ct-num-center"
-              placeholder="Ilość"
+              placeholder="Count"
             />
             <button className="ct-remove-btn" onClick={() => removeManualSymbol(s.id)}>×</button>
           </div>
         ))}
-        <button className="ct-add-btn" onClick={addManualSymbol}>+ Dodaj symbol</button>
+        <button className="ct-add-btn" onClick={addManualSymbol}>+ Add symbol</button>
       </div>
     </Section>
   );

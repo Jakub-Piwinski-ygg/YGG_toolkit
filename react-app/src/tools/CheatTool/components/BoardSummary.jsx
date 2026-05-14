@@ -4,7 +4,7 @@ import { getBoardSymbols } from '../lib/jsonBuilder.js';
 export function BoardSummary({ grid }) {
   const counts = getBoardSymbols(grid);
   if (counts.length === 0) {
-    return <div className="ct-board-summary"><span className="ct-board-summary-empty">Brak symboli — wypełnij board</span></div>;
+    return <div className="ct-board-summary"><span className="ct-board-summary-empty">No symbols - fill the board</span></div>;
   }
   return (
     <div className="ct-board-summary">

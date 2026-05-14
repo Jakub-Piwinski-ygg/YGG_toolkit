@@ -9,7 +9,7 @@ export function SymbolPalette({ symbols, active, onSelect, hint }) {
       <div className="ct-palette">
         <div className="ct-palette-symbols">
           {symbols.length === 0 ? (
-            <span className="ct-palette-empty">Pobierz config gry aby załadować symbole</span>
+            <span className="ct-palette-empty">Fetch game config to load symbols</span>
           ) : (
             symbols.map((s) => {
               const c = symColor(s);

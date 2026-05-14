@@ -16,12 +16,12 @@ export function ApiSection() {
 
   return (
     <Section icon="⚡" iconKind="green" title="API Connection" subtitle="SEND REQUEST">
-      <div className="ct-sub-heading">Środowisko</div>
+      <div className="ct-sub-heading">Environment</div>
       <EnvPills active={env} onSelect={setEnv} />
 
       {env === 'proxy' ? (
         <div className="ct-proxy-target">
-          <div className="ct-sub-heading">Środowisko docelowe przez proxy</div>
+          <div className="ct-sub-heading">Proxy target environment</div>
           <select value={proxyTarget} onChange={(e) => setProxyTarget(e.target.value)}>
             {PROXY_TARGETS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
@@ -38,8 +38,8 @@ export function ApiSection() {
             />
           </div>
           <div className="ct-info-box warn">
-            ⚡ Uruchom proxy: <code>node proxy.js</code><br />
-            <span className="dim">Wymaga Node.js • proxy.js w tym samym folderze • domyślny port 3030</span>
+            ⚡ Start proxy: <code>node proxy.js</code><br />
+            <span className="dim">Requires Node.js • proxy.js in the same folder • default port 3030</span>
           </div>
         </div>
       ) : null}
@@ -67,7 +67,7 @@ export function ApiSection() {
           <div className={`ct-config-dot ${configStatus.state}`} />
           <span>{configStatus.msg}</span>
         </div>
-        <button className="ct-config-fetch-btn" onClick={fetchGameConfig}>⬇ Pobierz config gry</button>
+        <button className="ct-config-fetch-btn" onClick={fetchGameConfig}>⬇ Fetch game config</button>
       </div>
 
     </Section>
@@ -91,11 +91,11 @@ export function ApiActionDock() {
           onClick={sendRequest}
         >
           <span className="icon">{request.inFlight ? '◌' : '▶'}</span>
-          <span>{request.inFlight ? 'Wysyłanie...' : 'Wyślij zapytanie'}</span>
+          <span>{request.inFlight ? 'Sending...' : 'Send request'}</span>
         </button>
-        <button className="ct-save-btn" onClick={historySaveRequest} title="Zapisz do historii bez wysyłania">📋 Zapisz</button>
+        <button className="ct-save-btn" onClick={historySaveRequest} title="Save to history without sending">📋 Save</button>
         {request.inFlight ? (
-          <button className="ct-cancel-btn" onClick={cancelRequest} title="Przerwij">✕</button>
+          <button className="ct-cancel-btn" onClick={cancelRequest} title="Cancel">✕</button>
         ) : null}
       </div>
     </div>
@@ -105,7 +105,7 @@ export function ApiActionDock() {
 function ValidationBar({ errors }) {
   return (
     <details className="ct-validation-bar">
-      <summary>⚠ {errors.length} {errors.length === 1 ? 'błąd walidacji' : 'błędy walidacji'} — kliknij aby rozwinąć</summary>
+      <summary>⚠ {errors.length} {errors.length === 1 ? 'validation error' : 'validation errors'} — click to expand</summary>
       <ul>
         {errors.map((e, i) => <li key={i}>{e}</li>)}
       </ul>

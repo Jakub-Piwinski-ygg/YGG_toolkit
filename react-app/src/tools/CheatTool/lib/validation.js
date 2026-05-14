@@ -12,8 +12,8 @@ export function validateAll(state) {
 
   // 1. Game ID
   if (!state.gameId || state.gameId < 1) {
-    errors.push('Game ID musi być dodatnią liczbą');
-    mark('gameId', 'Wymagane: dodatnia liczba całkowita');
+    errors.push('Game ID must be a positive number');
+    mark('gameId', 'Required: positive integer');
   }
 
   // 2. Multiplier root
@@ -22,8 +22,8 @@ export function validateAll(state) {
     const t = parseFloat(state.multTo);
     if (!isNaN(f) && !isNaN(t) && f > t) {
       errors.push(`Multiplier root: From (${f}) > To (${t})`);
-      mark('multFrom', `From (${f}) większe niż To (${t})`);
-      mark('multTo', `From (${f}) większe niż To (${t})`);
+      mark('multFrom', `From (${f}) is greater than To (${t})`);
+      mark('multTo', `From (${f}) is greater than To (${t})`);
     }
   }
 
@@ -33,8 +33,8 @@ export function validateAll(state) {
     const t = parseFloat(state.nextMultTo);
     if (!isNaN(f) && !isNaN(t) && f > t) {
       errors.push(`Multiplier next mode: From (${f}) > To (${t})`);
-      mark('nextMultFrom', `From (${f}) większe niż To (${t})`);
-      mark('nextMultTo', `From (${f}) większe niż To (${t})`);
+      mark('nextMultFrom', `From (${f}) is greater than To (${t})`);
+      mark('nextMultTo', `From (${f}) is greater than To (${t})`);
     }
   }
 
@@ -60,11 +60,11 @@ export function validateAll(state) {
   if (state.env === 'custom') {
     const url = (state.customBaseUrl || '').trim();
     if (!url) {
-      errors.push('Custom URL: pole nie może być puste');
-      mark('customBaseUrl', 'Wymagany URL z http:// lub https://');
+      errors.push('Custom URL: field cannot be empty');
+      mark('customBaseUrl', 'URL with http:// or https:// is required');
     } else if (!/^https?:\/\//i.test(url)) {
-      errors.push('Custom URL: musi zaczynać się od http:// lub https://');
-      mark('customBaseUrl', 'Musi zaczynać się od http:// lub https://');
+      errors.push('Custom URL: must start with http:// or https://');
+      mark('customBaseUrl', 'Must start with http:// or https://');
     }
   }
 
@@ -72,8 +72,8 @@ export function validateAll(state) {
   if (state.env === 'proxy') {
     const port = parseInt(state.proxyPort);
     if (!port || port < 1 || port > 65535) {
-      errors.push(`Port proxy: niepoprawny (${port || 'puste'})`);
-      mark('proxyPort', 'Port musi być w zakresie 1–65535');
+      errors.push(`Proxy port: invalid (${port || 'empty'})`);
+      mark('proxyPort', 'Port must be in range 1-65535');
     }
   }
 
@@ -81,8 +81,8 @@ export function validateAll(state) {
   if (state.nextModeEnabled) {
     const cnt = parseInt(state.triggerCount);
     if (!isNaN(cnt) && cnt < 0) {
-      errors.push(`Trigger count: ujemna wartość (${cnt})`);
-      mark('triggerCount', 'Count nie może być ujemny');
+      errors.push(`Trigger count: negative value (${cnt})`);
+      mark('triggerCount', 'Count cannot be negative');
     }
   }
 

@@ -36,7 +36,7 @@ export function CountersSection() {
           <button className="ct-remove-btn" onClick={() => removeCounter(c.id)}>×</button>
         </div>
       ))}
-      <button className="ct-add-btn" onClick={addCounter}>+ Dodaj counter condition</button>
+      <button className="ct-add-btn" onClick={addCounter}>+ Add counter condition</button>
       {mainBoard.megawaysMode && mainBoard.reelHeights.length > 0 ? (
         <div className="ct-mw-counter-preview">
           <div className="ct-sub-heading">⚡ Auto — Megaways counters</div>

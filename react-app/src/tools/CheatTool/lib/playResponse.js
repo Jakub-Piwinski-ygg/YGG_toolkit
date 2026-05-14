@@ -1,5 +1,5 @@
 // Faithful port of the response parsers from cheat-tool.html — used to render
-// the "Wynik" tab and "Real Spin" tab. These are pure: they take API JSON,
+// the "Result" tab and "Real Spin" tab. These are pure: they take API JSON,
 // return data structures the renderer components consume.
 
 export function extractWinPositions(combo) {

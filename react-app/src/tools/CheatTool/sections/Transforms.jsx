@@ -24,7 +24,7 @@ export function TransformsSection() {
           <button className="ct-remove-btn" onClick={() => removeTransform(t.id)}>×</button>
         </div>
       ))}
-      <button className="ct-add-btn" onClick={addTransform}>+ Dodaj transformation</button>
+      <button className="ct-add-btn" onClick={addTransform}>+ Add transformation</button>
     </Section>
   );
 }

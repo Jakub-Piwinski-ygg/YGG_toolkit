@@ -17,17 +17,17 @@ export function PresetsSection() {
   const onSave = () => {
     presetSave(name);
     setName('');
-    showToast('💾 Zapisano', 'var(--ct-green)');
+    showToast('💾 Saved', 'var(--ct-green)');
   };
   const onExportAll = () => {
-    if (!presets.length) return showToast('Brak presetów do eksportu', 'var(--ct-text-dim)');
+    if (!presets.length) return showToast('No presets to export', 'var(--ct-text-dim)');
     const blob = new Blob([JSON.stringify(presets, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     a.href = url; a.download = `cheat_presets_${ts}.json`; a.click();
     URL.revokeObjectURL(url);
-    showToast('⬇ Wyeksportowano', 'var(--ct-green)');
+    showToast('⬇ Exported', 'var(--ct-green)');
   };
   const onImport = (e) => {
     const file = e.target.files?.[0];
@@ -37,26 +37,26 @@ export function PresetsSection() {
       try {
         const arr = JSON.parse(ev.target.result);
         presetImport(arr);
-        showToast(`⬆ Zaimportowano ${arr.length}`, 'var(--ct-green)');
+        showToast(`⬆ Imported ${arr.length}`, 'var(--ct-green)');
       } catch (err) {
-        showToast(`✗ Błąd: ${err.message}`, 'var(--ct-red)');
+        showToast(`✗ Error: ${err.message}`, 'var(--ct-red)');
       }
     };
     reader.readAsText(file);
     e.target.value = '';
   };
   const onClearAll = () => {
-    if (!confirm('Usunąć wszystkie presety? Tej operacji nie można cofnąć.')) return;
+    if (!confirm('Delete all presets? This action cannot be undone.')) return;
     presetClearAll();
-    showToast('🗑 Wyczyszczone', 'var(--ct-text-dim)');
+    showToast('🗑 Cleared', 'var(--ct-text-dim)');
   };
   const onLoad = (id) => {
     presetLoad(id);
     const e = presets.find((p) => p.id === id);
-    showToast(`▶ Wczytano: ${e?.name || ''}`, 'var(--ct-green)');
+    showToast(`▶ Loaded: ${e?.name || ''}`, 'var(--ct-green)');
   };
   const onDelete = (id) => {
-    if (!confirm('Usunąć ten preset?')) return;
+    if (!confirm('Delete this preset?')) return;
     presetDelete(id);
   };
 
@@ -76,24 +76,24 @@ export function PresetsSection() {
         <input
           type="text"
           value={name}
-          placeholder="Nazwa presetu (np. FS1 MaxWin 5000x)"
+          placeholder="Preset name (e.g. FS1 MaxWin 5000x)"
           maxLength={80}
           onChange={(e) => setName(e.target.value)}
         />
-        <button className="ct-add-btn" onClick={onSave}>💾 Zapisz</button>
+        <button className="ct-add-btn" onClick={onSave}>💾 Save</button>
       </div>
       <div className="ct-preset-actions">
-        <button className="ct-copy-btn" onClick={onExportAll}>⬇ Eksportuj wszystkie</button>
+        <button className="ct-copy-btn" onClick={onExportAll}>⬇ Export all</button>
         <label className="ct-copy-btn">
-          ⬆ Importuj
+          ⬆ Import
           <input ref={fileRef} type="file" accept="application/json,.json" onChange={onImport} hidden />
         </label>
-        <button className="ct-copy-btn danger" onClick={onClearAll}>🗑 Wyczyść wszystkie</button>
+        <button className="ct-copy-btn danger" onClick={onClearAll}>🗑 Clear all</button>
         {toast ? <span className="ct-preset-toast" style={{ color: toast.color }}>{toast.msg}</span> : null}
       </div>
       <div className="ct-preset-list">
         {presets.length === 0 ? (
-          <div className="ct-empty">Brak zapisanych presetów. Zapisz aktualny stan przyciskiem powyżej.</div>
+          <div className="ct-empty">No saved presets. Save the current state using the button above.</div>
         ) : (
           presets.map((e) => (
             <div className="ct-preset-row" key={e.id}>
@@ -102,7 +102,7 @@ export function PresetsSection() {
                 <div className="ct-preset-desc">{describePreset(e.data)}</div>
                 <div className="ct-preset-ts">{e.ts}</div>
               </div>
-              <button className="ct-load-btn" onClick={() => onLoad(e.id)}>▶ Wczytaj</button>
+              <button className="ct-load-btn" onClick={() => onLoad(e.id)}>▶ Load</button>
               <button className="ct-remove-btn" onClick={() => onDelete(e.id)}>×</button>
             </div>
           ))

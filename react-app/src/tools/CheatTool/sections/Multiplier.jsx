@@ -23,7 +23,7 @@ export function MultiplierSection() {
             fromError={validation.fieldErrors.multFrom}
             toError={validation.fieldErrors.multTo}
           />
-          <div className="ct-hint">Tip: ustaw FromValue = ToValue dla dokładnej wygranej</div>
+          <div className="ct-hint">Tip: set FromValue = ToValue for an exact win</div>
         </>
       ) : null}
     </Section>

@@ -5,7 +5,7 @@ import { symColor } from '../lib/symbolColors.js';
 import { useState } from 'react';
 
 // Right-hand output panel: JSON tabs (Pretty/Minified/PascalCase), API response
-// (Wynik / Real Spin), status bar. Designed to be the wide column.
+// (Result / Real Spin), status bar. Designed to be the wide column.
 export function OutputPanel() {
   const {
     builtJson, outputTab, setOutputTab,
@@ -50,7 +50,7 @@ export function OutputPanel() {
           JSON Output
         </div>
         <button className="ct-copy-btn" onClick={onCopy}>
-          {copyOk === null ? 'Copy' : copyOk ? '✓ Skopiowano' : '✗ Błąd'}
+          {copyOk === null ? 'Copy' : copyOk ? '✓ Copied' : '✗ Error'}
         </button>
         <button className="ct-copy-btn success" onClick={onDownload}>⬇ .txt</button>
       </div>
@@ -76,7 +76,7 @@ export function OutputPanel() {
             </span>
           </div>
           <div className="ct-resp-tabs">
-            <div className={`ct-resp-tab${respTab === 'result' ? ' active' : ''}`} onClick={() => setRespTab('result')}>Wynik</div>
+            <div className={`ct-resp-tab${respTab === 'result' ? ' active' : ''}`} onClick={() => setRespTab('result')}>Result</div>
             {playResponse ? (
               <div className={`ct-resp-tab${respTab === 'play' ? ' active' : ''}`} onClick={() => setRespTab('play')}>🎰 Real Spin</div>
             ) : null}
@@ -108,7 +108,7 @@ function ResultTab({ onPlay }) {
   const { response, getPlayStake, setPlayStake } = useCheatTool();
   if (!response) return null;
   if (response.error) {
-    return <div className="ct-error-box">❌ {response.error.message || 'Błąd połączenia'}</div>;
+    return <div className="ct-error-box">❌ {response.error.message || 'Connection error'}</div>;
   }
   const data = response.data || {};
   const ok = data.ReverseEngineerSuccess ?? data.reverseEngineerSuccess;
@@ -130,20 +130,20 @@ function ResultTab({ onPlay }) {
     <div className="ct-response-body">
       {partialSuccess ? (
         <div className="ct-info-box partial">
-          <div className="title">⚠ Częściowy sukces</div>
+          <div className="title">⚠ Partial success</div>
           <div className="body">
-            Solver znalazł spin w bazie, ale reverse-engineer nie domknął się.<br />
-            Możesz spróbować użyć <code>SpinId</code> bezpośrednio.<br />
+            Solver found a spin in the database, but reverse-engineer did not complete.<br />
+            You can try using <code>SpinId</code> directly.<br />
             <span className="dim">Backend error: {error || '?'}</span>
           </div>
         </div>
       ) : null}
       {ok === false && !partialSuccess ? (
-        <div className="ct-error-box">❌ Solver failed<br /><br />{error || 'Brak szczegółów błędu.'}</div>
+        <div className="ct-error-box">❌ Solver failed<br /><br />{error || 'No error details available.'}</div>
       ) : (
         <>
           {ok !== false ? (
-            <div className="ct-resp-field"><span className="key">Status</span><span className="val success">✓ Znaleziono spin</span></div>
+            <div className="ct-resp-field"><span className="key">Status</span><span className="val success">✓ Spin found</span></div>
           ) : null}
           <div className="ct-resp-field"><span className="key">Win Multiplier</span><span className="val highlight">{winMult ?? '—'}×</span></div>
           <div className="ct-resp-field"><span className="key">Game Mode</span><span className="val">{mode ?? '—'}</span></div>
@@ -171,7 +171,7 @@ function ResultTab({ onPlay }) {
       )}
       {method ? (
         <details className="ct-method-sql">
-          <summary>▶ Pokaż SQL backendu (reverseEngineerMethod)</summary>
+          <summary>▶ Show backend SQL (reverseEngineerMethod)</summary>
           <pre>{method}</pre>
         </details>
       ) : null}
@@ -216,15 +216,15 @@ function PlayCheatBox({ cheatString, onPlay, getPlayStake, setPlayStake }) {
   return (
     <div className="ct-play-box">
       <div className="ct-play-box-head">
-        <div className="title">🎰 Zagraj prawdziwym spinem</div>
-        <div className="meta">⚡ auto-play w tle → zakładka 🎰 Real Spin</div>
+        <div className="title">🎰 Play real spin</div>
+        <div className="meta">⚡ background auto-play → 🎰 Real Spin tab</div>
       </div>
       <div className="ct-play-box-row">
         <input type="number" value={cashBet} step={0.1} min={0.01} placeholder="cashBet" onChange={(e) => setCashBet(parseFloat(e.target.value) || 0)} />
         <input type="text" value={currency} maxLength={3} placeholder="EUR" onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
-        <button onClick={replay} className="ct-play-btn">↻ Powtórz</button>
+        <button onClick={replay} className="ct-play-btn">↻ Replay</button>
       </div>
-      <div className="ct-play-box-foot">Real spin renderowany w zakładce "🎰 Real Spin".</div>
+      <div className="ct-play-box-foot">Real spin is rendered in the "🎰 Real Spin" tab.</div>
     </div>
   );
 }
@@ -232,11 +232,11 @@ function PlayCheatBox({ cheatString, onPlay, getPlayStake, setPlayStake }) {
 function PlayTab() {
   const { playResponse } = useCheatTool();
   if (!playResponse) return null;
-  if (playResponse.loading) return <div className="ct-loading">◌ Wysyłanie play request...</div>;
+  if (playResponse.loading) return <div className="ct-loading">◌ Sending play request...</div>;
   if (playResponse.error) {
     return (
       <div className="ct-error-box">
-        ❌ {playResponse.error.message || 'Błąd połączenia'}<br /><br />
+        ❌ {playResponse.error.message || 'Connection error'}<br /><br />
         <span className="dim">URL: {playResponse.url}</span>
       </div>
     );
@@ -277,7 +277,7 @@ function PlayTab() {
       {(steps && steps.length > 0) ? (
         <div className="ct-spin-inspector">{steps.map((s, i) => <SpinStep key={i} step={s} idx={i} />)}</div>
       ) : (
-        <div className="ct-info-box dim">ℹ Nie udało się znaleźć stepów spinu w odpowiedzi.</div>
+        <div className="ct-info-box dim">ℹ Could not find spin steps in response.</div>
       )}
       <details className="ct-detail">
         <summary>▶ Request</summary>
@@ -285,7 +285,7 @@ function PlayTab() {
         <pre>{JSON.stringify(body, null, 2)}</pre>
       </details>
       <details className="ct-detail" open>
-        <summary>▶ Pełna odpowiedź (JSON)</summary>
+        <summary>▶ Full response (JSON)</summary>
         <pre>{typeof data === 'string' ? data : JSON.stringify(data, null, 2)}</pre>
       </details>
     </div>
@@ -367,7 +367,7 @@ function SpinStep({ step, idx }) {
               );
             })}
           </div>
-        )) : <div className="ct-empty small">Brak danych boardu w tym stepie.</div>}
+        )) : <div className="ct-empty small">No board data in this step.</div>}
       </div>
       {combos.length > 0 ? (
         <div className="ct-combo-list">
@@ -384,7 +384,7 @@ function SpinStep({ step, idx }) {
                 onMouseLeave={() => setHoverComboId(null)}
               >
                 <span className="payout">+{payout}×</span>
-                <span className="desc">{desc || <i className="dim">brak opisu</i>}</span>
+                <span className="desc">{desc || <i className="dim">no description</i>}</span>
                 {posLabel ? <span className="pos">{posLabel}</span> : null}
               </div>
             );

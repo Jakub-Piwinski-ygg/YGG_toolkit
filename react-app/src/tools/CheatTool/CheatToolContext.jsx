@@ -117,7 +117,7 @@ export function CheatToolProvider({ children }) {
   ]);
   const [configStatus, setConfigStatus] = useState({
     state: 'idle', // idle | loading | loaded | error
-    msg: 'Symbole nie załadowane z API'
+    msg: 'Symbols not loaded from API'
   });
 
   // ---- Env / API ----
@@ -417,11 +417,11 @@ export function CheatToolProvider({ children }) {
   const fetchGameConfig = useCallback(async () => {
     const baseUrl = getBaseUrl(state);
     if (!baseUrl) {
-      setConfigStatus({ state: 'error', msg: 'Brak base URL — wybierz środowisko' });
+      setConfigStatus({ state: 'error', msg: 'Missing base URL - choose environment' });
       return;
     }
     const url = `${baseUrl}/v2/games/${gameId}/config`;
-    setConfigStatus({ state: 'loading', msg: 'Pobieranie...' });
+    setConfigStatus({ state: 'loading', msg: 'Fetching...' });
     try {
       const res = await fetch(url, {
         headers: { Accept: 'application/json', 'X-Rtp-Variant': rtpVariant }
@@ -429,16 +429,16 @@ export function CheatToolProvider({ children }) {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const symbols = extractSymbolsFromConfig(data);
-      if (symbols.length === 0) throw new Error('Brak symbolPayouts w paytable');
+      if (symbols.length === 0) throw new Error('No symbolPayouts found in paytable');
       setAllSymbols(symbols);
       const modes = extractGameModes(data);
       if (modes.length > 0) setGameModes(modes);
       setConfigStatus({
         state: 'loaded',
-        msg: `Załadowano ${symbols.length} symboli${modes.length ? `, ${modes.length} trybów gry` : ''}`
+        msg: `Loaded ${symbols.length} symbols${modes.length ? `, ${modes.length} game modes` : ''}`
       });
     } catch (err) {
-      setConfigStatus({ state: 'error', msg: `Błąd: ${err.message}` });
+      setConfigStatus({ state: 'error', msg: `Error: ${err.message}` });
     }
   }, [gameId, rtpVariant, state]);
 
@@ -449,7 +449,7 @@ export function CheatToolProvider({ children }) {
     const payload = toPascal(buildJSON(state));
     const { url, options } = buildFetchOptions(state, 'POST', payload);
     const timeoutId = setTimeout(() => abortRef.current?.abort(), 30000);
-    setRequest({ inFlight: true, status: 'Wysyłanie...', statusOk: null });
+    setRequest({ inFlight: true, status: 'Sending...', statusOk: null });
     setResponse(null);
     setPlayResponse(null);
     setRespTab('result');
@@ -470,7 +470,7 @@ export function CheatToolProvider({ children }) {
       const wasTimeout = !abortRef.current;
       setRequest({
         inFlight: false,
-        status: err.name === 'AbortError' ? (wasTimeout ? '✕ Timeout' : '✕ Przerwano') : '✗ Error',
+        status: err.name === 'AbortError' ? (wasTimeout ? '✕ Timeout' : '✕ Cancelled') : '✗ Error',
         statusOk: false
       });
       setResponse({ error: err, payload });
@@ -603,7 +603,7 @@ export function CheatToolProvider({ children }) {
   const presetSave = useCallback((name) => {
     const data = presetSerializeState();
     const finalName = (name || '').trim() || describePreset(data);
-    setPresets((xs) => [{ id: Date.now(), ts: new Date().toLocaleString('pl-PL'), name: finalName, data }, ...xs]);
+      setPresets((xs) => [{ id: Date.now(), ts: new Date().toLocaleString('en-GB'), name: finalName, data }, ...xs]);
   }, [presetSerializeState]);
   const presetLoad = useCallback((id) => {
     const e = presets.find((p) => p.id === id);
@@ -613,7 +613,7 @@ export function CheatToolProvider({ children }) {
   const presetDelete = useCallback((id) => setPresets((xs) => xs.filter((p) => p.id !== id)), []);
   const presetClearAll = useCallback(() => setPresets([]), []);
   const presetImport = useCallback((arr) => {
-    if (!Array.isArray(arr)) throw new Error('Plik musi zawierać tablicę presetów');
+    if (!Array.isArray(arr)) throw new Error('File must contain an array of presets');
     setPresets((existing) => {
       const ids = new Set(existing.map((p) => p.id));
       const merged = arr.map((p) => ({ ...p, id: ids.has(p.id) ? Date.now() + Math.random() : p.id }));
@@ -626,7 +626,7 @@ export function CheatToolProvider({ children }) {
     const pascal = builtJson.pascal;
     const entry = {
       id: Date.now(),
-      ts: new Date().toLocaleString('pl-PL'),
+      ts: new Date().toLocaleString('en-GB'),
       label: describeCheat(pascal),
       json: JSON.stringify(pascal)
     };

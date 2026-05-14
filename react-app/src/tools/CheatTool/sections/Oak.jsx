@@ -15,7 +15,7 @@ export function OakSection() {
           onRemove={() => removeOak(o.id)}
         />
       ))}
-      <button className="ct-add-btn" onClick={addOak}>+ Dodaj OAK condition</button>
+      <button className="ct-add-btn" onClick={addOak}>+ Add OAK condition</button>
     </Section>
   );
 }
