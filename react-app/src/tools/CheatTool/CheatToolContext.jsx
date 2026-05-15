@@ -74,6 +74,7 @@ export function CheatToolProvider({ children }) {
   const [multiplierEnabled, setMultiplierEnabled] = useState(false);
   const [multFrom, setMultFrom] = useState('');
   const [multTo, setMultTo] = useState('');
+  const [boardStateEnabled, setBoardStateEnabled] = useState(false);
 
   // ---- Next mode ----
   const [nextModeEnabled, setNextModeEnabled] = useState(false);
@@ -184,6 +185,7 @@ export function CheatToolProvider({ children }) {
       multiplierEnabled,
       multFrom: parseFloat(multFrom),
       multTo: parseFloat(multTo),
+      boardStateEnabled,
       nextModeEnabled,
       nextGameModeName,
       triggerSymbol,
@@ -199,7 +201,7 @@ export function CheatToolProvider({ children }) {
     }),
     [
       gameId, rtpVariant, gameModeName, jsonIndexEnabled, jsonIndexValue,
-      multiplierEnabled, multFrom, multTo,
+      multiplierEnabled, multFrom, multTo, boardStateEnabled,
       nextModeEnabled, nextGameModeName, triggerSymbol, triggerCount,
       nextMultEnabled, nextMultFrom, nextMultTo,
       oakConditions, counterConditions, transformConditions,
@@ -537,6 +539,7 @@ export function CheatToolProvider({ children }) {
       gameId, rtpVariant, gameModeName,
       jsonIndexEnabled, jsonIndexValue,
       multiplierEnabled, multFrom, multTo,
+      boardStateEnabled,
       nextModeEnabled, nextGameModeName, triggerSymbol, triggerCount,
       nextMultEnabled, nextMultFrom, nextMultTo
     },
@@ -549,7 +552,7 @@ export function CheatToolProvider({ children }) {
     nextBoard: { ...nbBoard, grid: nbBoard.grid.map((r) => r.slice()), reelHeights: [...nbBoard.reelHeights] }
   }), [
     gameId, rtpVariant, gameModeName, jsonIndexEnabled, jsonIndexValue,
-    multiplierEnabled, multFrom, multTo,
+    multiplierEnabled, multFrom, multTo, boardStateEnabled,
     nextModeEnabled, nextGameModeName, triggerSymbol, triggerCount,
     nextMultEnabled, nextMultFrom, nextMultTo,
     oakConditions, counterConditions, transformConditions,
@@ -568,6 +571,7 @@ export function CheatToolProvider({ children }) {
     if (f.multiplierEnabled !== undefined) setMultiplierEnabled(!!f.multiplierEnabled);
     if (f.multFrom !== undefined) setMultFrom(f.multFrom);
     if (f.multTo !== undefined) setMultTo(f.multTo);
+    if (f.boardStateEnabled !== undefined) setBoardStateEnabled(!!f.boardStateEnabled);
     if (f.nextModeEnabled !== undefined) setNextModeEnabled(!!f.nextModeEnabled);
     if (f.nextGameModeName !== undefined) setNextGameModeName(f.nextGameModeName);
     if (f.triggerSymbol !== undefined) setTriggerSymbol(f.triggerSymbol);
@@ -645,6 +649,7 @@ export function CheatToolProvider({ children }) {
     multiplierEnabled, setMultiplierEnabled,
     multFrom, setMultFrom,
     multTo, setMultTo,
+    boardStateEnabled, setBoardStateEnabled,
     nextModeEnabled, setNextModeEnabled,
     nextGameModeName, setNextGameModeName,
     triggerSymbol, updateTriggerSymbol,

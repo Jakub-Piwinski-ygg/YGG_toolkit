@@ -33,6 +33,7 @@ export function buildJSON(state) {
     multiplierEnabled,
     multFrom,
     multTo,
+    boardStateEnabled,
     nextModeEnabled,
     nextGameModeName,
     triggerSymbol,
@@ -125,7 +126,9 @@ export function buildJSON(state) {
           toValue: isNaN(multTo) ? 0 : multTo
         }
       : {},
-    boardStateConditions: { symbolsOnBoard: rootBoardSymbols },
+    boardStateConditions: boardStateEnabled
+      ? { symbolsOnBoard: rootBoardSymbols }
+      : {},
     counterStateConditions: allCounters,
     specificBoardTransformationCount: transformConditions.map((t) => ({
       transformationTypeName: t.name,

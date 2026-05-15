@@ -3,6 +3,7 @@ import { Section } from '../components/Section.jsx';
 import { BoardGrid } from '../components/BoardGrid.jsx';
 import { SymbolPalette } from '../components/SymbolPalette.jsx';
 import { BoardSummary } from '../components/BoardSummary.jsx';
+import { Toggle } from '../components/Toggle.jsx';
 import { useCheatTool } from '../CheatToolContext.jsx';
 import { symColor } from '../lib/symbolColors.js';
 
@@ -10,6 +11,8 @@ import { symColor } from '../lib/symbolColors.js';
 // deferred to a follow-up session (see CHEAT_TOOL.md "Deferred features").
 export function BoardSection() {
   const {
+    boardStateEnabled,
+    setBoardStateEnabled,
     mainBoard,
     paintMainCell,
     changeMainReels, changeMainRows,
@@ -29,6 +32,9 @@ export function BoardSection() {
       collapsible
       defaultOpen
     >
+      <Toggle checked={boardStateEnabled} onChange={setBoardStateEnabled} label="Enable board state constraint" />
+      {!boardStateEnabled ? null : (
+        <>
       <SymbolPalette
         symbols={allSymbols}
         active={brush}
@@ -106,6 +112,8 @@ export function BoardSection() {
         ))}
         <button className="ct-add-btn" onClick={addManualSymbol}>+ Add symbol</button>
       </div>
+        </>
+      )}
     </Section>
   );
 }
