@@ -7,6 +7,7 @@ import { BoardGrid } from '../components/BoardGrid.jsx';
 import { SymbolPalette } from '../components/SymbolPalette.jsx';
 import { BoardSummary } from '../components/BoardSummary.jsx';
 import { symColor } from '../lib/symbolColors.js';
+import { SymbolAutocompleteInput } from '../components/SymbolAutocompleteInput.jsx';
 
 export function NextModeSection() {
   const {
@@ -121,13 +122,12 @@ export function NextModeSection() {
           <div className="ct-sub-heading">OAK in next mode</div>
           {nextOakConditions.map((o) => (
             <div className="ct-sym-count-row" key={o.id}>
-              <input
-                type="text"
+              <SymbolAutocompleteInput
                 value={o.symbol}
-                list="ct-symbol-list"
-                onChange={(e) => updateNextOak(o.id, 'symbol', e.target.value)}
+                onChange={(v) => updateNextOak(o.id, 'symbol', v)}
+                symbols={allSymbols}
                 placeholder="Symbol"
-                style={{ color: symColor(o.symbol) }}
+                inputStyle={{ color: symColor(o.symbol) }}
               />
               <input
                 type="number"

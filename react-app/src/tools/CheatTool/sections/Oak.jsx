@@ -1,6 +1,7 @@
 import { Section } from '../components/Section.jsx';
 import { useCheatTool } from '../CheatToolContext.jsx';
 import { symColor } from '../lib/symbolColors.js';
+import { SymbolAutocompleteInput } from '../components/SymbolAutocompleteInput.jsx';
 
 export function OakSection() {
   const { oakConditions, addOak, removeOak, updateOak, allSymbols } = useCheatTool();
@@ -23,13 +24,12 @@ export function OakSection() {
 function OakRow({ o, symbols, onChange, onRemove }) {
   return (
     <div className="ct-sym-count-row">
-      <input
-        type="text"
+      <SymbolAutocompleteInput
         value={o.symbol}
-        list="ct-symbol-list"
-        onChange={(e) => onChange('symbol', e.target.value)}
+        onChange={(v) => onChange('symbol', v)}
+        symbols={symbols}
         placeholder="Symbol"
-        style={{ color: symColor(o.symbol) }}
+        inputStyle={{ color: symColor(o.symbol) }}
       />
       <input
         type="number"

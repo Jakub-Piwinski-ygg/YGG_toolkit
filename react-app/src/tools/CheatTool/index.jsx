@@ -9,7 +9,7 @@ import { BoardSection } from './sections/Board.jsx';
 import { OakSection } from './sections/Oak.jsx';
 import { CountersSection } from './sections/Counters.jsx';
 import { TransformsSection } from './sections/Transforms.jsx';
-import { ApiSection, ApiActionDock } from './sections/Api.jsx';
+import { ApiActionDock } from './sections/Api.jsx';
 import { NextModeSection } from './sections/NextMode.jsx';
 import { HistorySection } from './sections/History.jsx';
 import { OutputPanel } from './sections/Output.jsx';
@@ -66,7 +66,6 @@ function CheatToolShell() {
           <CountersSection />
           <TransformsSection />
           <NextModeSection />
-          <ApiSection />
         </div>
         <div className="ct-right-col">
           <OutputPanel />
