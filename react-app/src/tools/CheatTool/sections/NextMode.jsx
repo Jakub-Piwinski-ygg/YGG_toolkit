@@ -13,8 +13,6 @@ export function NextModeSection() {
   const {
     nextModeEnabled, setNextModeEnabled,
     nextGameModeName, setNextGameModeName,
-    triggerSymbol, updateTriggerSymbol,
-    triggerCount, updateTriggerCount,
     nextMultEnabled, setNextMultEnabled,
     nextMultFrom, setNextMultFrom,
     nextMultTo, setNextMultTo,
@@ -27,50 +25,19 @@ export function NextModeSection() {
 
   const [brush, setBrush] = useState('');
 
-  const mode = (nextGameModeName || '').trim();
-  const showTrigger = mode && !/^base/i.test(mode);
-
   return (
     <Section icon="→" iconKind="green" title="Next Mode Cheat" subtitle="CHAINING">
       <Toggle checked={nextModeEnabled} onChange={setNextModeEnabled} label="Enable next mode chaining" />
       {!nextModeEnabled ? null : (
         <div className="ct-next-mode-inner">
           <FieldRow label="Target Mode">
-            <input
-              type="text"
+            <SymbolAutocompleteInput
               value={nextGameModeName}
-              list="ct-game-modes"
-              onChange={(e) => setNextGameModeName(e.target.value)}
+              onChange={setNextGameModeName}
+              symbols={gameModes}
               placeholder="e.g. FS1, FS_level_1, base_game..."
             />
           </FieldRow>
-
-          {showTrigger ? (
-            <div className="ct-trigger-fields">
-              <div className="ct-sub-heading">Trigger (added to symbolsOnBoard)</div>
-              <FieldRow label="Trigger Symbol">
-                <input
-                  type="text"
-                  value={triggerSymbol}
-                  list="ct-symbol-list"
-                  onChange={(e) => updateTriggerSymbol(e.target.value)}
-                  placeholder="e.g. Scatter, FS, Bonus"
-                />
-              </FieldRow>
-              <FieldRow label="Trigger Count">
-                <input
-                  type="number"
-                  value={triggerCount}
-                  min={0}
-                  max={50}
-                  onChange={(e) => updateTriggerCount(e.target.value)}
-                  className={`ct-num-center${validation.fieldErrors.triggerCount ? ' ct-invalid' : ''}`}
-                  title={validation.fieldErrors.triggerCount || ''}
-                />
-              </FieldRow>
-              <div className="ct-hint">Set <code>count = 0</code> to skip trigger.</div>
-            </div>
-          ) : null}
 
           <div className="ct-divider" />
 

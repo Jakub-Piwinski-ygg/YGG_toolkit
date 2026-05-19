@@ -20,6 +20,7 @@ const TRIGGER_KEY = 'cheat_tool_trigger_config';
 const PLAY_STAKE_KEY = 'cheat_tool_play_stake';
 const PRESET_VERSION = 1;
 const PREFERRED_TRIGGER_SYMBOLS = ['FS', 'Scatter', 'Bonus'];
+const KNOWN_GAMES_URL = (import.meta?.env?.BASE_URL || './').replace(/\/?$/, '/') + 'configs/cheat-game-ids.json';
 
 function emptyBoard(reels, rows) {
   return Array.from({ length: rows }, () => Array(reels).fill(''));
@@ -116,10 +117,47 @@ export function CheatToolProvider({ children }) {
   const [gameModes, setGameModes] = useState([
     'BaseGame', 'base_game', 'FS1', 'FS2', 'FS3', 'FS4'
   ]);
+  const [knownGames, setKnownGames] = useState([]);
   const [configStatus, setConfigStatus] = useState({
     state: 'idle', // idle | loading | loaded | error
     msg: 'Symbols not loaded from API'
   });
+
+  // ---- Known games config (modes + id mapping) ----
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const data = await fetch(KNOWN_GAMES_URL).then((r) => r.json());
+        const normalized = Array.isArray(data?.games)
+          ? data.games
+            .map((g) => ({
+              id: parseInt(g?.id, 10),
+              name: String(g?.name || '').trim(),
+              modes: Array.isArray(g?.modes) ? g.modes.filter(Boolean).map(String) : []
+            }))
+            .filter((g) => Number.isFinite(g.id) && g.id > 0 && g.name)
+          : [];
+        if (active) setKnownGames(normalized);
+      } catch {
+        if (active) setKnownGames([]);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  // When gameId matches a known game, set its modes and default mode name.
+  useEffect(() => {
+    if (!knownGames.length) return;
+    const id = parseInt(gameId, 10);
+    const match = knownGames.find((g) => g.id === id);
+    if (match && match.modes.length) {
+      setGameModes(match.modes);
+      setGameModeName(match.modes[0]);
+      setNextGameModeName(match.modes.length > 1 ? match.modes[1] : match.modes[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId, knownGames]);
 
   // ---- Env / API ----
   const [env, setEnv] = useState('dev');
@@ -666,7 +704,7 @@ export function CheatToolProvider({ children }) {
     nbManualSymbols, addNbManualSymbol, removeNbManualSymbol, updateNbManualSymbol,
     mainBoard, setMainBoardField, paintMainCell, changeMainReels, changeMainRows, toggleMainMegaways, changeMainReelHeight, clearMainBoard,
     nbBoard, setNbBoardField, paintNbCell, changeNbReels, changeNbRows, toggleNbMegaways, changeNbReelHeight, clearNbBoard,
-    allSymbols, gameModes, configStatus,
+    allSymbols, gameModes, knownGames, configStatus,
     env, setEnv,
     proxyTarget, setProxyTarget,
     proxyPort, updateProxyPort,

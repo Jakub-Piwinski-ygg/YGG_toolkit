@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Section } from '../components/Section.jsx';
 import { FieldRow } from '../components/FieldRow.jsx';
 import { useCheatTool } from '../CheatToolContext.jsx';
 import { EnvPills } from '../components/EnvPills.jsx';
 import { PROXY_TARGETS } from '../lib/envs.js';
-
-const BASE = (import.meta?.env?.BASE_URL || './').replace(/\/?$/, '/');
 
 export function GameConfigSection() {
   const {
@@ -17,32 +15,9 @@ export function GameConfigSection() {
     proxyTarget, setProxyTarget,
     proxyPort, updateProxyPort,
     customBaseUrl, setCustomBaseUrl,
-    urlPreview
+    urlPreview,
+    knownGames
   } = useCheatTool();
-  const [knownGames, setKnownGames] = useState([]);
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const data = await fetch(BASE + 'configs/cheat-game-ids.json').then((r) => r.json());
-        const normalized = Array.isArray(data?.games)
-          ? data.games
-            .map((g) => ({
-              id: parseInt(g?.id, 10),
-              name: String(g?.name || '').trim()
-            }))
-            .filter((g) => Number.isFinite(g.id) && g.id > 0 && g.name)
-          : [];
-        if (active) setKnownGames(normalized);
-      } catch {
-        if (active) setKnownGames([]);
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
 
   const selectedKnownGame = useMemo(() => {
     const id = parseInt(gameId, 10);
