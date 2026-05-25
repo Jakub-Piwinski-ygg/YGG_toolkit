@@ -17,6 +17,7 @@ import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerT
 import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.jsx';
 import { CharExtractorTool, charExtractorMeta } from './CharExtractorTool.jsx';
 import { CheatTool, cheatToolMeta } from './CheatTool/index.jsx';
+import { TemplatesTool, templatesMeta } from './TemplatesTool.jsx';
 
 const ART = [
   { meta: cropMeta, Component: CropTool },
@@ -42,7 +43,8 @@ const BROWSER = [
 const REVIEW = [
   { meta: assetCheckerMeta, Component: AssetCheckerTool },
   { meta: projectScaffoldMeta, Component: ProjectScaffoldTool },
-  { meta: charExtractorMeta, Component: CharExtractorTool }
+  { meta: charExtractorMeta, Component: CharExtractorTool },
+  { meta: templatesMeta, Component: TemplatesTool }
 ];
 
 const CHEETS = [
