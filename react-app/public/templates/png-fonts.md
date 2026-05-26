@@ -82,7 +82,7 @@ Export the **full sprite sheet as a PNG, exactly as it sits in Photoshop**. Don'
 
 > Repeat on the outline layer too if you kept the outline.
 
-> ⚠️ Some fonts are missing characters you'd expect — e.g. the one in this screenshot doesn't ship with the British Pound `£`. Always sanity-check the atlas before exporting.
+> ⚠️ Some fonts are missing characters you'd expect — e.g. the one in this screenshot doesn't ship with the Ruble `₽` when its mandatory to have. Always sanity-check the atlas before exporting. But anyway you can try to replace just the missing ones with some other simmilar font if its just currency sign.
 
 ---
 
