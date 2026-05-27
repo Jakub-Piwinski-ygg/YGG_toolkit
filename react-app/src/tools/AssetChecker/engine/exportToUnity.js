@@ -152,7 +152,7 @@ function detectRootDepth(entries) {
 // Segments that trigger auto-detection when dstSuffix is blank.
 const EXPORT_SEGS = new Set(['export', 'exports']);
 
-function resolveTarget(entry, mappings, fallbackFolder, rootDepth, atlasMap) {
+export function resolveTarget(entry, mappings, fallbackFolder, rootDepth, atlasMap) {
   const segs = entry.segments; // includes filename as last element
   const ext  = (entry.ext || '').toLowerCase();
 

@@ -1,5 +1,6 @@
 import { AppProvider } from './context/AppContext.jsx';
 import { RepoBrowserProvider } from './context/RepoBrowserContext.jsx';
+import { UnityExportProvider } from './context/UnityExportContext.jsx';
 import { useMagick } from './hooks/useMagick.js';
 import { Header } from './components/Header.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
@@ -53,7 +54,9 @@ export default function App() {
   return (
     <AppProvider>
       <RepoBrowserProvider>
-        <Shell />
+        <UnityExportProvider>
+          <Shell />
+        </UnityExportProvider>
       </RepoBrowserProvider>
     </AppProvider>
   );
