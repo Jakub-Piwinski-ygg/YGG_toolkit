@@ -6,6 +6,11 @@ function toolFromUrl() {
   return new URLSearchParams(window.location.search).get('tool') || 'converter';
 }
 
+async function resolveAlias(toolId) {
+  const { resolveToolId } = await import('../tools/registry.js');
+  return resolveToolId(toolId);
+}
+
 export function AppProvider({ children }) {
   const [inputFiles, setInputFiles] = useState([]);
   const [outputFiles, setOutputFiles] = useState([]);
@@ -13,10 +18,19 @@ export function AppProvider({ children }) {
   const [currentCategory, setCurrentCategory] = useState('arttools');
 
   // On mount: resolve the correct category for whatever tool was in the URL.
-  // Uses the same lazy import as setCurrentTool to avoid circular deps.
+  // Uses the same lazy import as setCurrentTool to avoid circular deps. Also
+  // applies the alias map so legacy tool ids redirect to their new home.
   useEffect(() => {
-    import('../tools/registry.js').then(({ categoryOfTool }) => {
-      const cat = categoryOfTool(toolFromUrl());
+    import('../tools/registry.js').then(({ categoryOfTool, resolveToolId }) => {
+      const raw = toolFromUrl();
+      const resolved = resolveToolId(raw);
+      if (resolved !== raw) {
+        setCurrentToolRaw(resolved);
+        const url = new URL(window.location.href);
+        url.searchParams.set('tool', resolved);
+        window.history.replaceState(null, '', url.toString());
+      }
+      const cat = categoryOfTool(resolved);
       if (cat) setCurrentCategory(cat);
     });
   }, []);
@@ -25,12 +39,13 @@ export function AppProvider({ children }) {
   // current tool can be bookmarked / shared. Dynamic import avoids a circular
   // module dependency (registry → tool components → this file).
   const setCurrentTool = useCallback(async (id) => {
-    setCurrentToolRaw(id);
+    const resolved = await resolveAlias(id);
+    setCurrentToolRaw(resolved);
     const url = new URL(window.location.href);
-    url.searchParams.set('tool', id);
+    url.searchParams.set('tool', resolved);
     window.history.replaceState(null, '', url.toString());
     const { categoryOfTool } = await import('../tools/registry.js');
-    const cat = categoryOfTool(id);
+    const cat = categoryOfTool(resolved);
     if (cat) setCurrentCategory(cat);
   }, []);
   const [logEntries, setLogEntries] = useState([

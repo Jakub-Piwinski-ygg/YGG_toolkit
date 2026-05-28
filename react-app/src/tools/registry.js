@@ -11,8 +11,7 @@ import { AtlasPackerTool, atlasMeta } from './AtlasPackerTool.jsx';
 import { PaylinesTool, paylinesMeta } from './PaylinesTool.jsx';
 import { FontPreviewTool, fontPreviewMeta } from './FontPreviewTool.jsx';
 import { SlotMachineTool, slotMachineMeta } from './SlotMachineTool.jsx';
-import { ContentBrowserTool, contentBrowserMeta } from './ContentBrowserTool.jsx';
-import { SoundBrowserTool, soundBrowserMeta } from './SoundBrowserTool.jsx';
+import { RepoContentBrowserTool, repoContentBrowserMeta } from './RepoContentBrowserTool.jsx';
 import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerTool.jsx';
 import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.jsx';
 import { CharExtractorTool, charExtractorMeta } from './CharExtractorTool.jsx';
@@ -35,15 +34,11 @@ const ART = [
   { meta: slotMachineMeta, Component: SlotMachineTool }
 ];
 
-const BROWSER = [
-  { meta: contentBrowserMeta, Component: ContentBrowserTool },
-  { meta: soundBrowserMeta, Component: SoundBrowserTool }
-];
-
 const REVIEW = [
   { meta: assetCheckerMeta, Component: AssetCheckerTool },
   { meta: projectScaffoldMeta, Component: ProjectScaffoldTool },
   { meta: charExtractorMeta, Component: CharExtractorTool },
+  { meta: repoContentBrowserMeta, Component: RepoContentBrowserTool },
   { meta: templatesMeta, Component: TemplatesTool }
 ];
 
@@ -53,18 +48,29 @@ const CHEETS = [
 
 export const TOOL_CATEGORIES = [
   { id: 'arttools', label: 'Art Tools', icon: '🎨', tools: ART },
-  { id: 'browser', label: 'Content', icon: '📦', tools: BROWSER },
   { id: 'review', label: 'Asset Pipeline', icon: '🏗️', tools: REVIEW },
   { id: 'cheets', label: 'Cheets', icon: '🎲', tools: CHEETS }
 ];
+
+// Soft redirects for legacy `?tool=` URLs after the Content category was merged
+// into Asset Pipeline as a single Repo Content Browser tool.
+export const TOOL_ALIASES = {
+  contentbrowser: repoContentBrowserMeta.id,
+  soundbrowser: repoContentBrowserMeta.id
+};
+
+export function resolveToolId(toolId) {
+  return TOOL_ALIASES[toolId] || toolId;
+}
 
 // Flattened convenience list — used by anything that needs to look up a tool
 // by id without caring which category it lives in.
 export const ART_TOOLS = TOOL_CATEGORIES.flatMap((c) => c.tools);
 
 export function categoryOfTool(toolId) {
+  const resolved = resolveToolId(toolId);
   for (const cat of TOOL_CATEGORIES) {
-    if (cat.tools.some((t) => t.meta.id === toolId)) return cat.id;
+    if (cat.tools.some((t) => t.meta.id === resolved)) return cat.id;
   }
   return TOOL_CATEGORIES[0].id;
 }

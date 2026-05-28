@@ -86,6 +86,28 @@ function splitAtSteps(html) {
   return { intro, steps };
 }
 
+// Deep-link helpers — URL hash format is `#tpl=<slug>[&steps=1]`. Combined with
+// the existing `?tool=templates` query param, you can paste a single URL that
+// jumps straight into a specific template card with steps already expanded.
+function templateSlug(id) { return (id || '').replace(/\.md$/i, ''); }
+
+function parseTemplateHash(rawHash) {
+  const source = rawHash !== undefined ? rawHash : (window.location.hash || '');
+  const h = source.replace(/^#/, '');
+  if (!h) return null;
+  const params = new URLSearchParams(h);
+  const slug = params.get('tpl');
+  if (!slug) return null;
+  return { slug, steps: params.get('steps') === '1' };
+}
+
+function buildShareUrl(slug, withSteps) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('tool', 'templates');
+  url.hash = `tpl=${encodeURIComponent(slug)}${withSteps ? '&steps=1' : ''}`;
+  return url.toString();
+}
+
 export function TemplatesTool() {
   const { log } = useApp();
   const [templates, setTemplates] = useState([]);
@@ -93,11 +115,83 @@ export function TemplatesTool() {
   const [loadErr, setLoadErr] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [stepsOpen, setStepsOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState(null);
+  const [query, setQuery] = useState('');
   const loggedRef = useRef(false);
+  // When a deep-link asks for steps=1, the expanded-card change handler would
+  // immediately reset stepsOpen to false. This ref lets the hash effect signal
+  // "honor the open-steps intent for this expansion" before the reset runs.
+  const pendingStepsRef = useRef(false);
 
-  // Steps collapse resets whenever the user opens a different card (or closes
-  // the current one). One bool is enough since only one card is open at a time.
-  useEffect(() => { setStepsOpen(false); }, [expandedId]);
+  // Reset (or restore from deep link) the steps collapse whenever the user
+  // opens a different card. Default closed; honor a pending deep-link request.
+  useEffect(() => {
+    if (pendingStepsRef.current) {
+      setStepsOpen(true);
+      pendingStepsRef.current = false;
+    } else {
+      setStepsOpen(false);
+    }
+  }, [expandedId]);
+
+  // Capture the URL hash at mount time so the sync effect (which clears the
+  // hash whenever no card is expanded) can't wipe it before we've had a chance
+  // to apply it. The hash is consumed once after templates load.
+  const initialHashRef = useRef(typeof window !== 'undefined' ? window.location.hash : '');
+  const hashAppliedRef = useRef(false);
+
+  // Apply the URL hash once templates are loaded. Also re-applies when the hash
+  // changes externally (e.g. user pastes a new link in the address bar).
+  const applyHash = useRef(() => {});
+  applyHash.current = (rawHash) => {
+    if (templates.length === 0) return;
+    const h = parseTemplateHash(rawHash);
+    if (!h) return;
+    const match = templates.find((t) => templateSlug(t.id) === h.slug);
+    if (!match) return;
+    pendingStepsRef.current = h.steps;
+    setExpandedId(match.id);
+  };
+
+  useEffect(() => {
+    if (loadState !== 'ok') return;
+    // First apply uses the initial hash captured before any sync ran;
+    // subsequent applies (from hashchange) use the live hash.
+    applyHash.current(hashAppliedRef.current ? undefined : initialHashRef.current);
+    hashAppliedRef.current = true;
+  }, [loadState, templates]);
+
+  useEffect(() => {
+    const onHash = () => applyHash.current();
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  // Sync the hash to the current selection so a copied URL captures it.
+  // Guarded by hashAppliedRef so we never clobber the initial hash before
+  // applyHash has had a chance to consume it.
+  useEffect(() => {
+    if (!hashAppliedRef.current) return;
+    const base = window.location.pathname + window.location.search;
+    if (!expandedId) {
+      if (window.location.hash) window.history.replaceState(null, '', base);
+      return;
+    }
+    const slug = templateSlug(expandedId);
+    const hash = `#tpl=${encodeURIComponent(slug)}${stepsOpen ? '&steps=1' : ''}`;
+    window.history.replaceState(null, '', base + hash);
+  }, [expandedId, stepsOpen]);
+
+  const copyShareLink = async (id) => {
+    const url = buildShareUrl(templateSlug(id), stepsOpen);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1800);
+    } catch (e) {
+      log(`Could not copy share link: ${e.message || e}`, 'err');
+    }
+  };
 
   const loadAll = async () => {
     setLoadState('loading');
@@ -145,6 +239,17 @@ export function TemplatesTool() {
 
   const toggle = (id) => setExpandedId((cur) => (cur === id ? null : id));
 
+  // Filter by name or description, case-insensitive. Empty query = show all.
+  const visibleTemplates = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return templates;
+    return templates.filter((t) => {
+      if (t.error) return (t.name || '').toLowerCase().includes(q);
+      return (t.name || '').toLowerCase().includes(q)
+        || (t.description || '').toLowerCase().includes(q);
+    });
+  }, [templates, query]);
+
   const fallbackThumb = useMemo(() => (
     <div className="tpl-thumb tpl-thumb-fallback">
       <span>📄</span>
@@ -158,15 +263,39 @@ export function TemplatesTool() {
           <div className="tpl-head-title">Team Templates</div>
           <div className="tpl-head-sub">
             {loadState === 'loading' && 'loading…'}
-            {loadState === 'ok' && `${templates.length} template${templates.length === 1 ? '' : 's'} — click a card to expand instructions`}
+            {loadState === 'ok' && (
+              query.trim()
+                ? `${visibleTemplates.length} of ${templates.length} match "${query.trim()}"`
+                : `${templates.length} template${templates.length === 1 ? '' : 's'} — click a card to expand instructions`
+            )}
             {loadState === 'err' && <span className="tpl-err-inline">failed to load: {loadErr}</span>}
           </div>
         </div>
         <button className="btn" type="button" onClick={loadAll} title="Refresh from disk">↻ Reload</button>
       </div>
 
+      <div className="tpl-search-row">
+        <span className="tpl-search-icon" aria-hidden="true">🔍</span>
+        <input
+          type="search"
+          className="tpl-search-input"
+          placeholder="Filter templates by name or description…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          autoComplete="off"
+        />
+        {query && (
+          <button
+            type="button"
+            className="tpl-search-clear"
+            onClick={() => setQuery('')}
+            title="Clear filter"
+          >×</button>
+        )}
+      </div>
+
       <div className="tpl-list">
-        {templates.map((t) => {
+        {visibleTemplates.map((t) => {
           const open = expandedId === t.id;
           const hasError = !!t.error;
           return (
@@ -208,19 +337,29 @@ export function TemplatesTool() {
                       <div className="tpl-md tpl-md-intro" dangerouslySetInnerHTML={{ __html: t.intro }} />
                     )}
 
-                    {t.sharepoint
-                      ? (
+                    <div className="tpl-actions">
+                      {t.sharepoint && (
                         <a
-                          className="btn btn-primary tpl-grab"
+                          className="tpl-download"
                           href={t.sharepoint}
                           target="_blank"
                           rel="noreferrer"
                         >
-                          ⬇ Open template in SharePoint
+                          ⬇️ Download from SharePoint
                         </a>
-                      )
-                      : <div className="tpl-no-link">No SharePoint link defined for this template.</div>
-                    }
+                      )}
+                      <button
+                        type="button"
+                        className="tpl-share"
+                        onClick={() => copyShareLink(t.id)}
+                        title="Copy a URL that opens this template directly"
+                      >
+                        {copiedId === t.id ? '✓ Link copied' : '🔗 Copy share link'}
+                      </button>
+                    </div>
+                    {!t.sharepoint && (
+                      <div className="tpl-no-link">No SharePoint link defined for this template.</div>
+                    )}
 
                     {t.steps && (
                       <div className="tpl-steps-wrap">
@@ -259,11 +398,25 @@ export function TemplatesTool() {
             No templates yet. Add a <code>.md</code> file under <code>public/templates/</code> and list it in <code>manifest.json</code>.
           </div>
         )}
+        {loadState === 'ok' && templates.length > 0 && visibleTemplates.length === 0 && (
+          <div className="tpl-empty">
+            No templates match <code>{query.trim()}</code>. <button type="button" className="tpl-empty-clear" onClick={() => setQuery('')}>Clear filter</button>
+          </div>
+        )}
       </div>
 
       <style>{`
         .tpl-root{display:flex;flex-direction:column;gap:.7rem}
         .tpl-head-row{display:flex;align-items:flex-end;justify-content:space-between;gap:1rem;border-bottom:1px solid var(--border);padding-bottom:.55rem}
+        .tpl-search-row{position:relative;display:flex;align-items:center}
+        .tpl-search-icon{position:absolute;left:.7rem;font-size:.85rem;color:var(--muted);pointer-events:none}
+        .tpl-search-input{width:100%;padding:.55rem .75rem .55rem 2rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;color:var(--text);font-family:var(--font-mono);font-size:.78rem;outline:none;transition:border-color .15s ease}
+        .tpl-search-input::placeholder{color:var(--muted)}
+        .tpl-search-input:focus{border-color:var(--accent)}
+        .tpl-search-input::-webkit-search-cancel-button{display:none}
+        .tpl-search-clear{position:absolute;right:.5rem;width:1.4rem;height:1.4rem;display:flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--muted);font-size:1.1rem;line-height:1;cursor:pointer;border-radius:3px}
+        .tpl-search-clear:hover{color:var(--text);background:var(--surface2)}
+        .tpl-empty-clear{margin-left:.4rem;background:transparent;border:0;color:var(--accent2);font:inherit;cursor:pointer;text-decoration:underline}
         .tpl-head-title{font-family:var(--font-mono);font-size:.78rem;color:var(--text);letter-spacing:.04em}
         .tpl-head-sub{font-family:var(--font-mono);font-size:.65rem;color:var(--muted);margin-top:.2rem}
         .tpl-err-inline{color:var(--accent3,#ff6b3d)}
@@ -301,7 +454,12 @@ export function TemplatesTool() {
         .tpl-md th,.tpl-md td{border:1px solid var(--border);padding:.3rem .5rem}
         .tpl-md th{background:var(--surface);text-align:left}
         .tpl-md hr{border:0;border-top:1px solid var(--border);margin:.8rem 0}
-        .tpl-grab{display:inline-flex;align-items:center;gap:.4rem;margin:0 2.6rem 1.2rem;padding:.7rem 1.2rem;font-family:var(--font-mono);font-size:.82rem;text-decoration:none}
+        .tpl-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;margin:0 2.6rem 1.2rem}
+        .tpl-download{display:inline-flex;align-items:center;gap:.5rem;padding:.75rem 1.3rem;font-family:var(--font-mono);font-size:.82rem;font-weight:600;letter-spacing:.03em;text-decoration:none;background:#2ea043;color:#fff;border:1px solid #2ea043;border-radius:5px;box-shadow:0 1px 0 rgba(0,0,0,.15) inset;transition:background .15s ease,border-color .15s ease,transform .08s ease}
+        .tpl-download:hover{background:#3fb950;border-color:#3fb950}
+        .tpl-download:active{transform:translateY(1px)}
+        .tpl-share{display:inline-flex;align-items:center;gap:.4rem;padding:.6rem 1rem;font-family:var(--font-mono);font-size:.74rem;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:5px;cursor:pointer;transition:color .15s ease,border-color .15s ease}
+        .tpl-share:hover{color:var(--accent2);border-color:var(--accent2)}
         .tpl-no-link{margin:0 2.6rem 1.2rem;padding:.5rem .8rem;font-family:var(--font-mono);font-size:.68rem;color:var(--muted);border:1px dashed var(--border);border-radius:4px}
         .tpl-steps-wrap{border-top:1px solid var(--border);background:var(--surface)}
         .tpl-steps-toggle{display:flex;align-items:center;justify-content:center;gap:.7rem;width:calc(100% - 5.2rem);margin:1rem 2.6rem;padding:.95rem 1.4rem;background:var(--surface2);border:1px solid var(--accent);border-radius:5px;color:var(--accent);font-family:var(--font-mono);font-size:.88rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;cursor:pointer;text-align:center;transition:background .15s ease,color .15s ease}
