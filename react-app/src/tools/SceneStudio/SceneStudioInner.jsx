@@ -40,9 +40,12 @@ import { makeVirtualRootHandle, readFolderDropAsFiles } from './engine/virtualHa
 import { patchTransform, resetPortrait } from './engine/orientationManager.js';
 import { groupSpineFiles } from './engine/spineLoader.js';
 import {
-  CHANNEL_PROPS,
+  channelLayout,
   clipLocalSeconds,
-  insertOrUpdateKey
+  composeVec2Value,
+  evalChannel,
+  insertOrUpdateKey,
+  SPRITE_PROP_TO_CHANNEL
 } from './engine/animation/keyframes.js';
 import './styles/scene-studio.css';
 
@@ -50,10 +53,12 @@ const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
 
 export default function SceneStudioInner() {
   const { log } = useApp();
-  const [scene, setScene] = useState(() => createEmptyScene('Untitled scene'));
+  const [scene, setSceneInternal] = useState(() => createEmptyScene('Untitled scene'));
   const [rootHandle, setRootHandle] = useState(null);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const [selectedClipId, setSelectedClipId] = useState(null);
+  const [selectedKey, setSelectedKey] = useState(null);   // { clipId, name, idx } | null
+  const [clipboardKey, setClipboardKey] = useState(null); // { name, v, out } | null
   const [busy, setBusy] = useState(false);
   const [assetDescriptors, setAssetDescriptors] = useState({});
   const [assetItems, setAssetItems] = useState([]);
@@ -61,8 +66,77 @@ export default function SceneStudioInner() {
   const [rootDropHover, setRootDropHover] = useState(false);
   const [pickError, setPickError] = useState(null);
   const [livePreview, setLivePreview] = useState(true);
+  // Undo / redo: simple stacks of full-scene snapshots. Pushes are
+  // coalesced for rapid edits (e.g. drag-scrubbing a value) via
+  // `historyCoalesceUntilRef` so a 30-frame drag becomes one undo step.
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const historyCoalesceUntilRef = useRef(0);
+  const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
+  const selectedClipIdRef = useRef(selectedClipId);
+  selectedClipIdRef.current = selectedClipId;
+  const selectedKeyRef = useRef(selectedKey);
+  selectedKeyRef.current = selectedKey;
+  const clipboardKeyRef = useRef(clipboardKey);
+  clipboardKeyRef.current = clipboardKey;
+
+  /**
+   * Wrap a scene mutation so the prior state lands on the undo stack.
+   * Same call signature as `setScene` (accepts updater fn or value).
+   * Rapid follow-ups within 250ms reuse the same undo entry — so a
+   * fast drag-scrub on a value records exactly one undo step.
+   */
+  /**
+   * Public `setScene` wrapper that pushes the prior state onto the undo
+   * stack before applying the update. Within a 250ms window, rapid
+   * follow-up writes coalesce into the same history entry so a single
+   * drag becomes one undo step.
+   */
+  const setScene = useCallback((updater) => {
+    setSceneInternal((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      if (next === prev) return prev;
+      const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const coalesce = now < historyCoalesceUntilRef.current;
+      historyCoalesceUntilRef.current = now + 250;
+      if (!coalesce) {
+        undoStackRef.current.push(prev);
+        if (undoStackRef.current.length > 100) undoStackRef.current.shift();
+        redoStackRef.current.length = 0;
+        setHistoryDepth({ undo: undoStackRef.current.length, redo: 0 });
+      }
+      return next;
+    });
+  }, []);
+
+  /** Replace the scene WITHOUT pushing a history entry — used by load / reset. */
+  const replaceSceneNoHistory = useCallback((next) => {
+    undoStackRef.current.length = 0;
+    redoStackRef.current.length = 0;
+    historyCoalesceUntilRef.current = 0;
+    setHistoryDepth({ undo: 0, redo: 0 });
+    setSceneInternal(next);
+  }, []);
+
+  const undo = useCallback(() => {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    redoStackRef.current.push(sceneRef.current);
+    historyCoalesceUntilRef.current = 0;
+    setSceneInternal(prev);
+    setHistoryDepth({ undo: undoStackRef.current.length, redo: redoStackRef.current.length });
+  }, []);
+
+  const redo = useCallback(() => {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    undoStackRef.current.push(sceneRef.current);
+    historyCoalesceUntilRef.current = 0;
+    setSceneInternal(next);
+    setHistoryDepth({ undo: undoStackRef.current.length, redo: redoStackRef.current.length });
+  }, []);
 
   const flowRef = useRef(flowState);
   flowRef.current = flowState;
@@ -278,12 +352,15 @@ export default function SceneStudioInner() {
 
     // Find the active recording target — only if the user has explicitly
     // selected a clip on this layer and the playhead sits inside it.
+    // Read selectedClipId from the ref so this callback never goes stale
+    // when invoked via window.__sceneStudio or a closure-captured handler.
     let targetClip = null;
     let targetTrack = null;
-    if (selectedClipId) {
+    const selClipId = selectedClipIdRef.current;
+    if (selClipId) {
       for (const tr of tracks) {
         if (tr.layerId !== layerId) continue;
-        const c = (tr.clips || []).find((cl) => cl.id === selectedClipId);
+        const c = (tr.clips || []).find((cl) => cl.id === selClipId);
         if (!c) continue;
         if (flowNow.time >= c.start && flowNow.time < c.start + c.duration) {
           targetClip = c;
@@ -304,16 +381,37 @@ export default function SceneStudioInner() {
       return;
     }
 
-    // Auto-key path: write a keyframe per numeric prop on the patch,
-    // anchored to the playhead's clip-local time.
-    const localT = clipLocalSeconds(targetClip, flowNow.time);
+    // Auto-key path: group the patch by logical channel (position /
+    // scale / rotation), build the merged value (preserving the OTHER
+    // component for vec2 channels from the channel's current value at
+    // the playhead OR the base pose), then write one key per channel.
+    const localT = clipLocalSeconds(targetClip, flowNow.time, { clampPastEnd: true });
     let nextClipChannels = { ...(targetClip.channels || {}) };
-    let touched = false;
+    const grouped = {};   // { [channelName]: { x?, y?, scalar? } }
     for (const [prop, value] of Object.entries(patch)) {
-      if (!CHANNEL_PROPS.includes(prop)) continue;
+      const mapping = SPRITE_PROP_TO_CHANNEL[prop];
+      if (!mapping) continue;
       if (typeof value !== 'number' || !Number.isFinite(value)) continue;
-      const ch = nextClipChannels[prop] || { keys: [] };
-      nextClipChannels[prop] = insertOrUpdateKey(ch, localT, value);
+      const bag = grouped[mapping.channel] || (grouped[mapping.channel] = {});
+      if (mapping.component) bag[mapping.component] = value;
+      else bag.scalar = value;
+    }
+    let touched = false;
+    for (const [channelName, bag] of Object.entries(grouped)) {
+      const existing = nextClipChannels[channelName];
+      const layout = channelLayout(channelName);
+      let v;
+      if (layout === 'vec2') {
+        const current = existing?.keys?.length
+          ? evalChannel(existing, localT)
+          : channelName === 'scale'
+            ? { x: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.scaleX ?? 1, y: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.scaleY ?? 1 }
+            : { x: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.x ?? 0, y: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.y ?? 0 };
+        v = composeVec2Value(current, bag);
+      } else {
+        v = typeof bag.scalar === 'number' ? bag.scalar : (existing?.keys?.length ? evalChannel(existing, localT) : 0);
+      }
+      nextClipChannels[channelName] = insertOrUpdateKey(existing || { keys: [] }, localT, v);
       touched = true;
     }
     if (!touched) {
@@ -349,7 +447,7 @@ export default function SceneStudioInner() {
       };
       return { ...prev, flow: deriveFlowGraph(nextFlow) };
     });
-  }, [selectedClipId]);
+  }, [setScene]);
 
   const handleTransformLayer = useCallback((layerId, patch) => {
     handlePatchTransform(layerId, patch);
@@ -505,7 +603,7 @@ export default function SceneStudioInner() {
     try {
       const existing = await loadSceneFromHandle(handle);
       if (existing) {
-        setScene(existing);
+        replaceSceneNoHistory(existing);
         setSelectedLayerId(null);
         setFlowState(createInitialFlowState());
         const rel = existing.projectRoot ? `${existing.projectRoot}/scene.json` : 'scene.json';
@@ -674,12 +772,183 @@ export default function SceneStudioInner() {
    */
   const handleSelectClip = useCallback((clipId) => {
     setSelectedClipId(clipId);
+    setSelectedKey(null);
     if (!clipId) return;
     for (const track of sceneRef.current.flow?.tracks || []) {
       const clip = track.clips?.find((c) => c.id === clipId);
       if (clip) { setSelectedLayerId(track.layerId); return; }
     }
   }, []);
+
+  // ── Timeline keyframe selection + clipboard ─────────────────────────
+
+  const handleSelectKey = useCallback((ref) => {
+    setSelectedKey(ref);
+  }, []);
+
+  /** Update the `t` of a specific key (timeline diamond drag). */
+  const handleMoveKey = useCallback((clipId, name, idx, newT) => {
+    setScene((prev) => {
+      const tracks = (prev.flow?.tracks || []).map((tr) => {
+        if (!tr.clips?.some((c) => c.id === clipId)) return tr;
+        return {
+          ...tr,
+          clips: tr.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const ch = c.channels?.[name];
+            if (!ch?.keys?.[idx]) return c;
+            const clamped = Math.max(0, Math.min(c.duration, newT));
+            const keys = ch.keys.map((k, i) => (i === idx ? { ...k, t: clamped } : k));
+            keys.sort((a, b) => a.t - b.t);
+            return { ...c, channels: { ...c.channels, [name]: { keys } } };
+          })
+        };
+      });
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks }) };
+    });
+  }, [setScene]);
+
+  /** Delete the selected timeline keyframe. */
+  const handleDeleteSelectedKey = useCallback(() => {
+    const sel = selectedKeyRef.current;
+    if (!sel) return false;
+    setScene((prev) => {
+      const tracks = (prev.flow?.tracks || []).map((tr) => ({
+        ...tr,
+        clips: tr.clips.map((c) => {
+          if (c.id !== sel.clipId) return c;
+          const ch = c.channels?.[sel.name];
+          if (!ch?.keys) return c;
+          const keys = ch.keys.filter((_, i) => i !== sel.idx);
+          const nextChannels = { ...c.channels };
+          if (keys.length) nextChannels[sel.name] = { keys };
+          else delete nextChannels[sel.name];
+          return { ...c, channels: Object.keys(nextChannels).length ? nextChannels : null };
+        })
+      }));
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks }) };
+    });
+    setSelectedKey(null);
+    return true;
+  }, [setScene]);
+
+  /** Copy the selected key's value to the in-memory clipboard. */
+  const handleCopySelectedKey = useCallback(() => {
+    const sel = selectedKeyRef.current;
+    if (!sel) return false;
+    const tracks = sceneRef.current.flow?.tracks || [];
+    for (const tr of tracks) {
+      const c = tr.clips?.find((cl) => cl.id === sel.clipId);
+      if (!c) continue;
+      const key = c.channels?.[sel.name]?.keys?.[sel.idx];
+      if (!key) return false;
+      setClipboardKey({ name: sel.name, v: key.v, out: key.out });
+      return true;
+    }
+    return false;
+  }, []);
+
+  /**
+   * Paste the clipboard value into the selected clip's matching channel
+   * at the playhead. Falls back to inserting on the currently-selected
+   * clip if the clipboard channel doesn't exist yet.
+   */
+  const handlePasteKey = useCallback(() => {
+    const cb = clipboardKeyRef.current;
+    if (!cb) return false;
+    const clipId = selectedClipIdRef.current;
+    if (!clipId) return false;
+    const tracks = sceneRef.current.flow?.tracks || [];
+    let targetClip = null;
+    let targetTrackId = null;
+    for (const tr of tracks) {
+      const c = tr.clips?.find((cl) => cl.id === clipId);
+      if (c) { targetClip = c; targetTrackId = tr.id; break; }
+    }
+    if (!targetClip) return false;
+    const localT = clipLocalSeconds(targetClip, flowRef.current.time, { clampPastEnd: true });
+    setScene((prev) => {
+      const ftracks = (prev.flow?.tracks || []).map((tr) => {
+        if (tr.id !== targetTrackId) return tr;
+        return {
+          ...tr,
+          clips: tr.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const existing = c.channels?.[cb.name] || { keys: [] };
+            const nextCh = insertOrUpdateKey(existing, localT, cb.v, { out: cb.out });
+            return { ...c, channels: { ...(c.channels || {}), [cb.name]: nextCh } };
+          })
+        };
+      });
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks: ftracks }) };
+    });
+    return true;
+  }, [setScene]);
+
+  /** Duplicate the selected key at the playhead (Ctrl+D). */
+  const handleDuplicateSelectedKey = useCallback(() => {
+    const ok = handleCopySelectedKey();
+    if (!ok) return false;
+    return handlePasteKey();
+  }, [handleCopySelectedKey, handlePasteKey]);
+
+  // Drop stale selectedKey if its clip / channel / idx no longer exist.
+  useEffect(() => {
+    if (!selectedKey) return;
+    const tracks = scene.flow?.tracks || [];
+    for (const tr of tracks) {
+      const c = tr.clips?.find((cl) => cl.id === selectedKey.clipId);
+      if (!c) continue;
+      const len = c.channels?.[selectedKey.name]?.keys?.length || 0;
+      if (selectedKey.idx >= len) setSelectedKey(null);
+      return;
+    }
+    setSelectedKey(null);
+  }, [scene, selectedKey]);
+
+  // Global keyboard shortcuts: Delete, Ctrl+D, Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z.
+  // Don't fire when the user is typing in an input/textarea/contentEditable.
+  useEffect(() => {
+    const isEditable = (el) => {
+      if (!el) return false;
+      const tag = (el.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
+      if (el.isContentEditable) return true;
+      return false;
+    };
+    const onKey = (e) => {
+      if (isEditable(e.target)) return;
+      const meta = e.ctrlKey || e.metaKey;
+      if (meta && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (meta && (e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === 'd') {
+        if (handleDuplicateSelectedKey()) e.preventDefault();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === 'c') {
+        if (handleCopySelectedKey()) e.preventDefault();
+        return;
+      }
+      if (meta && e.key.toLowerCase() === 'v') {
+        if (handlePasteKey()) e.preventDefault();
+        return;
+      }
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (handleDeleteSelectedKey()) e.preventDefault();
+        return;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo, redo, handleDuplicateSelectedKey, handleCopySelectedKey, handlePasteKey, handleDeleteSelectedKey]);
 
   /**
    * Selecting a layer (via hierarchy, viewport click, or timeline label)
@@ -695,9 +964,14 @@ export default function SceneStudioInner() {
       const tracks = sceneRef.current.flow?.tracks || [];
       for (const tr of tracks) {
         if (tr.clips?.some((c) => c.id === curClipId)) {
-          return tr.layerId === layerId ? curClipId : null;
+          if (tr.layerId !== layerId) {
+            setSelectedKey(null);
+            return null;
+          }
+          return curClipId;
         }
       }
+      setSelectedKey(null);
       return null;
     });
   }, []);
@@ -724,7 +998,7 @@ export default function SceneStudioInner() {
     try {
       const loaded = await loadSceneFromFile();
       if (!loaded) return;
-      setScene(loaded);
+      replaceSceneNoHistory(loaded);
       setSelectedLayerId(null);
       setFlowState(createInitialFlowState());
       log('Scene Studio: scene loaded', 'ok');
@@ -780,11 +1054,22 @@ export default function SceneStudioInner() {
       load: () => handleLoad(),
       rescanAssets: () => refreshAssetBrowser(rootHandle),
       reset: () => {
-        setScene(createEmptyScene('Untitled scene'));
+        replaceSceneNoHistory(createEmptyScene('Untitled scene'));
         setSelectedLayerId(null);
+        setSelectedClipId(null);
+        setSelectedKey(null);
         setAssetDescriptors({});
         setFlowState(createInitialFlowState());
-      }
+      },
+      undo,
+      redo,
+      historyDepth: () => ({ undo: undoStackRef.current.length, redo: redoStackRef.current.length }),
+      selectedKey: () => selectedKeyRef.current,
+      selectKey: (clipId, name, idx) => setSelectedKey({ clipId, name, idx }),
+      deleteSelectedKey: () => handleDeleteSelectedKey(),
+      duplicateSelectedKey: () => handleDuplicateSelectedKey(),
+      copySelectedKey: () => handleCopySelectedKey(),
+      pasteKey: () => handlePasteKey()
     };
     window.__sceneStudio = api;
     return () => {
@@ -833,6 +1118,10 @@ export default function SceneStudioInner() {
         onRootDragOver={handleRootDragOver}
         onRootDragLeave={handleRootDragLeave}
         onRootDrop={handleRootDrop}
+        onUndo={undo}
+        onRedo={redo}
+        canUndo={historyDepth.undo > 0}
+        canRedo={historyDepth.redo > 0}
       />
 
       <div className="scene-studio-body">
@@ -890,9 +1179,12 @@ export default function SceneStudioInner() {
             selectedLayerId={selectedLayerId}
             selectedLayerAssetType={selectedLayerAssetType}
             selectedClipId={selectedClipId}
+            selectedKey={selectedKey}
             assetDescriptors={assetDescriptors}
             onSelectLayer={handleSelectLayer}
             onSelectClip={handleSelectClip}
+            onSelectKey={handleSelectKey}
+            onMoveKey={handleMoveKey}
             onPatchFlow={patchFlow}
             onFlowAction={handleFlowAction}
           />

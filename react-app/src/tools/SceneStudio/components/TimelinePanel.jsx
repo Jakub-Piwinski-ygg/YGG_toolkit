@@ -37,9 +37,12 @@ export function TimelinePanel({
   selectedLayerId,
   selectedLayerAssetType,
   selectedClipId,
+  selectedKey,
   assetDescriptors = {},
   onSelectLayer,
   onSelectClip,
+  onSelectKey,
+  onMoveKey,
   onPatchFlow,
   onFlowAction
 }) {
@@ -706,6 +709,14 @@ export function TimelinePanel({
                     snapTime={(value, disable) => snapTime(value, c.id, track.id, disable)}
                     onAddLeft={() => insertAdjacentClip(track, c, 'left')}
                     onAddRight={() => insertAdjacentClip(track, c, 'right')}
+                    selectedKey={selectedKey}
+                    onSelectKey={(clipId, name, idx) => {
+                      onSelectClip?.(clipId);
+                      onSelectKey?.({ clipId, name, idx });
+                      const key = c.channels?.[name]?.keys?.[idx];
+                      if (key) onFlowAction?.('seek', c.start + key.t);
+                    }}
+                    onMoveKey={(clipId, name, idx, newT) => onMoveKey?.(clipId, name, idx, newT)}
                   />
                 ))}
               </div>
@@ -754,7 +765,7 @@ export function TimelinePanel({
 const EDGE_HIT_PX = 6;
 const EDGE_GUARD_PX = 12;
 
-function ClipBlock({ clip, label, selected, duration, siblings = [], pxPerSec, onSelect, onPatch, onRemove, snapTime, onAddLeft, onAddRight }) {
+function ClipBlock({ clip, label, selected, duration, siblings = [], pxPerSec, onSelect, onPatch, onRemove, snapTime, onAddLeft, onAddRight, selectedKey, onSelectKey, onMoveKey }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -888,7 +899,13 @@ function ClipBlock({ clip, label, selected, duration, siblings = [], pxPerSec, o
       >
         ✕
       </button>
-      <ClipKeyframeDots clip={clip} pxPerSec={pxPerSec} />
+      <ClipKeyframeDots
+        clip={clip}
+        pxPerSec={pxPerSec}
+        selectedKey={selectedKey}
+        onSelectKey={onSelectKey}
+        onMoveKey={onMoveKey}
+      />
       <div className="scene-clip-edge scene-clip-edge--right" />
       {selected && canAddRight && (
         <button
@@ -905,34 +922,103 @@ function ClipBlock({ clip, label, selected, duration, siblings = [], pxPerSec, o
 }
 
 /**
- * Render small diamond markers on a clip block at each keyframe's
- * clip-local time. One row, all channels overlapping — colored by prop
- * via CSS class. Pointer-events are off so they don't intercept the
- * clip's drag/resize handles.
+ * Render diamond markers on a clip block at each keyframe's clip-local
+ * time, color-coded by logical channel (position / scale / rotation).
+ *
+ *   - Click selects the keyframe + seeks the playhead to it.
+ *   - Horizontal drag moves the key's `t` (clamped to the clip's range
+ *     and to neighbouring keys).
+ *   - The selected diamond gets a white outline.
+ *
+ * Wrapper has `pointer-events: none` so empty bands don't block the
+ * clip's own drag/resize; each diamond re-enables its own events.
  */
-function ClipKeyframeDots({ clip, pxPerSec }) {
+function ClipKeyframeDots({
+  clip, pxPerSec, selectedKey, onSelectKey, onMoveKey
+}) {
   if (!clip.channels) return null;
   const dots = [];
-  for (const prop of ['x', 'y', 'scaleX', 'scaleY', 'rotation']) {
-    const ch = clip.channels[prop];
+  for (const name of ['position', 'scale', 'rotation']) {
+    const ch = clip.channels[name];
     if (!ch?.keys?.length) continue;
     for (let i = 0; i < ch.keys.length; i++) {
       const k = ch.keys[i];
-      dots.push({ prop, idx: i, t: k.t, v: k.v });
+      dots.push({ name, idx: i, t: k.t, v: k.v, key: `${name}-${i}` });
     }
   }
   if (!dots.length) return null;
   return (
     <div className="scene-clip-keyframes">
       {dots.map((d) => (
-        <span
-          key={`${d.prop}-${d.idx}`}
-          className={`scene-clip-keyframe scene-clip-keyframe--${d.prop}`}
-          style={{ left: `${d.t * pxPerSec}px` }}
-          title={`${d.prop} = ${d.v.toFixed(2)} @ ${d.t.toFixed(2)}s`}
+        <KeyframeDot
+          key={d.key}
+          dot={d}
+          clip={clip}
+          pxPerSec={pxPerSec}
+          selected={
+            selectedKey?.clipId === clip.id
+            && selectedKey.name === d.name
+            && selectedKey.idx === d.idx
+          }
+          onSelect={() => onSelectKey?.(clip.id, d.name, d.idx)}
+          onMove={(newT) => onMoveKey?.(clip.id, d.name, d.idx, newT)}
         />
       ))}
     </div>
+  );
+}
+
+function KeyframeDot({ dot, clip, pxPerSec, selected, onSelect, onMove }) {
+  const ref = useRef(null);
+  const dragRef = useRef(null);
+  const fmtVal = (v) => {
+    if (typeof v === 'number') return v.toFixed(2);
+    if (v && typeof v === 'object' && typeof v.x === 'number') {
+      return `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`;
+    }
+    return String(v);
+  };
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect?.();
+    dragRef.current = {
+      startClientX: e.clientX,
+      origT: dot.t,
+      moved: false,
+      pointerId: e.pointerId
+    };
+    try { ref.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  const onPointerMove = (e) => {
+    const st = dragRef.current;
+    if (!st) return;
+    const deltaT = (e.clientX - st.startClientX) / pxPerSec;
+    if (!st.moved && Math.abs(deltaT) < (3 / pxPerSec)) return;
+    st.moved = true;
+    const clamped = Math.max(0, Math.min(clip.duration, st.origT + deltaT));
+    onMove?.(clamped);
+  };
+  const onPointerUp = (e) => {
+    if (!dragRef.current) return;
+    try { ref.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    dragRef.current = null;
+  };
+  return (
+    <span
+      ref={ref}
+      className={
+        `scene-clip-keyframe scene-clip-keyframe--${dot.name}`
+        + (selected ? ' is-selected' : '')
+      }
+      style={{ left: `${dot.t * pxPerSec}px` }}
+      title={`${dot.name} = ${fmtVal(dot.v)} @ ${dot.t.toFixed(2)}s — drag to move, click to seek`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    />
   );
 }
 

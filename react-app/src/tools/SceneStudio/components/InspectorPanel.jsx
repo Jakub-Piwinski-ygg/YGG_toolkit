@@ -5,12 +5,14 @@ import { useMemo, useState } from 'react';
 import { hasPortraitOverride } from '../engine/orientationManager.js';
 import { CURVE_PRESETS } from '../engine/sceneModel.js';
 import {
-  CHANNEL_PROPS,
-  clipLocalSeconds,
+  CHANNEL_DEFS,
+  CHANNEL_NAMES,
+  channelLayout,
   evalChannel,
   insertOrUpdateKey,
   moveKeyTime,
   removeKey as removeChannelKey,
+  setKeyComponent,
   setKeyOut,
   setKeyValue
 } from '../engine/animation/keyframes.js';
@@ -26,6 +28,21 @@ const PROP_META = {
   scaleX:   { label: 'scale x',  step: 0.01, unit: '×',   toDisplay: (v) => v,           fromDisplay: (v) => v },
   scaleY:   { label: 'scale y',  step: 0.01, unit: '×',   toDisplay: (v) => v,           fromDisplay: (v) => v },
   rotation: { label: 'rotation', step: 1,    unit: '°',   toDisplay: (v) => (v * 180) / Math.PI, fromDisplay: (v) => (v * Math.PI) / 180 }
+};
+
+const CHANNEL_LABEL = {
+  position: 'position (x, y)',
+  scale:    'scale (x, y)',
+  rotation: 'rotation'
+};
+
+/** Map a sprite transform prop name → logical channel name. */
+const PROP_TO_CHANNEL = {
+  x: 'position',
+  y: 'position',
+  scaleX: 'scale',
+  scaleY: 'scale',
+  rotation: 'rotation'
 };
 
 export function InspectorPanel({
@@ -113,22 +130,22 @@ export function InspectorPanel({
 
         <TransformField
           label="x" prop="x" value={t.x} step={1}
-          recording={!!recordingClip} hasChannel={!!recordingChannels?.x}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
           onChange={(v) => onPatchTransform(layer.id, { x: v })}
         />
         <TransformField
           label="y" prop="y" value={t.y} step={1}
-          recording={!!recordingClip} hasChannel={!!recordingChannels?.y}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
           onChange={(v) => onPatchTransform(layer.id, { y: v })}
         />
         <TransformField
           label="scale x" prop="scaleX" value={t.scaleX ?? 1} step={0.01} min={0.01}
-          recording={!!recordingClip} hasChannel={!!recordingChannels?.scaleX}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.scale}
           onChange={(v) => onPatchTransform(layer.id, { scaleX: v })}
         />
         <TransformField
           label="scale y" prop="scaleY" value={t.scaleY ?? 1} step={0.01} min={0.01}
-          recording={!!recordingClip} hasChannel={!!recordingChannels?.scaleY}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.scale}
           onChange={(v) => onPatchTransform(layer.id, { scaleY: v })}
         />
         <TransformField
@@ -315,12 +332,12 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, des
 
   // What to render in the clip header — gives users a fast hint at what
   // the clip does without opening the channels block.
-  const animatedProps = supportsChannels
-    ? CHANNEL_PROPS.filter((p) => clip.channels?.[p]?.keys?.length)
+  const animatedChannels = supportsChannels
+    ? CHANNEL_NAMES.filter((n) => clip.channels?.[n]?.keys?.length)
     : [];
   const headerLabel = isSpine
     ? (clip.anim || '(setup pose)')
-    : (animatedProps.length ? animatedProps.join(' · ') : 'static');
+    : (animatedChannels.length ? animatedChannels.join(' · ') : 'static');
 
   return (
     <div className="scene-field-group scene-clip-section">
@@ -438,8 +455,8 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, des
  */
 function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
   const channels = clip.channels || {};
-  const enabled = useMemo(() => new Set(Object.keys(channels)), [channels]);
-  const [selectedKey, setSelectedKey] = useState(null); // { prop, idx } | null
+  const enabled = useMemo(() => new Set(Object.keys(channels).filter((n) => channels[n]?.keys?.length)), [channels]);
+  const [selectedKey, setSelectedKey] = useState(null); // { name, idx } | null
 
   // Where the playhead currently sits, in clip-local seconds. Used as
   // the time for the second seed key and for "add key at playhead".
@@ -449,88 +466,96 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
     onPatchClip({ channels: Object.keys(next).length ? next : null });
   };
 
-  const patchChannel = (prop, channel) => {
+  const patchChannel = (name, channel) => {
     const next = { ...channels };
-    if (channel?.keys?.length) next[prop] = channel;
-    else delete next[prop];
+    if (channel?.keys?.length) next[name] = channel;
+    else delete next[name];
     writeChannels(next);
-    if (selectedKey?.prop === prop) {
+    if (selectedKey?.name === name) {
       const ks = channel?.keys || [];
       if (selectedKey.idx >= ks.length) setSelectedKey(null);
     }
   };
 
-  const toggleProp = (prop) => {
-    if (enabled.has(prop)) {
-      patchChannel(prop, null);
+  const seedValueForChannel = (name) => {
+    if (name === 'position') return { x: basePose?.x ?? 0, y: basePose?.y ?? 0 };
+    if (name === 'scale')    return { x: basePose?.scaleX ?? 1, y: basePose?.scaleY ?? 1 };
+    if (name === 'rotation') return basePose?.rotation ?? 0;
+    return 0;
+  };
+
+  const toggleChannel = (name) => {
+    if (enabled.has(name)) {
+      patchChannel(name, null);
       return;
     }
-    const seed = basePose?.[prop] ?? 0;
+    const seed = seedValueForChannel(name);
     const keys = [{ t: 0, v: seed, out: 'linear' }];
     if (localT > 0.001 && localT < clip.duration - 0.001) {
       keys.push({ t: localT, v: seed, out: 'linear' });
     } else {
       keys.push({ t: clip.duration, v: seed, out: 'linear' });
     }
-    patchChannel(prop, { keys });
+    patchChannel(name, { keys });
   };
 
-  const patchKeyAt = (prop, idx, patch) => {
-    const ch = channels[prop];
+  const patchKeyAt = (name, idx, patch) => {
+    const ch = channels[name];
     if (!ch) return;
     let next = ch;
     if ('v' in patch) next = setKeyValue(next, idx, patch.v);
+    if ('component' in patch) next = setKeyComponent(next, idx, patch.component, patch.componentValue);
     if ('t' in patch) next = moveKeyTime(next, idx, patch.t);
     if ('out' in patch) next = setKeyOut(next, idx, patch.out);
-    patchChannel(prop, next);
+    patchChannel(name, next);
   };
 
-  const deleteKey = (prop, idx) => {
-    const ch = channels[prop];
+  const deleteKey = (name, idx) => {
+    const ch = channels[name];
     if (!ch) return;
     const next = removeChannelKey(ch, idx);
-    patchChannel(prop, next.keys.length ? next : null);
+    patchChannel(name, next.keys.length ? next : null);
   };
 
-  const addKeyAtPlayhead = (prop) => {
-    const ch = channels[prop] || { keys: [] };
-    const currentV = ch.keys.length ? evalChannel(ch, localT) : (basePose?.[prop] ?? 0);
+  const addKeyAtPlayhead = (name) => {
+    const ch = channels[name] || { keys: [] };
+    const currentV = ch.keys.length ? evalChannel(ch, localT) : seedValueForChannel(name);
     const next = insertOrUpdateKey(ch, localT, currentV, { out: 'linear' });
-    patchChannel(prop, next);
+    patchChannel(name, next);
   };
 
   return (
     <div className="scene-channels-editor">
       <div className="scene-tween-chips">
         <span className="scene-field-group-sub">animate:</span>
-        {CHANNEL_PROPS.map((p) => (
+        {CHANNEL_NAMES.map((name) => (
           <button
-            key={p}
+            key={name}
             type="button"
-            className={'scene-chip' + (enabled.has(p) ? ' on' : '')}
-            onClick={() => toggleProp(p)}
-            title={enabled.has(p)
-              ? `Stop animating ${p} (deletes all of its keys)`
-              : `Animate ${p}. Once enabled, scrub the timeline + edit the value and the keyframe records automatically.`}
+            className={'scene-chip' + (enabled.has(name) ? ' on' : '')}
+            onClick={() => toggleChannel(name)}
+            title={enabled.has(name)
+              ? `Stop animating ${name} (deletes all of its keys)`
+              : `Animate ${name}. Once enabled, scrub the timeline + drag the sprite (or edit transform fields) and the keyframe records automatically.`}
           >
-            {PROP_META[p].label}
+            {CHANNEL_LABEL[name] || name}
           </button>
         ))}
       </div>
 
       {!enabled.size && (
         <div className="scene-empty" style={{ padding: '8px 0', fontSize: 10 }}>
-          enable a property above. once enabled, scrub the timeline and
+          enable a channel above. once enabled, scrub the timeline and
           drag the sprite (or edit transform fields) — keyframes record
           automatically at the playhead.
         </div>
       )}
 
-      {[...enabled].map((prop) => (
+      {[...enabled].map((name) => (
         <ChannelBlock
-          key={prop}
-          prop={prop}
-          channel={channels[prop]}
+          key={name}
+          name={name}
+          channel={channels[name]}
           clipDuration={clip.duration}
           localT={localT}
           selectedKey={selectedKey}
@@ -541,11 +566,11 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
         />
       ))}
 
-      {selectedKey && channels[selectedKey.prop]?.keys?.[selectedKey.idx] && selectedKey.idx < channels[selectedKey.prop].keys.length - 1 && (
+      {selectedKey && channels[selectedKey.name]?.keys?.[selectedKey.idx] && selectedKey.idx < channels[selectedKey.name].keys.length - 1 && (
         <div className="scene-channel-curve">
           <div className="scene-channel-curve-head">
             <span>
-              {PROP_META[selectedKey.prop]?.label || selectedKey.prop} · curve from key {selectedKey.idx + 1} → {selectedKey.idx + 2}
+              {selectedKey.name} · curve from key {selectedKey.idx + 1} → {selectedKey.idx + 2}
             </span>
             <button
               type="button"
@@ -557,8 +582,8 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
             </button>
           </div>
           <CurveEditor
-            value={channels[selectedKey.prop].keys[selectedKey.idx].out || 'linear'}
-            onChange={(spec) => patchKeyAt(selectedKey.prop, selectedKey.idx, { out: spec })}
+            value={channels[selectedKey.name].keys[selectedKey.idx].out || 'linear'}
+            onChange={(spec) => patchKeyAt(selectedKey.name, selectedKey.idx, { out: spec })}
           />
         </div>
       )}
@@ -566,19 +591,21 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
   );
 }
 
-function ChannelBlock({ prop, channel, clipDuration, localT, selectedKey, onSelectKey, onPatchKeyAt, onDeleteKey, onAddKeyAtPlayhead }) {
-  const meta = PROP_META[prop];
+function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSelectKey, onPatchKeyAt, onDeleteKey, onAddKeyAtPlayhead }) {
   const keys = channel?.keys || [];
+  const layout = channelLayout(name);
+  const isVec2 = layout === 'vec2';
+  const isRotation = name === 'rotation';
   return (
     <div className="scene-channel-block">
       <div className="scene-channel-head">
-        <span className="scene-channel-label">{meta.label}</span>
+        <span className="scene-channel-label">{CHANNEL_LABEL[name] || name}</span>
         <span className="scene-channel-meta">{keys.length} key{keys.length === 1 ? '' : 's'}</span>
         <button
           type="button"
           className="scene-btn scene-btn--ghost scene-btn--sm"
-          onClick={() => onAddKeyAtPlayhead(prop)}
-          title={`Add a key for ${meta.label} at the playhead (${localT.toFixed(2)}s)`}
+          onClick={() => onAddKeyAtPlayhead(name)}
+          title={`Add a key for ${name} at the playhead (${localT.toFixed(2)}s)`}
         >
           + key @ {localT.toFixed(2)}s
         </button>
@@ -587,7 +614,14 @@ function ChannelBlock({ prop, channel, clipDuration, localT, selectedKey, onSele
         <thead>
           <tr>
             <th>t (s)</th>
-            <th>{meta.label}</th>
+            {isVec2 ? (
+              <>
+                <th>x</th>
+                <th>y</th>
+              </>
+            ) : (
+              <th>{isRotation ? 'deg' : 'value'}</th>
+            )}
             <th>out →</th>
             <th aria-label="delete" />
           </tr>
@@ -595,7 +629,7 @@ function ChannelBlock({ prop, channel, clipDuration, localT, selectedKey, onSele
         <tbody>
           {keys.map((k, i) => {
             const isLast = i === keys.length - 1;
-            const isSelected = selectedKey?.prop === prop && selectedKey.idx === i;
+            const isSelected = selectedKey?.name === name && selectedKey.idx === i;
             return (
               <tr key={i} className={'scene-channel-row' + (isSelected ? ' selected' : '')}>
                 <td>
@@ -605,18 +639,48 @@ function ChannelBlock({ prop, channel, clipDuration, localT, selectedKey, onSele
                     step={0.01}
                     min={0}
                     max={clipDuration}
-                    onChange={(v) => onPatchKeyAt(prop, i, { t: Math.max(0, Math.min(clipDuration, v)) })}
+                    onChange={(v) => onPatchKeyAt(name, i, { t: Math.max(0, Math.min(clipDuration, v)) })}
                   />
                 </td>
-                <td>
-                  <DragNumberField
-                    label=""
-                    value={meta.toDisplay(k.v)}
-                    step={meta.step}
-                    suffix={meta.unit === '°' ? '°' : undefined}
-                    onChange={(v) => onPatchKeyAt(prop, i, { v: meta.fromDisplay(v) })}
-                  />
-                </td>
+                {isVec2 ? (
+                  <>
+                    <td>
+                      <DragNumberField
+                        label=""
+                        value={Number((k.v?.x ?? 0).toFixed(3))}
+                        step={name === 'scale' ? 0.01 : 1}
+                        onChange={(v) => onPatchKeyAt(name, i, { component: 'x', componentValue: v })}
+                      />
+                    </td>
+                    <td>
+                      <DragNumberField
+                        label=""
+                        value={Number((k.v?.y ?? 0).toFixed(3))}
+                        step={name === 'scale' ? 0.01 : 1}
+                        onChange={(v) => onPatchKeyAt(name, i, { component: 'y', componentValue: v })}
+                      />
+                    </td>
+                  </>
+                ) : (
+                  <td>
+                    {isRotation ? (
+                      <DragNumberField
+                        label=""
+                        value={Number(((k.v * 180) / Math.PI).toFixed(2))}
+                        step={1}
+                        suffix="°"
+                        onChange={(v) => onPatchKeyAt(name, i, { v: (v * Math.PI) / 180 })}
+                      />
+                    ) : (
+                      <DragNumberField
+                        label=""
+                        value={Number(k.v.toFixed(3))}
+                        step={1}
+                        onChange={(v) => onPatchKeyAt(name, i, { v })}
+                      />
+                    )}
+                  </td>
+                )}
                 <td>
                   {isLast ? (
                     <span className="scene-channel-out-last">—</span>
@@ -624,7 +688,7 @@ function ChannelBlock({ prop, channel, clipDuration, localT, selectedKey, onSele
                     <button
                       type="button"
                       className={'scene-channel-out-btn' + (isSelected ? ' is-active' : '')}
-                      onClick={() => onSelectKey(isSelected ? null : { prop, idx: i })}
+                      onClick={() => onSelectKey(isSelected ? null : { name, idx: i })}
                       title="Click to edit the curve from this key to the next"
                     >
                       <CurveThumbnail value={k.out || 'linear'} size={26} />
@@ -635,7 +699,7 @@ function ChannelBlock({ prop, channel, clipDuration, localT, selectedKey, onSele
                   <button
                     type="button"
                     className="scene-icon-btn"
-                    onClick={() => onDeleteKey(prop, i)}
+                    onClick={() => onDeleteKey(name, i)}
                     title="Delete this key"
                   >
                     ✕

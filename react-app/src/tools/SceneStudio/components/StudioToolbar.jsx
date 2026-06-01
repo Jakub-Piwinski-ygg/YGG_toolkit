@@ -20,7 +20,11 @@ export function StudioToolbar({
   rootDropHover = false,
   onRootDragOver,
   onRootDragLeave,
-  onRootDrop
+  onRootDrop,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false
 }) {
   const supported = isFsAccessSupported();
   const handleFallbackInput = (e) => {
@@ -113,6 +117,20 @@ export function StudioToolbar({
           {supported ? 'drop on folder slot' : 'read-only workspace (Firefox / Safari)'}
         </span>
       )}
+
+      <div className="scene-toolbar-divider" />
+      <button
+        className="scene-btn"
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Undo (Ctrl+Z)"
+      >↶</button>
+      <button
+        className="scene-btn"
+        onClick={onRedo}
+        disabled={!canRedo}
+        title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
+      >↷</button>
 
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>
       <button className="scene-btn scene-btn--primary" onClick={onSave} disabled={busy}>save</button>

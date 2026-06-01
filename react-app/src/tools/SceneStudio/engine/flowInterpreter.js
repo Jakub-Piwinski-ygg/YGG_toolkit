@@ -7,6 +7,21 @@ export function clipAt(track, t) {
 }
 
 /**
+ * Find the latest clip on a track whose `start` ≤ t. Returns null if the
+ * playhead is before every clip. Used by PNG channel application so the
+ * sprite holds the last keyframe value past the clip's end instead of
+ * snapping back to base pose.
+ */
+export function lastClipAt(track, t) {
+  if (!track?.clips?.length) return null;
+  let chosen = null;
+  for (const c of track.clips) {
+    if (c.start <= t && (!chosen || c.start > chosen.start)) chosen = c;
+  }
+  return chosen;
+}
+
+/**
  * Evaluate one of the supported easing curves at progress `p` ∈ [0,1].
  * Returns a value in [0,1]. Unknown names fall back to linear.
  */

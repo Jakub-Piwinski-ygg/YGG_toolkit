@@ -16,8 +16,8 @@ import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { resolveTransform } from './orientationManager.js';
 import { resolveAssetUrl } from './persist.js';
 import { buildLayerTree, tracksForLayer } from './sceneModel.js';
-import { clipAt, remapClipTime } from './flowInterpreter.js';
-import { CHANNEL_PROPS, clipLocalSeconds, evalChannel } from './animation/keyframes.js';
+import { clipAt, lastClipAt, remapClipTime } from './flowInterpreter.js';
+import { CHANNEL_DEFS, CHANNEL_NAMES, clipLocalSeconds, evalChannel } from './animation/keyframes.js';
 import { buildSpineFromUrls, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
 
 async function loadTextureFromUrl(url) {
@@ -693,12 +693,12 @@ function applyVideoClip(obj, track, t, runtimePlaying, runtimeHeld) {
 }
 
 /**
- * Walk every channel on every active clip on a PNG layer and override the
- * base pose written by `syncTransforms`. Channels are clip-local — each
- * key's `t` is seconds from `clip.start`, with loop / speed respected via
- * `clipLocalSeconds`. Multiple tracks animating the same property =
- * last-wins (array order). Properties without a channel are left at the
- * base value.
+ * Walk every logical channel on the latest active clip per track on a PNG
+ * layer and override the base pose written by `syncTransforms`. Channels
+ * are clip-local — `clipLocalSeconds` honours loop + speed and clamps
+ * times past the end of a non-looping clip so the sprite holds its last
+ * keyframe instead of snapping back to base pose. Multiple tracks
+ * animating the same channel = last-wins (array order).
  */
 function applyPngChannels(obj, layer, tracks, t, orientation) {
   if (!tracks.length) return;
@@ -707,25 +707,16 @@ function applyPngChannels(obj, layer, tracks, t, orientation) {
     : layer.transforms?.landscape;
   if (!baseT) return;
 
-  let scaleDirty = false;
-  let nextScaleX = obj.scale?.x ?? 1;
-  let nextScaleY = obj.scale?.y ?? 1;
-
   for (const track of tracks) {
-    const clip = clipAt(track, t);
+    const clip = lastClipAt(track, t);
     if (!clip?.channels) continue;
-    const localT = clipLocalSeconds(clip, t);
-    for (const prop of CHANNEL_PROPS) {
-      const ch = clip.channels[prop];
-      if (!ch) continue;
+    const localT = clipLocalSeconds(clip, t, { clampPastEnd: true });
+    for (const name of CHANNEL_NAMES) {
+      const ch = clip.channels[name];
+      if (!ch?.keys?.length) continue;
       const val = evalChannel(ch, localT);
-      if (val == null || !Number.isFinite(val)) continue;
-      if (prop === 'x') obj.x = val;
-      else if (prop === 'y') obj.y = val;
-      else if (prop === 'rotation') obj.rotation = val;
-      else if (prop === 'scaleX') { nextScaleX = val; scaleDirty = true; }
-      else if (prop === 'scaleY') { nextScaleY = val; scaleDirty = true; }
+      if (val == null) continue;
+      CHANNEL_DEFS[name]?.apply?.(obj, val);
     }
   }
-  if (scaleDirty && obj.scale?.set) obj.scale.set(nextScaleX, nextScaleY);
 }

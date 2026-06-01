@@ -1388,23 +1388,48 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 2px;
-  height: 6px;
+  bottom: 0;
+  height: 14px;
   pointer-events: none;
+  z-index: 3;
 }
 .scene-clip-keyframe {
   position: absolute;
-  top: 0;
-  width: 6px;
-  height: 6px;
-  margin-left: -3px;
+  top: 1px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
   background: #ffd166;
-  border: 1px solid #1a1d24;
+  border: 2px solid #1a1d24;
+  border-radius: 2px;
   transform: rotate(45deg);
   pointer-events: auto;
+  cursor: ew-resize;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
 }
-.scene-clip-keyframe--x        { background: #ff6b6b; }
-.scene-clip-keyframe--y        { background: #4f9eff; }
-.scene-clip-keyframe--scaleX   { background: #6bcb77; }
-.scene-clip-keyframe--scaleY   { background: #c084fc; }
+.scene-clip-keyframe:hover {
+  filter: brightness(1.2);
+  z-index: 4;
+}
+.scene-clip-keyframe.is-selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 1px #1a1d24, 0 0 6px 1px rgba(255, 255, 255, 0.7);
+  z-index: 5;
+}
+.scene-clip-keyframe--position { background: #4f9eff; }
+.scene-clip-keyframe--scale    { background: #6bcb77; }
 .scene-clip-keyframe--rotation { background: #ffd166; }
+
+/* Disable text selection across the entire timeline UI — drag operations
+   would otherwise highlight ruler numbers, the "zoom" label, etc. Input
+   fields inside the timeline opt back in via the rule below. */
+.scene-timeline {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.scene-timeline input,
+.scene-timeline textarea,
+.scene-timeline [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}

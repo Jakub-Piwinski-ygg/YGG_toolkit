@@ -436,39 +436,58 @@ export function normalizeTween(t) {
 }
 
 /**
- * Normalize one keyframe-channel key. Returns null when t or v can't be
- * parsed as a finite number. `out` (the curve-spec from this key to the
- * next) defaults to `fallbackOut`.
+ * Logical channel layouts mirror `engine/animation/keyframes.js`:
+ *   - `position` → vec2 { x, y }
+ *   - `scale`    → vec2 { x, y }
+ *   - `rotation` → scalar
  */
-function normalizeChannelKey(k, fallbackOut = 'linear') {
+const CHANNEL_LAYOUTS = { position: 'vec2', scale: 'vec2', rotation: 'scalar' };
+
+function normalizeKeyCurve(out, fallbackOut = 'linear') {
+  if (typeof out === 'string') {
+    return CURVE_PRESETS.includes(out) ? out : fallbackOut;
+  }
+  if (out && typeof out === 'object') {
+    if (Array.isArray(out.bezier) && out.bezier.length === 4 && out.bezier.every((n) => Number.isFinite(Number(n)))) {
+      return { bezier: out.bezier.map(Number) };
+    }
+    if (String(out.type || '').toLowerCase() === 'custom') {
+      return normalizeCurve(out, fallbackOut);
+    }
+  }
+  return fallbackOut;
+}
+
+/**
+ * Normalize one keyframe-channel key. `layout` is `'vec2'` or `'scalar'`.
+ * Returns null when t or v can't be parsed.
+ */
+function normalizeChannelKey(k, layout = 'scalar', fallbackOut = 'linear') {
   if (!k || typeof k !== 'object') return null;
   const t = Number(k.t);
-  const v = Number(k.v);
-  if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-  let out = k.out;
-  if (typeof out === 'string') {
-    if (!CURVE_PRESETS.includes(out)) out = fallbackOut;
-  } else if (out && typeof out === 'object') {
-    if (Array.isArray(out.bezier) && out.bezier.length === 4 && out.bezier.every((n) => Number.isFinite(Number(n)))) {
-      out = { bezier: out.bezier.map(Number) };
-    } else if (String(out.type || '').toLowerCase() === 'custom') {
-      out = normalizeCurve(out, fallbackOut);
-    } else {
-      out = fallbackOut;
-    }
+  if (!Number.isFinite(t)) return null;
+  let v;
+  if (layout === 'vec2') {
+    if (!k.v || typeof k.v !== 'object') return null;
+    const vx = Number(k.v.x);
+    const vy = Number(k.v.y);
+    if (!Number.isFinite(vx) || !Number.isFinite(vy)) return null;
+    v = { x: vx, y: vy };
   } else {
-    out = fallbackOut;
+    const num = Number(k.v);
+    if (!Number.isFinite(num)) return null;
+    v = num;
   }
-  return { t: Math.max(0, t), v, out };
+  return { t: Math.max(0, t), v, out: normalizeKeyCurve(k.out, fallbackOut) };
 }
 
 /** Normalize a channel (sorted keys, deduped on near-identical `t`). */
-export function normalizeChannel(ch) {
+export function normalizeChannel(ch, layout = 'scalar') {
   if (!ch || typeof ch !== 'object') return null;
   const raw = Array.isArray(ch.keys) ? ch.keys : [];
   const keys = [];
   for (const k of raw) {
-    const norm = normalizeChannelKey(k);
+    const norm = normalizeChannelKey(k, layout);
     if (norm) keys.push(norm);
   }
   keys.sort((a, b) => a.t - b.t);
@@ -484,24 +503,81 @@ export function normalizeChannel(ch) {
   return { keys: deduped };
 }
 
-/** Normalize the per-clip `channels` map. Returns null when none are valid. */
+/**
+ * Normalize the per-clip `channels` map. Accepts both the new vec2 shape
+ * (channels.position / channels.scale / channels.rotation) and the legacy
+ * per-prop shape (channels.x / channels.y / channels.scaleX / …) — the
+ * legacy shape is folded into the new one on load.
+ */
 export function normalizeChannels(channels) {
   if (!channels || typeof channels !== 'object') return null;
   const out = {};
-  for (const prop of TWEEN_PROPS) {
-    const norm = normalizeChannel(channels[prop]);
-    if (norm) out[prop] = norm;
+
+  // New vec2 shape: pass through with layout-aware key validation.
+  for (const name of Object.keys(CHANNEL_LAYOUTS)) {
+    const norm = normalizeChannel(channels[name], CHANNEL_LAYOUTS[name]);
+    if (norm) out[name] = norm;
   }
+
+  // Legacy per-prop shape: zip x+y into position, scaleX+scaleY into scale.
+  // Only fold props that didn't already get written to a logical channel
+  // above — gives the new shape full precedence.
+  const xCh = channels.x?.keys?.length ? channels.x : null;
+  const yCh = channels.y?.keys?.length ? channels.y : null;
+  if ((xCh || yCh) && !out.position) {
+    out.position = mergeScalarPairToVec2(xCh, yCh);
+  }
+  const sxCh = channels.scaleX?.keys?.length ? channels.scaleX : null;
+  const syCh = channels.scaleY?.keys?.length ? channels.scaleY : null;
+  if ((sxCh || syCh) && !out.scale) {
+    out.scale = mergeScalarPairToVec2(sxCh, syCh);
+  }
+
   return Object.keys(out).length ? out : null;
 }
 
 /**
- * Migrate the legacy `clip.tween = { from, to, curves }` shape to the new
- * `clip.channels[prop] = { keys: [{t:0}, {t:duration}] }` form. Returns
- * `null` when there is no tween or no animated properties.
- *
- * Old `clip.curve` becomes the segment's `out` curve when no per-property
- * override exists in `tween.curves`.
+ * Zip a pair of scalar channels (x, y) into a single vec2 channel. The
+ * union of key times is used; missing values are evaluated at the
+ * partner's curve. Out-curve is taken from x's key when present, else y's.
+ */
+function mergeScalarPairToVec2(chX, chY) {
+  const keysX = chX?.keys || [];
+  const keysY = chY?.keys || [];
+  const ts = new Set();
+  for (const k of keysX) ts.add(Number(k.t.toFixed(6)));
+  for (const k of keysY) ts.add(Number(k.t.toFixed(6)));
+  const sortedT = [...ts].sort((a, b) => a - b);
+  const evalScalar = (ch, t) => {
+    const ks = ch?.keys;
+    if (!ks?.length) return 0;
+    if (ks.length === 1) return ks[0].v;
+    if (t <= ks[0].t) return ks[0].v;
+    if (t >= ks[ks.length - 1].t) return ks[ks.length - 1].v;
+    for (let i = 0; i < ks.length - 1; i++) {
+      const a = ks[i];
+      const b = ks[i + 1];
+      if (t >= a.t && t < b.t) {
+        const p = (t - a.t) / Math.max(1e-6, b.t - a.t);
+        return a.v + (b.v - a.v) * p;
+      }
+    }
+    return ks[ks.length - 1].v;
+  };
+  const keys = sortedT.map((t) => {
+    const xKey = keysX.find((k) => Math.abs(k.t - t) < 1e-5);
+    const yKey = keysY.find((k) => Math.abs(k.t - t) < 1e-5);
+    const xV = xKey ? xKey.v : evalScalar(chX, t);
+    const yV = yKey ? yKey.v : evalScalar(chY, t);
+    const out = normalizeKeyCurve(xKey?.out ?? yKey?.out ?? 'linear');
+    return { t, v: { x: xV, y: yV }, out };
+  });
+  return { keys };
+}
+
+/**
+ * Migrate the legacy `clip.tween = { from, to, curves }` shape directly
+ * to the new vec2 channels form. Returns `null` when nothing is animated.
  */
 export function migrateTweenToChannels(clip) {
   const tween = clip?.tween;
@@ -509,20 +585,46 @@ export function migrateTweenToChannels(clip) {
   const duration = Math.max(0.001, Number(clip.duration) || 1);
   const masterCurve = clip.curve || 'linear';
   const out = {};
-  for (const prop of TWEEN_PROPS) {
-    const fromHas = typeof tween.from?.[prop] === 'number' && Number.isFinite(tween.from[prop]);
-    const toHas = typeof tween.to?.[prop] === 'number' && Number.isFinite(tween.to[prop]);
-    if (!fromHas && !toHas) continue;
-    const v0 = fromHas ? tween.from[prop] : tween.to[prop];
-    const v1 = toHas ? tween.to[prop] : tween.from[prop];
-    const segCurve = tween.curves?.[prop] || masterCurve;
-    out[prop] = {
-      keys: [
-        { t: 0, v: v0, out: segCurve },
-        { t: duration, v: v1, out: 'linear' }
-      ]
-    };
+
+  const hasN = (block, key) => typeof block?.[key] === 'number' && Number.isFinite(block[key]);
+
+  // position
+  if (hasN(tween.from, 'x') || hasN(tween.to, 'x') || hasN(tween.from, 'y') || hasN(tween.to, 'y')) {
+    const fromX = hasN(tween.from, 'x') ? tween.from.x : (hasN(tween.to, 'x') ? tween.to.x : 0);
+    const toX   = hasN(tween.to,   'x') ? tween.to.x   : fromX;
+    const fromY = hasN(tween.from, 'y') ? tween.from.y : (hasN(tween.to, 'y') ? tween.to.y : 0);
+    const toY   = hasN(tween.to,   'y') ? tween.to.y   : fromY;
+    const segCurve = tween.curves?.x || tween.curves?.y || masterCurve;
+    out.position = { keys: [
+      { t: 0,        v: { x: fromX, y: fromY }, out: segCurve },
+      { t: duration, v: { x: toX,   y: toY   }, out: 'linear' }
+    ] };
   }
+
+  // scale
+  if (hasN(tween.from, 'scaleX') || hasN(tween.to, 'scaleX') || hasN(tween.from, 'scaleY') || hasN(tween.to, 'scaleY')) {
+    const fromX = hasN(tween.from, 'scaleX') ? tween.from.scaleX : (hasN(tween.to, 'scaleX') ? tween.to.scaleX : 1);
+    const toX   = hasN(tween.to,   'scaleX') ? tween.to.scaleX   : fromX;
+    const fromY = hasN(tween.from, 'scaleY') ? tween.from.scaleY : (hasN(tween.to, 'scaleY') ? tween.to.scaleY : 1);
+    const toY   = hasN(tween.to,   'scaleY') ? tween.to.scaleY   : fromY;
+    const segCurve = tween.curves?.scaleX || tween.curves?.scaleY || masterCurve;
+    out.scale = { keys: [
+      { t: 0,        v: { x: fromX, y: fromY }, out: segCurve },
+      { t: duration, v: { x: toX,   y: toY   }, out: 'linear' }
+    ] };
+  }
+
+  // rotation
+  if (hasN(tween.from, 'rotation') || hasN(tween.to, 'rotation')) {
+    const from = hasN(tween.from, 'rotation') ? tween.from.rotation : tween.to.rotation;
+    const to   = hasN(tween.to,   'rotation') ? tween.to.rotation   : from;
+    const segCurve = tween.curves?.rotation || masterCurve;
+    out.rotation = { keys: [
+      { t: 0,        v: from, out: segCurve },
+      { t: duration, v: to,   out: 'linear' }
+    ] };
+  }
+
   return Object.keys(out).length ? out : null;
 }
 
