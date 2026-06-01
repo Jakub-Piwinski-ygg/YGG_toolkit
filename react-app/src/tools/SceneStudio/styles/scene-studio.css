@@ -1141,3 +1141,270 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
   font-size: 11px;
   padding: 2px 4px;
 }
+
+/* ── Phase 3.7: keyframe channels + editable curve editor ──────────── */
+
+.scene-pill--rec {
+  background: rgba(244, 92, 81, 0.18);
+  border: 1px solid rgba(244, 92, 81, 0.6);
+  color: #ffbcb6;
+  font-variant-numeric: tabular-nums;
+}
+
+.scene-field-row-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.scene-field-row-wrap > label {
+  flex: 1 1 auto;
+}
+.scene-kf-indicator {
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-2, #6a7288);
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.scene-kf-indicator.is-keyed {
+  color: #ffd166;
+}
+
+.scene-channels-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scene-channel-block {
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  border-radius: 4px;
+  background: rgba(255, 209, 102, 0.04);
+  padding: 6px;
+}
+.scene-channel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.scene-channel-label {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-0, #e8eaf0);
+}
+.scene-channel-meta {
+  font-size: 10px;
+  color: var(--text-2, #6a7288);
+  margin-right: auto;
+}
+
+.scene-btn--sm {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.scene-channel-keys {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.scene-channel-keys th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 9px;
+  color: var(--text-2, #6a7288);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 4px;
+}
+.scene-channel-keys td {
+  padding: 2px 3px;
+  vertical-align: middle;
+}
+.scene-channel-row {
+  border-top: 1px solid rgba(46, 51, 64, 0.6);
+}
+.scene-channel-row.selected {
+  background: rgba(79, 158, 255, 0.08);
+}
+.scene-channel-row td:first-child,
+.scene-channel-row td:nth-child(2) {
+  min-width: 60px;
+}
+.scene-channel-keys .scene-field--inline {
+  gap: 0;
+}
+.scene-channel-keys .scene-field--inline > span {
+  width: 0;
+  padding: 0;
+}
+.scene-channel-keys .scene-field--inline input {
+  width: 100%;
+  font-size: 10px;
+  padding: 1px 4px;
+}
+.scene-channel-out-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 1px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.scene-channel-out-btn:hover {
+  border-color: var(--border, #2e3340);
+}
+.scene-channel-out-btn.is-active {
+  border-color: var(--accent, #4f9eff);
+  background: rgba(79, 158, 255, 0.1);
+}
+.scene-channel-out-last {
+  color: var(--text-2, #6a7288);
+  font-size: 11px;
+  padding: 0 6px;
+}
+
+/* Curve thumbnails appear inline in keys table — small SVG previews. */
+.scene-curve-thumb {
+  display: block;
+  width: 26px;
+  height: 26px;
+}
+.scene-curve-thumb-guide {
+  fill: none;
+  stroke: rgba(106, 114, 136, 0.4);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+.scene-curve-thumb-path {
+  fill: none;
+  stroke: var(--accent, #4f9eff);
+  stroke-width: 1.5;
+}
+
+/* Selected-key curve editor block — sits beneath the channel table. */
+.scene-channel-curve {
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 4px;
+  background: var(--bg-1, #13151a);
+  padding: 8px;
+  margin-top: 4px;
+}
+.scene-channel-curve-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-1, #a8afc0);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 6px;
+}
+
+/* Bezier curve editor surface. */
+.scene-curve-editor {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.scene-curve-editor-svg {
+  width: 100%;
+  height: auto;
+  max-width: 220px;
+  align-self: center;
+  touch-action: none;
+  user-select: none;
+}
+.scene-curve-bg {
+  fill: rgba(20, 23, 28, 0.6);
+  stroke: var(--border, #2e3340);
+  stroke-width: 1;
+}
+.scene-curve-grid line {
+  stroke: rgba(106, 114, 136, 0.18);
+  stroke-width: 1;
+}
+.scene-curve-axis-label {
+  fill: var(--text-2, #6a7288);
+  font-size: 9px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.scene-curve-handle-line {
+  stroke: rgba(255, 209, 102, 0.5);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.scene-curve-anchor {
+  fill: var(--text-2, #6a7288);
+  pointer-events: none;
+}
+.scene-curve-handle {
+  fill: #ffd166;
+  stroke: #1a1d24;
+  stroke-width: 2;
+  cursor: grab;
+  transition: r 80ms;
+}
+.scene-curve-handle:hover {
+  fill: #ffe49a;
+  /* r is set as attribute; use stroke to communicate hover */
+  stroke: var(--accent, #4f9eff);
+}
+.scene-curve-handle.is-dragging {
+  cursor: grabbing;
+  fill: var(--accent, #4f9eff);
+  stroke: #ffd166;
+}
+
+.scene-curve-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+}
+.scene-chip--xs {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+
+.scene-curve-readout {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--text-2, #6a7288);
+  text-align: center;
+  user-select: text;
+}
+
+/* Per-keyframe dots rendered on top of clip blocks on the timeline. */
+.scene-clip-keyframes {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  height: 6px;
+  pointer-events: none;
+}
+.scene-clip-keyframe {
+  position: absolute;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  background: #ffd166;
+  border: 1px solid #1a1d24;
+  transform: rotate(45deg);
+  pointer-events: auto;
+}
+.scene-clip-keyframe--x        { background: #ff6b6b; }
+.scene-clip-keyframe--y        { background: #4f9eff; }
+.scene-clip-keyframe--scaleX   { background: #6bcb77; }
+.scene-clip-keyframe--scaleY   { background: #c084fc; }
+.scene-clip-keyframe--rotation { background: #ffd166; }

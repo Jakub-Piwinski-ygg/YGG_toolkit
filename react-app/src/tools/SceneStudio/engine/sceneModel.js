@@ -435,6 +435,97 @@ export function normalizeTween(t) {
   return { from: from || {}, to: to || {}, curves };
 }
 
+/**
+ * Normalize one keyframe-channel key. Returns null when t or v can't be
+ * parsed as a finite number. `out` (the curve-spec from this key to the
+ * next) defaults to `fallbackOut`.
+ */
+function normalizeChannelKey(k, fallbackOut = 'linear') {
+  if (!k || typeof k !== 'object') return null;
+  const t = Number(k.t);
+  const v = Number(k.v);
+  if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+  let out = k.out;
+  if (typeof out === 'string') {
+    if (!CURVE_PRESETS.includes(out)) out = fallbackOut;
+  } else if (out && typeof out === 'object') {
+    if (Array.isArray(out.bezier) && out.bezier.length === 4 && out.bezier.every((n) => Number.isFinite(Number(n)))) {
+      out = { bezier: out.bezier.map(Number) };
+    } else if (String(out.type || '').toLowerCase() === 'custom') {
+      out = normalizeCurve(out, fallbackOut);
+    } else {
+      out = fallbackOut;
+    }
+  } else {
+    out = fallbackOut;
+  }
+  return { t: Math.max(0, t), v, out };
+}
+
+/** Normalize a channel (sorted keys, deduped on near-identical `t`). */
+export function normalizeChannel(ch) {
+  if (!ch || typeof ch !== 'object') return null;
+  const raw = Array.isArray(ch.keys) ? ch.keys : [];
+  const keys = [];
+  for (const k of raw) {
+    const norm = normalizeChannelKey(k);
+    if (norm) keys.push(norm);
+  }
+  keys.sort((a, b) => a.t - b.t);
+  const deduped = [];
+  for (const k of keys) {
+    if (deduped.length && Math.abs(deduped[deduped.length - 1].t - k.t) < 1e-4) {
+      deduped[deduped.length - 1] = k;
+    } else {
+      deduped.push(k);
+    }
+  }
+  if (!deduped.length) return null;
+  return { keys: deduped };
+}
+
+/** Normalize the per-clip `channels` map. Returns null when none are valid. */
+export function normalizeChannels(channels) {
+  if (!channels || typeof channels !== 'object') return null;
+  const out = {};
+  for (const prop of TWEEN_PROPS) {
+    const norm = normalizeChannel(channels[prop]);
+    if (norm) out[prop] = norm;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * Migrate the legacy `clip.tween = { from, to, curves }` shape to the new
+ * `clip.channels[prop] = { keys: [{t:0}, {t:duration}] }` form. Returns
+ * `null` when there is no tween or no animated properties.
+ *
+ * Old `clip.curve` becomes the segment's `out` curve when no per-property
+ * override exists in `tween.curves`.
+ */
+export function migrateTweenToChannels(clip) {
+  const tween = clip?.tween;
+  if (!tween || typeof tween !== 'object') return null;
+  const duration = Math.max(0.001, Number(clip.duration) || 1);
+  const masterCurve = clip.curve || 'linear';
+  const out = {};
+  for (const prop of TWEEN_PROPS) {
+    const fromHas = typeof tween.from?.[prop] === 'number' && Number.isFinite(tween.from[prop]);
+    const toHas = typeof tween.to?.[prop] === 'number' && Number.isFinite(tween.to[prop]);
+    if (!fromHas && !toHas) continue;
+    const v0 = fromHas ? tween.from[prop] : tween.to[prop];
+    const v1 = toHas ? tween.to[prop] : tween.from[prop];
+    const segCurve = tween.curves?.[prop] || masterCurve;
+    out[prop] = {
+      keys: [
+        { t: 0, v: v0, out: segCurve },
+        { t: duration, v: v1, out: 'linear' }
+      ]
+    };
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /** Normalize a clip object. Returns null if the input is unusable. */
 export function normalizeClip(c) {
   if (!c || typeof c !== 'object') return null;
@@ -443,6 +534,16 @@ export function normalizeClip(c) {
   const speed = Number(c.speed);
   const hasMixDuration = c.mixDuration != null;
   const mixDuration = hasMixDuration ? Number(c.mixDuration) : null;
+
+  // Channels take precedence; fall back to migrating legacy `tween` payload.
+  // After migration `tween` is intentionally dropped from the persisted
+  // shape — the new model expresses the same animation as `channels`.
+  let channels = normalizeChannels(c.channels);
+  if (!channels) {
+    const migrated = migrateTweenToChannels(c);
+    if (migrated) channels = migrated;
+  }
+
   return {
     id: c.id || uid('C'),
     start: Number.isFinite(start) ? Math.max(0, start) : 0,
@@ -464,7 +565,7 @@ export function normalizeClip(c) {
       : (Number.isFinite(mixDuration) && mixDuration >= 0 ? mixDuration : 0),
     /** Helper flag: auto-fit duration on first resolved animation. */
     autoFitDuration: c.autoFitDuration === true,
-    tween: normalizeTween(c.tween)
+    channels
   };
 }
 

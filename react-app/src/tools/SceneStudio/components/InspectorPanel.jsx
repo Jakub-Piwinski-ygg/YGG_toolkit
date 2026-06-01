@@ -1,8 +1,20 @@
 // InspectorPanel — right panel with properties of the selected layer and,
 // when a clip is selected on the timeline, properties of that clip.
 
+import { useMemo, useState } from 'react';
 import { hasPortraitOverride } from '../engine/orientationManager.js';
-import { CURVE_PRESETS, TWEEN_PROPS } from '../engine/sceneModel.js';
+import { CURVE_PRESETS } from '../engine/sceneModel.js';
+import {
+  CHANNEL_PROPS,
+  clipLocalSeconds,
+  evalChannel,
+  insertOrUpdateKey,
+  moveKeyTime,
+  removeKey as removeChannelKey,
+  setKeyOut,
+  setKeyValue
+} from '../engine/animation/keyframes.js';
+import { CurveEditor, CurveThumbnail } from './CurveEditor.jsx';
 import { DragNumberField } from './DragNumberField.jsx';
 
 const BLEND_OPTIONS = ['normal', 'additive', 'screen', 'multiply'];
@@ -21,6 +33,7 @@ export function InspectorPanel({
   selectedLayerId,
   selectedClip = null,
   assetDescriptors = {},
+  flowTime = 0,
   onPatchLayer,
   onPatchTransform,
   onResetPortrait,
@@ -44,6 +57,21 @@ export function InspectorPanel({
     : layer.transforms.landscape;
 
   const inheriting = orientation === 'portrait' && !hasPortraitOverride(layer);
+
+  // When a clip is selected on THIS layer and the playhead is inside that
+  // clip, transform-field edits below auto-key onto the clip's channels
+  // instead of patching the base pose. The same channels that decorate the
+  // inspector fields with a diamond also indicate that the field is in
+  // recording mode.
+  const recordingClip = (() => {
+    if (!selectedClip) return null;
+    if (selectedClip.track?.layerId !== layer.id) return null;
+    const c = selectedClip.clip;
+    if (!c) return null;
+    if (flowTime >= c.start && flowTime < c.start + c.duration) return c;
+    return null;
+  })();
+  const recordingChannels = recordingClip?.channels || null;
 
   return (
     <div className="scene-panel scene-panel--right">
@@ -72,20 +100,43 @@ export function InspectorPanel({
 
       <div className="scene-field-group">
         <div className="scene-field-group-head">
-          transform · {orientation} <span className="scene-pill scene-pill--base">base pose</span>
+          transform · {orientation}
+          {recordingClip ? (
+            <span className="scene-pill scene-pill--rec" title="Recording — edits land as keyframes on the selected clip">
+              ● rec @ {(flowTime - recordingClip.start).toFixed(2)}s
+            </span>
+          ) : (
+            <span className="scene-pill scene-pill--base">base pose</span>
+          )}
           {inheriting && <span className="scene-pill">inherits from landscape</span>}
         </div>
 
-        <DragNumberField label="x" value={t.x} step={1}
-          onChange={(v) => onPatchTransform(layer.id, { x: v })} />
-        <DragNumberField label="y" value={t.y} step={1}
-          onChange={(v) => onPatchTransform(layer.id, { y: v })} />
-        <DragNumberField label="scale x" value={t.scaleX ?? 1} step={0.01} min={0.01}
-          onChange={(v) => onPatchTransform(layer.id, { scaleX: v })} />
-        <DragNumberField label="scale y" value={t.scaleY ?? 1} step={0.01} min={0.01}
-          onChange={(v) => onPatchTransform(layer.id, { scaleY: v })} />
-        <DragNumberField label="rotation" value={(t.rotation * 180) / Math.PI} step={1} suffix="°"
-          onChange={(v) => onPatchTransform(layer.id, { rotation: (v * Math.PI) / 180 })} />
+        <TransformField
+          label="x" prop="x" value={t.x} step={1}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.x}
+          onChange={(v) => onPatchTransform(layer.id, { x: v })}
+        />
+        <TransformField
+          label="y" prop="y" value={t.y} step={1}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.y}
+          onChange={(v) => onPatchTransform(layer.id, { y: v })}
+        />
+        <TransformField
+          label="scale x" prop="scaleX" value={t.scaleX ?? 1} step={0.01} min={0.01}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.scaleX}
+          onChange={(v) => onPatchTransform(layer.id, { scaleX: v })}
+        />
+        <TransformField
+          label="scale y" prop="scaleY" value={t.scaleY ?? 1} step={0.01} min={0.01}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.scaleY}
+          onChange={(v) => onPatchTransform(layer.id, { scaleY: v })}
+        />
+        <TransformField
+          label="rotation" prop="rotation"
+          value={(t.rotation * 180) / Math.PI} step={1} suffix="°"
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.rotation}
+          onChange={(v) => onPatchTransform(layer.id, { rotation: (v * Math.PI) / 180 })}
+        />
 
         {orientation === 'portrait' && hasPortraitOverride(layer) && (
           <button
@@ -117,9 +168,34 @@ export function InspectorPanel({
           basePose={t}
           track={selectedClip.track}
           clip={selectedClip.clip}
+          flowTime={flowTime}
           descriptor={asset?.type === 'spine' ? assetDescriptors[asset.id] : null}
           onPatchFlow={onPatchFlow}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Thin wrapper over DragNumberField that shows a small diamond next to
+ * the label when the selected clip has a channel for this property
+ * (= editing here writes a keyframe instead of the base pose).
+ */
+function TransformField({ label, prop, value, step, min, suffix, recording, hasChannel, onChange }) {
+  const indicator = hasChannel ? '◆' : (recording ? '◇' : null);
+  return (
+    <div className="scene-field-row-wrap">
+      <DragNumberField label={label} value={value} step={step} min={min} suffix={suffix} onChange={onChange} />
+      {indicator && (
+        <span
+          className={'scene-kf-indicator' + (hasChannel ? ' is-keyed' : '')}
+          title={hasChannel
+            ? `${prop} is keyframed on this clip — next edit updates a key at the playhead`
+            : `${prop} is not keyframed yet — next edit creates a key on this clip at the playhead`}
+        >
+          {indicator}
+        </span>
       )}
     </div>
   );
@@ -191,14 +267,17 @@ function VideoSection({ layer, onPatchLayer }) {
 }
 
 /**
- * Clip-scoped editor that appears below the layer section when a clip
- * is selected. PNG clips show a tween editor with per-property from/to
- * + curve override; Spine clips show an animation picker.
+ * Clip-scoped editor that appears below the layer section when a clip is
+ * selected.
+ *
+ * - Spine clips: animation picker + a master time-remap curve.
+ * - PNG / pngSequence clips: per-property keyframe channels (auto-key
+ *   from the layer transform fields above; explicit key management here).
  *
  * All mutations go through `onPatchFlow(newFlow)` because clips live on
  * `scene.flow.tracks[].clips[]`.
  */
-function ClipSection({ scene, layer, asset, basePose, track, clip, descriptor, onPatchFlow }) {
+function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, descriptor, onPatchFlow }) {
   const patchClip = (patch) => {
     const nextTracks = (scene.flow?.tracks || []).map((tr) =>
       tr.id === track.id
@@ -213,7 +292,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, descriptor, o
 
   const animations = descriptor?.animations || [];
   const isSpine = asset?.type === 'spine';
-  const supportsTween = asset?.type === 'png' || asset?.type === 'spine';
+  const supportsChannels = asset?.type === 'png' || asset?.type === 'pngSequence';
   const speed = Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
   const mixDuration = Number.isFinite(Number(clip.mixDuration)) ? Number(clip.mixDuration) : null;
   const resolvedAnim = isSpine ? (clip.anim || layer.spine?.defaultAnimation || '') : '';
@@ -231,17 +310,22 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, descriptor, o
       if (Number.isFinite(d) && d > 0) patch.duration = Math.max(0.05, d / speed);
     }
     patch.autoFitDuration = false;
-    if (supportsTween && !clip.tween) {
-      const seed = getLayerPoseAtClipStart(scene, layer, clip);
-      patch.tween = { from: { ...seed }, to: { ...seed }, curves: {} };
-    }
     patchClip(patch);
   };
+
+  // What to render in the clip header — gives users a fast hint at what
+  // the clip does without opening the channels block.
+  const animatedProps = supportsChannels
+    ? CHANNEL_PROPS.filter((p) => clip.channels?.[p]?.keys?.length)
+    : [];
+  const headerLabel = isSpine
+    ? (clip.anim || '(setup pose)')
+    : (animatedProps.length ? animatedProps.join(' · ') : 'static');
 
   return (
     <div className="scene-field-group scene-clip-section">
       <div className="scene-field-group-head">
-        clip · {isSpine ? (clip.anim || '(setup pose)') : (clip.tween ? 'tween' : 'static')}
+        clip · {headerLabel}
         <span className="scene-pill scene-pill--clip">on {track.layerId === layer.id ? layer.name : '(other layer)'}</span>
       </div>
 
@@ -281,24 +365,27 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, descriptor, o
         <span>loop</span>
       </label>
 
-      {supportsTween && (
-        <PngTweenEditor
+      {isSpine && (
+        <label className="scene-field">
+          <span>time curve</span>
+          <select
+            value={clip.curve || 'linear'}
+            onChange={(e) => patchClip({ curve: e.target.value })}
+            title="Master time-remap curve for the Spine animation track time"
+          >
+            {CURVES.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+      )}
+
+      {supportsChannels && (
+        <PngChannelEditor
           clip={clip}
           basePose={basePose}
-          layerPoseSeed={getLayerPoseAtClipStart(scene, layer, clip)}
+          flowTime={flowTime}
           onPatchClip={patchClip}
         />
       )}
-
-      <label className="scene-field">
-        <span>curve</span>
-        <select
-          value={clip.curve || 'linear'}
-          onChange={(e) => patchClip({ curve: e.target.value })}
-        >
-          {CURVES.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-      </label>
 
       {isSpine ? (
         <>
@@ -337,299 +424,228 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, descriptor, o
 }
 
 /**
- * PNG tween editor. Renders a chip per tweenable property; toggling the
- * chip ON seeds from/to with the layer's current base value, OFF strips
- * that property from the tween. When all chips are OFF, the tween
- * payload is removed entirely (back to "static" clip).
+ * PNG keyframe-channel editor. Replaces the old 2-endpoint tween editor.
+ *
+ * - Animate chips default OFF. Enabling a chip seeds a 2-key channel
+ *   (t=0 + t=playhead) initialised from the layer's current base pose
+ *   so the user can immediately drag the sprite to set the destination.
+ * - Each channel renders a keys table (`t / v / out / ×`). Numeric
+ *   cells are drag-number inputs. The `out` cell is a clickable curve
+ *   thumbnail — clicking it opens an inline bezier editor below the
+ *   table for that segment.
+ * - Auto-key writes (from viewport drags or transform-field edits)
+ *   land here via SceneStudioInner's `onPatchTransform` decision logic.
  */
-function PngTweenEditor({ clip, basePose, layerPoseSeed, onPatchClip }) {
-  const tween = clip.tween || null;
-  const seedPose = layerPoseSeed || basePose || {};
-  const defaultEndpointMode = clip.endpointMode || 'to';
-  const enabledProps = new Set(
-    TWEEN_PROPS.filter((p) =>
-      tween && (tween.from?.[p] !== undefined || tween.to?.[p] !== undefined)
-    )
-  );
+function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
+  const channels = clip.channels || {};
+  const enabled = useMemo(() => new Set(Object.keys(channels)), [channels]);
+  const [selectedKey, setSelectedKey] = useState(null); // { prop, idx } | null
+
+  // Where the playhead currently sits, in clip-local seconds. Used as
+  // the time for the second seed key and for "add key at playhead".
+  const localT = Math.max(0, Math.min(clip.duration, flowTime - clip.start));
+
+  const writeChannels = (next) => {
+    onPatchClip({ channels: Object.keys(next).length ? next : null });
+  };
+
+  const patchChannel = (prop, channel) => {
+    const next = { ...channels };
+    if (channel?.keys?.length) next[prop] = channel;
+    else delete next[prop];
+    writeChannels(next);
+    if (selectedKey?.prop === prop) {
+      const ks = channel?.keys || [];
+      if (selectedKey.idx >= ks.length) setSelectedKey(null);
+    }
+  };
 
   const toggleProp = (prop) => {
-    const nextFrom = { ...(tween?.from || {}) };
-    const nextTo = { ...(tween?.to || {}) };
-    const nextCurves = { ...(tween?.curves || {}) };
-    if (enabledProps.has(prop)) {
-      delete nextFrom[prop];
-      delete nextTo[prop];
-      delete nextCurves[prop];
+    if (enabled.has(prop)) {
+      patchChannel(prop, null);
+      return;
+    }
+    const seed = basePose?.[prop] ?? 0;
+    const keys = [{ t: 0, v: seed, out: 'linear' }];
+    if (localT > 0.001 && localT < clip.duration - 0.001) {
+      keys.push({ t: localT, v: seed, out: 'linear' });
     } else {
-      const seed = seedPose?.[prop] ?? 0;
-      nextFrom[prop] = seed;
-      nextTo[prop] = seed;
+      keys.push({ t: clip.duration, v: seed, out: 'linear' });
     }
-    const anyEnabled = Object.keys(nextFrom).length || Object.keys(nextTo).length;
-    onPatchClip({
-      tween: anyEnabled
-        ? { from: nextFrom, to: nextTo, curves: nextCurves }
-        : null
-    });
+    patchChannel(prop, { keys });
   };
 
-  const setEndpoint = (side, prop, value) => {
-    const base = seedPose?.[prop] ?? 0;
-    const nextFrom = { ...(tween?.from || {}) };
-    const nextTo = { ...(tween?.to || {}) };
-    const nextCurves = { ...(tween?.curves || {}) };
-    if (side === 'from') nextFrom[prop] = value;
-    if (side === 'to') nextTo[prop] = value;
-    // Ensure both endpoints exist for an enabled prop so the lerp
-    // doesn't silently default to base on one side and the user's
-    // explicit value on the other.
-    if (nextFrom[prop] === undefined && nextTo[prop] !== undefined) nextFrom[prop] = base;
-    if (nextTo[prop] === undefined && nextFrom[prop] !== undefined) nextTo[prop] = base;
-    onPatchClip({ tween: { from: nextFrom, to: nextTo, curves: nextCurves } });
+  const patchKeyAt = (prop, idx, patch) => {
+    const ch = channels[prop];
+    if (!ch) return;
+    let next = ch;
+    if ('v' in patch) next = setKeyValue(next, idx, patch.v);
+    if ('t' in patch) next = moveKeyTime(next, idx, patch.t);
+    if ('out' in patch) next = setKeyOut(next, idx, patch.out);
+    patchChannel(prop, next);
   };
 
-  const setPropCurve = (prop, curve) => {
-    const nextCurves = { ...(tween?.curves || {}) };
-    if (curve === '') delete nextCurves[prop];
-    else nextCurves[prop] = curve;
-    onPatchClip({
-      tween: {
-        from: tween?.from || {},
-        to: tween?.to || {},
-        curves: nextCurves
-      }
-    });
+  const deleteKey = (prop, idx) => {
+    const ch = channels[prop];
+    if (!ch) return;
+    const next = removeChannelKey(ch, idx);
+    patchChannel(prop, next.keys.length ? next : null);
   };
 
-  const snapEndpoint = (side, prop) => {
-    const base = seedPose?.[prop] ?? 0;
-    setEndpoint(side, prop, base);
-  };
-
-  const setEndpointMode = (mode) => {
-    const nextMode = mode === 'from' ? 'from' : 'to';
-    const nextFrom = { ...(tween?.from || {}) };
-    const nextTo = { ...(tween?.to || {}) };
-    const nextCurves = { ...(tween?.curves || {}) };
-    for (const p of TWEEN_PROPS) {
-      const seed = seedPose?.[p] ?? 0;
-      if (nextFrom[p] == null) nextFrom[p] = seed;
-      if (nextTo[p] == null) nextTo[p] = seed;
-    }
-    onPatchClip({ tween: { from: nextFrom, to: nextTo, curves: nextCurves }, endpointMode: nextMode });
+  const addKeyAtPlayhead = (prop) => {
+    const ch = channels[prop] || { keys: [] };
+    const currentV = ch.keys.length ? evalChannel(ch, localT) : (basePose?.[prop] ?? 0);
+    const next = insertOrUpdateKey(ch, localT, currentV, { out: 'linear' });
+    patchChannel(prop, next);
   };
 
   return (
-    <div className="scene-tween-editor">
+    <div className="scene-channels-editor">
       <div className="scene-tween-chips">
         <span className="scene-field-group-sub">animate:</span>
-        {TWEEN_PROPS.map((p) => (
+        {CHANNEL_PROPS.map((p) => (
           <button
             key={p}
             type="button"
-            className={'scene-chip' + (enabledProps.has(p) ? ' on' : '')}
+            className={'scene-chip' + (enabled.has(p) ? ' on' : '')}
             onClick={() => toggleProp(p)}
-            title={enabledProps.has(p) ? `Stop animating ${p}` : `Animate ${p} (initialised from base pose)`}
+            title={enabled.has(p)
+              ? `Stop animating ${p} (deletes all of its keys)`
+              : `Animate ${p}. Once enabled, scrub the timeline + edit the value and the keyframe records automatically.`}
           >
             {PROP_META[p].label}
           </button>
         ))}
       </div>
 
-      <div className="scene-endpoint-mode-row">
-        <span className="scene-field-group-sub">edit endpoint:</span>
-        <button
-          type="button"
-          className={'scene-chip' + (defaultEndpointMode === 'from' ? ' on' : '')}
-          onClick={() => setEndpointMode('from')}
-        >
-          from
-        </button>
-        <button
-          type="button"
-          className={'scene-chip' + (defaultEndpointMode === 'to' ? ' on' : '')}
-          onClick={() => setEndpointMode('to')}
-        >
-          to
-        </button>
-      </div>
-
-      <CurvePreview curve={clip.curve || 'linear'} />
-
-      {enabledProps.size === 0 ? (
+      {!enabled.size && (
         <div className="scene-empty" style={{ padding: '8px 0', fontSize: 10 }}>
-          toggle a property above to animate it from / to a value during this clip
+          enable a property above. once enabled, scrub the timeline and
+          drag the sprite (or edit transform fields) — keyframes record
+          automatically at the playhead.
         </div>
-      ) : (
-        TWEEN_PROPS.filter((p) => enabledProps.has(p)).map((p) => (
-          <TweenPropRow
-            key={p}
-            prop={p}
-            tween={tween}
-            basePose={seedPose}
-            onSetEndpoint={setEndpoint}
-            onSetPropCurve={setPropCurve}
-            onSnapEndpoint={snapEndpoint}
+      )}
+
+      {[...enabled].map((prop) => (
+        <ChannelBlock
+          key={prop}
+          prop={prop}
+          channel={channels[prop]}
+          clipDuration={clip.duration}
+          localT={localT}
+          selectedKey={selectedKey}
+          onSelectKey={setSelectedKey}
+          onPatchKeyAt={patchKeyAt}
+          onDeleteKey={deleteKey}
+          onAddKeyAtPlayhead={addKeyAtPlayhead}
+        />
+      ))}
+
+      {selectedKey && channels[selectedKey.prop]?.keys?.[selectedKey.idx] && selectedKey.idx < channels[selectedKey.prop].keys.length - 1 && (
+        <div className="scene-channel-curve">
+          <div className="scene-channel-curve-head">
+            <span>
+              {PROP_META[selectedKey.prop]?.label || selectedKey.prop} · curve from key {selectedKey.idx + 1} → {selectedKey.idx + 2}
+            </span>
+            <button
+              type="button"
+              className="scene-icon-btn"
+              onClick={() => setSelectedKey(null)}
+              title="Close curve editor"
+            >
+              ✕
+            </button>
+          </div>
+          <CurveEditor
+            value={channels[selectedKey.prop].keys[selectedKey.idx].out || 'linear'}
+            onChange={(spec) => patchKeyAt(selectedKey.prop, selectedKey.idx, { out: spec })}
           />
-        ))
+        </div>
       )}
     </div>
   );
 }
 
-function TweenPropRow({ prop, tween, basePose, onSetEndpoint, onSetPropCurve, onSnapEndpoint }) {
+function ChannelBlock({ prop, channel, clipDuration, localT, selectedKey, onSelectKey, onPatchKeyAt, onDeleteKey, onAddKeyAtPlayhead }) {
   const meta = PROP_META[prop];
-  const fromRaw = tween?.from?.[prop] ?? basePose?.[prop] ?? 0;
-  const toRaw = tween?.to?.[prop] ?? basePose?.[prop] ?? 0;
-  const propCurve = tween?.curves?.[prop] || '';
+  const keys = channel?.keys || [];
   return (
-    <div className="scene-tween-row">
-      <div className="scene-tween-row-head">
-        <span className="scene-tween-row-label">{meta.label}</span>
-        <select
-          className="scene-tween-curve"
-          value={propCurve}
-          onChange={(e) => onSetPropCurve(prop, e.target.value)}
-          title="Per-property curve (empty = inherit master curve)"
-        >
-          <option value="">(master)</option>
-          {CURVES.map((c) => <option key={c} value={c}>{c}</option>)}
-          <option value="custom">custom…</option>
-        </select>
-      </div>
-      <div className="scene-tween-pair">
-        <DragNumberField
-          label="from"
-          value={meta.toDisplay(fromRaw)}
-          step={meta.step}
-          suffix={meta.unit === '°' ? '°' : undefined}
-          onChange={(v) => onSetEndpoint('from', prop, meta.fromDisplay(v))}
-        />
+    <div className="scene-channel-block">
+      <div className="scene-channel-head">
+        <span className="scene-channel-label">{meta.label}</span>
+        <span className="scene-channel-meta">{keys.length} key{keys.length === 1 ? '' : 's'}</span>
         <button
-          className="scene-icon-btn scene-tween-snap"
-          title={`Snap "from" to current base pose ${meta.label}`}
-          onClick={() => onSnapEndpoint('from', prop)}
+          type="button"
+          className="scene-btn scene-btn--ghost scene-btn--sm"
+          onClick={() => onAddKeyAtPlayhead(prop)}
+          title={`Add a key for ${meta.label} at the playhead (${localT.toFixed(2)}s)`}
         >
-          ⟲
-        </button>
-        <DragNumberField
-          label="to"
-          value={meta.toDisplay(toRaw)}
-          step={meta.step}
-          suffix={meta.unit === '°' ? '°' : undefined}
-          onChange={(v) => onSetEndpoint('to', prop, meta.fromDisplay(v))}
-        />
-        <button
-          className="scene-icon-btn scene-tween-snap"
-          title={`Snap "to" to current base pose ${meta.label}`}
-          onClick={() => onSnapEndpoint('to', prop)}
-        >
-          ⟲
+          + key @ {localT.toFixed(2)}s
         </button>
       </div>
+      <table className="scene-channel-keys">
+        <thead>
+          <tr>
+            <th>t (s)</th>
+            <th>{meta.label}</th>
+            <th>out →</th>
+            <th aria-label="delete" />
+          </tr>
+        </thead>
+        <tbody>
+          {keys.map((k, i) => {
+            const isLast = i === keys.length - 1;
+            const isSelected = selectedKey?.prop === prop && selectedKey.idx === i;
+            return (
+              <tr key={i} className={'scene-channel-row' + (isSelected ? ' selected' : '')}>
+                <td>
+                  <DragNumberField
+                    label=""
+                    value={Number(k.t.toFixed(3))}
+                    step={0.01}
+                    min={0}
+                    max={clipDuration}
+                    onChange={(v) => onPatchKeyAt(prop, i, { t: Math.max(0, Math.min(clipDuration, v)) })}
+                  />
+                </td>
+                <td>
+                  <DragNumberField
+                    label=""
+                    value={meta.toDisplay(k.v)}
+                    step={meta.step}
+                    suffix={meta.unit === '°' ? '°' : undefined}
+                    onChange={(v) => onPatchKeyAt(prop, i, { v: meta.fromDisplay(v) })}
+                  />
+                </td>
+                <td>
+                  {isLast ? (
+                    <span className="scene-channel-out-last">—</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={'scene-channel-out-btn' + (isSelected ? ' is-active' : '')}
+                      onClick={() => onSelectKey(isSelected ? null : { prop, idx: i })}
+                      title="Click to edit the curve from this key to the next"
+                    >
+                      <CurveThumbnail value={k.out || 'linear'} size={26} />
+                    </button>
+                  )}
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="scene-icon-btn"
+                    onClick={() => onDeleteKey(prop, i)}
+                    title="Delete this key"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
-}
-
-function CurvePreview({ curve }) {
-  const path = buildCurvePath(curve);
-  return (
-    <div className="scene-curve-preview-wrap">
-      <svg className="scene-curve-preview" viewBox="0 0 100 60" preserveAspectRatio="none" role="img" aria-label="Curve preview">
-        <polyline points="0,60 100,0" className="scene-curve-guide" />
-        <path d={path} className="scene-curve-path" />
-      </svg>
-    </div>
-  );
-}
-
-function buildCurvePath(curve) {
-  const steps = 28;
-  let d = '';
-  for (let i = 0; i <= steps; i++) {
-    const x = i / steps;
-    const y = evalCurvePreview(curve, x);
-    const px = x * 100;
-    const py = 60 - y * 60;
-    d += (i === 0 ? 'M' : ' L') + `${px.toFixed(2)} ${py.toFixed(2)}`;
-  }
-  return d;
-}
-
-function evalCurvePreview(curve, p) {
-  const x = Math.max(0, Math.min(1, p));
-  if (curve && typeof curve === 'object' && String(curve.type || '').toLowerCase() === 'custom') {
-    const pts = Array.isArray(curve.points) ? curve.points : [];
-    if (pts.length < 2) return x;
-    const sorted = pts
-      .map((pt) => ({ x: Number(pt?.x), y: Number(pt?.y) }))
-      .filter((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y))
-      .sort((a, b) => a.x - b.x);
-    if (sorted.length < 2) return x;
-    if (x <= sorted[0].x) return sorted[0].y;
-    if (x >= sorted[sorted.length - 1].x) return sorted[sorted.length - 1].y;
-    for (let i = 1; i < sorted.length; i++) {
-      const a = sorted[i - 1];
-      const b = sorted[i];
-      if (x > b.x) continue;
-      const dx = b.x - a.x;
-      if (dx <= 0.000001) return b.y;
-      const t = (x - a.x) / dx;
-      return a.y + (b.y - a.y) * t;
-    }
-    return x;
-  }
-  if (curve === 'easeIn') return x * x;
-  if (curve === 'easeOut') return 1 - (1 - x) * (1 - x);
-  if (curve === 'easeInOut') return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
-  if (curve === 'smoothstep') return x * x * (3 - 2 * x);
-  if (curve === 'backIn') return x * x * (2.70158 * x - 1.70158);
-  if (curve === 'backOut') {
-    const t = x - 1;
-    return 1 + t * t * (2.70158 * t + 1.70158);
-  }
-  if (curve === 'overshoot') {
-    const t = x - 1;
-    return 1 + t * t * (3.3 * t + 2.3);
-  }
-  if (curve === 'stepStart') return x <= 0 ? 0 : 1;
-  if (curve === 'stepEnd') return x < 1 ? 0 : 1;
-  return x;
-}
-
-function getLayerPoseAtClipStart(scene, layer, clip) {
-  const base = scene.stage.activeOrientation === 'portrait'
-    ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
-    : layer.transforms?.landscape;
-  const pose = {
-    x: Number(base?.x) || 0,
-    y: Number(base?.y) || 0,
-    scaleX: Number(base?.scaleX ?? 1),
-    scaleY: Number(base?.scaleY ?? 1),
-    rotation: Number(base?.rotation || 0)
-  };
-  const tracks = (scene.flow?.tracks || []).filter((t) => t.layerId === layer.id);
-  for (const track of tracks) {
-    const active = (track.clips || []).find((c) => clip.start >= c.start && clip.start < c.start + c.duration);
-    if (!active?.tween) continue;
-    const progress = computeClipProgressLocal(active, clip.start);
-    for (const prop of TWEEN_PROPS) {
-      const from = active.tween.from?.[prop] ?? pose[prop];
-      const to = active.tween.to?.[prop] ?? pose[prop];
-      if (typeof from !== 'number' || typeof to !== 'number') continue;
-      const c = active.tween.curves?.[prop] ?? active.curve ?? 'linear';
-      const eased = evalCurvePreview(c, progress);
-      pose[prop] = from + (to - from) * eased;
-    }
-  }
-  return pose;
-}
-
-function computeClipProgressLocal(clip, t) {
-  const dur = Math.max(0.001, Number(clip.duration) || 0);
-  const speed = Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
-  let local = Math.max(0, t - clip.start) * speed;
-  if (clip.loop) local = local % dur;
-  else local = Math.min(local, dur);
-  return local / dur;
 }

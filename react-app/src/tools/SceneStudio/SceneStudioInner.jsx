@@ -39,6 +39,11 @@ import {
 import { makeVirtualRootHandle, readFolderDropAsFiles } from './engine/virtualHandle.js';
 import { patchTransform, resetPortrait } from './engine/orientationManager.js';
 import { groupSpineFiles } from './engine/spineLoader.js';
+import {
+  CHANNEL_PROPS,
+  clipLocalSeconds,
+  insertOrUpdateKey
+} from './engine/animation/keyframes.js';
 import './styles/scene-studio.css';
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
@@ -254,14 +259,97 @@ export default function SceneStudioInner() {
     }));
   }, []);
 
+  /**
+   * Decide between auto-keyframe write and base-pose patch.
+   *
+   * If a clip is currently selected AND it lives on `layerId` AND the
+   * playhead is inside its time range, treat numeric prop edits as
+   * keyframe writes on that clip's per-property channels. Otherwise
+   * fall through to the legacy "patch base pose" path.
+   *
+   * Used for BOTH inspector transform field edits and viewport-driven
+   * transforms (drag, resize, rotate). The decision is made once per
+   * patch so a single drag emits exactly one update path.
+   */
   const handlePatchTransform = useCallback((layerId, patch) => {
-    setScene((prev) => ({
-      ...prev,
-      layers: prev.layers.map((l) =>
-        l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch) : l
-      )
-    }));
-  }, []);
+    const sceneNow = sceneRef.current;
+    const flowNow = flowRef.current;
+    const tracks = sceneNow.flow?.tracks || [];
+
+    // Find the active recording target — only if the user has explicitly
+    // selected a clip on this layer and the playhead sits inside it.
+    let targetClip = null;
+    let targetTrack = null;
+    if (selectedClipId) {
+      for (const tr of tracks) {
+        if (tr.layerId !== layerId) continue;
+        const c = (tr.clips || []).find((cl) => cl.id === selectedClipId);
+        if (!c) continue;
+        if (flowNow.time >= c.start && flowNow.time < c.start + c.duration) {
+          targetClip = c;
+          targetTrack = tr;
+        }
+        break;
+      }
+    }
+
+    if (!targetClip) {
+      // No recording context — patch the layer's base pose as before.
+      setScene((prev) => ({
+        ...prev,
+        layers: prev.layers.map((l) =>
+          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch) : l
+        )
+      }));
+      return;
+    }
+
+    // Auto-key path: write a keyframe per numeric prop on the patch,
+    // anchored to the playhead's clip-local time.
+    const localT = clipLocalSeconds(targetClip, flowNow.time);
+    let nextClipChannels = { ...(targetClip.channels || {}) };
+    let touched = false;
+    for (const [prop, value] of Object.entries(patch)) {
+      if (!CHANNEL_PROPS.includes(prop)) continue;
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+      const ch = nextClipChannels[prop] || { keys: [] };
+      nextClipChannels[prop] = insertOrUpdateKey(ch, localT, value);
+      touched = true;
+    }
+    if (!touched) {
+      // Patch contained no channel-eligible props (e.g. anchor only).
+      // Fall back to base pose so the edit isn't silently dropped.
+      setScene((prev) => ({
+        ...prev,
+        layers: prev.layers.map((l) =>
+          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch) : l
+        )
+      }));
+      return;
+    }
+    const targetClipId = targetClip.id;
+    const targetTrackId = targetTrack.id;
+    setScene((prev) => {
+      const nextFlow = {
+        ...(prev.flow || {}),
+        tracks: (prev.flow?.tracks || []).map((tr) => {
+          if (tr.id !== targetTrackId) return tr;
+          return {
+            ...tr,
+            clips: tr.clips.map((c) =>
+              c.id === targetClipId
+                ? {
+                    ...c,
+                    channels: Object.keys(nextClipChannels).length ? nextClipChannels : null
+                  }
+                : c
+            )
+          };
+        })
+      };
+      return { ...prev, flow: deriveFlowGraph(nextFlow) };
+    });
+  }, [selectedClipId]);
 
   const handleTransformLayer = useCallback((layerId, patch) => {
     handlePatchTransform(layerId, patch);
@@ -593,9 +681,25 @@ export default function SceneStudioInner() {
     }
   }, []);
 
+  /**
+   * Selecting a layer (via hierarchy, viewport click, or timeline label)
+   * keeps the current clip selection if the clip already lives on the
+   * newly-selected layer. This is what makes "click sprite on stage,
+   * then edit transform → auto-key" work — clicking the sprite shouldn't
+   * un-arm recording.
+   */
   const handleSelectLayer = useCallback((layerId) => {
     setSelectedLayerId(layerId);
-    setSelectedClipId(null);
+    setSelectedClipId((curClipId) => {
+      if (!curClipId) return null;
+      const tracks = sceneRef.current.flow?.tracks || [];
+      for (const tr of tracks) {
+        if (tr.clips?.some((c) => c.id === curClipId)) {
+          return tr.layerId === layerId ? curClipId : null;
+        }
+      }
+      return null;
+    });
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -799,6 +903,7 @@ export default function SceneStudioInner() {
           selectedLayerId={selectedLayerId}
           selectedClip={selectedClipContext}
           assetDescriptors={assetDescriptors}
+          flowTime={flowState.time}
           onPatchLayer={handlePatchLayer}
           onPatchTransform={handlePatchTransform}
           onResetPortrait={handleResetPortrait}

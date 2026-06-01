@@ -15,8 +15,9 @@
 import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { resolveTransform } from './orientationManager.js';
 import { resolveAssetUrl } from './persist.js';
-import { buildLayerTree, TWEEN_PROPS, tracksForLayer } from './sceneModel.js';
-import { clipAt, clipRawProgress, curveEval, remapClipTime } from './flowInterpreter.js';
+import { buildLayerTree, tracksForLayer } from './sceneModel.js';
+import { clipAt, remapClipTime } from './flowInterpreter.js';
+import { CHANNEL_PROPS, clipLocalSeconds, evalChannel } from './animation/keyframes.js';
 import { buildSpineFromUrls, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
 
 async function loadTextureFromUrl(url) {
@@ -575,7 +576,7 @@ export function applyFlowAtTime(handles, scene, t) {
     }
 
     if (asset.type === 'png') {
-      applyPngTweens(obj, layer, tracks, t, orientation);
+      applyPngChannels(obj, layer, tracks, t, orientation);
     }
   }
 }
@@ -692,13 +693,14 @@ function applyVideoClip(obj, track, t, runtimePlaying, runtimeHeld) {
 }
 
 /**
- * Walk every tween-bearing track on a PNG layer and lerp `from → to`
- * against the layer's base pose. `syncTransforms` has already written
- * the base pose into the Pixi object, so we only touch properties that
- * a tween explicitly animates. Multiple tracks animating the same prop
- * = last-wins (array order).
+ * Walk every channel on every active clip on a PNG layer and override the
+ * base pose written by `syncTransforms`. Channels are clip-local — each
+ * key's `t` is seconds from `clip.start`, with loop / speed respected via
+ * `clipLocalSeconds`. Multiple tracks animating the same property =
+ * last-wins (array order). Properties without a channel are left at the
+ * base value.
  */
-function applyPngTweens(obj, layer, tracks, t, orientation) {
+function applyPngChannels(obj, layer, tracks, t, orientation) {
   if (!tracks.length) return;
   const baseT = orientation === 'portrait'
     ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
@@ -711,17 +713,13 @@ function applyPngTweens(obj, layer, tracks, t, orientation) {
 
   for (const track of tracks) {
     const clip = clipAt(track, t);
-    if (!clip?.tween) continue;
-    const rawP = clipRawProgress(clip, t);
-    const masterCurve = clip.curve || 'linear';
-    for (const prop of TWEEN_PROPS) {
-      const from = clip.tween.from?.[prop] ?? baseT[prop];
-      const to = clip.tween.to?.[prop] ?? baseT[prop];
-      if (typeof from !== 'number' || typeof to !== 'number') continue;
-      if (from === to && (clip.tween.from?.[prop] === undefined && clip.tween.to?.[prop] === undefined)) continue;
-      const propCurve = clip.tween.curves?.[prop] || masterCurve;
-      const easedP = curveEval(propCurve, rawP);
-      const val = from + (to - from) * easedP;
+    if (!clip?.channels) continue;
+    const localT = clipLocalSeconds(clip, t);
+    for (const prop of CHANNEL_PROPS) {
+      const ch = clip.channels[prop];
+      if (!ch) continue;
+      const val = evalChannel(ch, localT);
+      if (val == null || !Number.isFinite(val)) continue;
       if (prop === 'x') obj.x = val;
       else if (prop === 'y') obj.y = val;
       else if (prop === 'rotation') obj.rotation = val;

@@ -260,15 +260,11 @@ export function TimelinePanel({
     const wantedDuration = defaultClipDurationForLayer(layerId);
     const slot = findFreeSlot(newTrack, atTime, wantedDuration);
     if (!slot) return;
+    // PNG clips start with no `channels` — the user enables a chip
+    // ("animate: x") in the inspector once they want to keyframe a
+    // property. Auto-pre-filling them every-prop-checked was the
+    // top complaint about the old tween model.
     const clip = defaultClipForLayer(layerId, slot);
-    const seeded = evaluateLayerAtTime(scene, layerId, slot.start) || null;
-    if (seeded) {
-      clip.tween = {
-        from: { ...seeded },
-        to: { ...seeded },
-        curves: {}
-      };
-    }
     newTrack.clips.push(clip);
     setFlow({ ...(scene.flow || {}), tracks: [...tracks, newTrack] });
     onSelectLayer?.(layerId);
@@ -279,17 +275,7 @@ export function TimelinePanel({
     if (!track) return;
     const wantedDuration = defaultClipDurationForLayer(track.layerId);
     const resolved = findFreeSlot(track, slot.start, wantedDuration) || slot;
-    const clip = {
-      ...defaultClipForLayer(track.layerId, resolved)
-    };
-    const seeded = evaluateLayerAtTime(scene, track.layerId, resolved.start) || null;
-    if (seeded) {
-      clip.tween = {
-        from: { ...seeded },
-        to: { ...seeded },
-        curves: {}
-      };
-    }
+    const clip = { ...defaultClipForLayer(track.layerId, resolved) };
     const nextTracks = tracks.map((t) =>
       t.id === trackId
         ? { ...t, clips: [...t.clips, clip].sort((a, b) => a.start - b.start) }
@@ -559,10 +545,10 @@ export function TimelinePanel({
     const layer = scene.layers.find((l) => l.id === track.layerId);
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     if (asset?.type === 'spine') return clip.anim || '(setup pose)';
-    if (clip.tween) {
+    if (clip.channels) {
       const animated = [];
       for (const k of ['x', 'y', 'scaleX', 'scaleY', 'rotation']) {
-        if (clip.tween.from?.[k] !== undefined || clip.tween.to?.[k] !== undefined) animated.push(k);
+        if (clip.channels[k]?.keys?.length) animated.push(k);
       }
       return animated.length ? animated.join(' · ') : 'static';
     }
@@ -902,6 +888,7 @@ function ClipBlock({ clip, label, selected, duration, siblings = [], pxPerSec, o
       >
         ✕
       </button>
+      <ClipKeyframeDots clip={clip} pxPerSec={pxPerSec} />
       <div className="scene-clip-edge scene-clip-edge--right" />
       {selected && canAddRight && (
         <button
@@ -913,6 +900,38 @@ function ClipBlock({ clip, label, selected, duration, siblings = [], pxPerSec, o
           +
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Render small diamond markers on a clip block at each keyframe's
+ * clip-local time. One row, all channels overlapping — colored by prop
+ * via CSS class. Pointer-events are off so they don't intercept the
+ * clip's drag/resize handles.
+ */
+function ClipKeyframeDots({ clip, pxPerSec }) {
+  if (!clip.channels) return null;
+  const dots = [];
+  for (const prop of ['x', 'y', 'scaleX', 'scaleY', 'rotation']) {
+    const ch = clip.channels[prop];
+    if (!ch?.keys?.length) continue;
+    for (let i = 0; i < ch.keys.length; i++) {
+      const k = ch.keys[i];
+      dots.push({ prop, idx: i, t: k.t, v: k.v });
+    }
+  }
+  if (!dots.length) return null;
+  return (
+    <div className="scene-clip-keyframes">
+      {dots.map((d) => (
+        <span
+          key={`${d.prop}-${d.idx}`}
+          className={`scene-clip-keyframe scene-clip-keyframe--${d.prop}`}
+          style={{ left: `${d.t * pxPerSec}px` }}
+          title={`${d.prop} = ${d.v.toFixed(2)} @ ${d.t.toFixed(2)}s`}
+        />
+      ))}
     </div>
   );
 }
