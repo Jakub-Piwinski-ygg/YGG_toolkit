@@ -190,9 +190,14 @@ function FolderNode({ node, path, isOpen, onToggle, onAddItem, forceOpen, depth 
                 <li
                   key={it.id}
                   className="scene-asset-row"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'copy';
+                    e.dataTransfer.setData('application/x-ygg-asset-id', it.id);
+                  }}
                   onClick={() => onAddItem?.(it)}
                   onDoubleClick={() => onAddItem?.(it)}
-                  title={`Add ${it.name} to scene`}
+                  title={`Drag or click to add ${it.name} to scene`}
                 >
                   <span className="scene-asset-kind">{it.type}</span>
                   <span className="scene-asset-name">{it.name}</span>

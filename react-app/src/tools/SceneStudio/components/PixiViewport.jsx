@@ -1,6 +1,6 @@
 // PixiViewport — mounts Pixi v8, owns pan/zoom + selection/move interactions.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import {
   applyFlowAtTime,
   createPixiApp,
@@ -14,7 +14,7 @@ import {
 } from '../engine/pixiApp.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 
-export function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onViewportClick, flowTime = 0, livePreview = true }) {
+export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onViewportClick, onSeekToKey, flowTime = 0, livePreview = true }, ref) {
   const hostRef = useRef(null);
   const appRef = useRef(null);
   const viewportRef = useRef(null);
@@ -45,6 +45,9 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip 
   onViewportClickRef.current = onViewportClick;
   const selectedClipRef = useRef(selectedClip);
   selectedClipRef.current = selectedClip;
+  const onSeekToKeyRef = useRef(onSeekToKey);
+  onSeekToKeyRef.current = onSeekToKey;
+  const motionKeyDotsRef = useRef([]);
 
   const requestRender = () => {
     const app = appRef.current;
@@ -66,7 +69,7 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip 
             ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
             : selLayer.transforms?.landscape)
         : null;
-      drawSelection(sel, handlesRef.current.get(selLayerId), vScale, content, interactionGuidesRef.current, selClip, baseT);
+      motionKeyDotsRef.current = drawSelection(sel, handlesRef.current.get(selLayerId), vScale, content, interactionGuidesRef.current, selClip, baseT) || [];
     }
     if (frame) {
       const stage = s.stage.orientations[s.stage.activeOrientation];
@@ -115,7 +118,9 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip 
           getHandles: () => handlesRef.current,
           getScene: () => sceneRef.current,
           setInteractionGuides: (guides) => { interactionGuidesRef.current = guides || []; },
-          requestRender
+          requestRender,
+          getMotionKeyDots: () => motionKeyDotsRef.current,
+          onSeekToKey: (t) => onSeekToKeyRef.current?.(t)
         });
         // Reference is already passed above; keep this stub so HMR replacements
         // re-attach cleanly when the controller file changes.
@@ -261,7 +266,7 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip 
             ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
             : selLayer.transforms?.landscape)
         : null;
-      drawSelection(
+      motionKeyDotsRef.current = drawSelection(
         selectionOverlayRef.current,
         handlesRef.current.get(selectedLayerId),
         viewportRef.current?.scale?.x ?? 1,
@@ -269,10 +274,23 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip 
         interactionGuidesRef.current,
         selClip,
         baseT
-      );
+      ) || [];
       appRef.current?.render();
     }
   }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime]);
 
+  useImperativeHandle(ref, () => ({
+    screenToWorld(clientX, clientY) {
+      const vp = viewportRef.current;
+      const canvas = appRef.current?.canvas;
+      if (!vp || !canvas) return null;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const cx = (clientX - rect.left) * (canvas.width / rect.width) / dpr;
+      const cy = (clientY - rect.top) * (canvas.height / rect.height) / dpr;
+      return { x: (cx - vp.x) / vp.scale.x, y: (cy - vp.y) / vp.scale.y };
+    }
+  }), []);
+
   return <div ref={hostRef} className="scene-pixi-host" />;
-}
+});

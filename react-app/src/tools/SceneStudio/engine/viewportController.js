@@ -46,6 +46,8 @@ const HANDLE_CURSORS = {
  * @param {() => import('./sceneModel.js').Scene} opts.getScene
  * @param {(guides: Array<{x1:number,y1:number,x2:number,y2:number}>) => void} opts.setInteractionGuides
  * @param {() => void} opts.requestRender
+ * @param {() => Array<{x:number,y:number,absT:number}>} [opts.getMotionKeyDots]
+ * @param {(t:number) => void} [opts.onSeekToKey]
  */
 export function attachViewportController(opts) {
   const {
@@ -58,7 +60,9 @@ export function attachViewportController(opts) {
     getHandles,
     getScene,
     setInteractionGuides,
-    requestRender
+    requestRender,
+    getMotionKeyDots,
+    onSeekToKey
   } = opts;
 
   let panning = false;
@@ -280,6 +284,17 @@ export function attachViewportController(opts) {
       canvas.style.cursor = HANDLE_CURSORS[handleName];
       startRaf();
       return;
+    }
+
+    // Click on a motion-path key dot → seek playhead to that key's time.
+    if (getMotionKeyDots && onSeekToKey) {
+      const r = 10 * worldDistPerScreenPx();
+      for (const dot of (getMotionKeyDots() || [])) {
+        if (Math.abs(world.x - dot.x) <= r && Math.abs(world.y - dot.y) <= r) {
+          onSeekToKey(dot.absT);
+          return;
+        }
+      }
     }
 
     // Otherwise hit-test the sprite body for select / drag

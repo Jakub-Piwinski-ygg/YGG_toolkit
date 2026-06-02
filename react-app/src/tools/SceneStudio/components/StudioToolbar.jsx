@@ -12,6 +12,7 @@ export function StudioToolbar({
   onClearRoot,
   onSave,
   onLoad,
+  onNewProject,
   onToggleOrientation,
   livePreview = true,
   onToggleLivePreview,
@@ -132,6 +133,7 @@ export function StudioToolbar({
         title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
       >↷</button>
 
+      <button className="scene-btn scene-btn--ghost" onClick={onNewProject} disabled={busy} title="New project (will prompt to save)">new</button>
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>
       <button className="scene-btn scene-btn--primary" onClick={onSave} disabled={busy}>save</button>
     </div>

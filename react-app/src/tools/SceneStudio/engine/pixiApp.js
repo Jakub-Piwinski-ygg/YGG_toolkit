@@ -441,11 +441,11 @@ function channelKeyTimes(ch) {
 
 function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
   const posCh = clip?.channels?.position;
-  if (!posCh) return false;
+  if (!posCh) return { drawn: false, keyDots: [] };
   // Position is animated when it has ≥2 linked keys OR any split sub-list
   // pushes the union of key times to ≥2 distinct moments.
   const keyTimes = channelKeyTimes(posCh);
-  if (keyTimes.length < 2) return false;
+  if (keyTimes.length < 2) return { drawn: false, keyDots: [] };
   const scaleCh = clip.channels.scale;
   const alphaCh = clip.channels.alpha;
   const tintCh = clip.channels.tint;
@@ -455,11 +455,14 @@ function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
   const samples = Math.max(40, Math.min(160, Math.round(duration * 80)));
   const baseStrokeBase = 2 / viewportScale;
 
+  // Collect sample positions for the direction-arrow pass below.
+  const posSamples = [];
   let prev = null;
   for (let i = 0; i <= samples; i++) {
     const t = (i / samples) * duration;
     const pos = evalChannel(posCh, t, 'position');
-    if (!pos) continue;
+    if (!pos) { posSamples.push(null); continue; }
+    posSamples.push(pos);
     const alpha = alphaCh ? Math.max(0.1, Math.min(1, evalChannel(alphaCh, t, 'alpha'))) : 0.85;
     const tint = tintCh ? evalChannel(tintCh, t, 'tint') : (baseT?.tint || { r: 1, g: 0.82, b: 0.4 });
     const scaleV = scaleCh ? evalChannel(scaleCh, t, 'scale') : { x: 1, y: 1 };
@@ -480,9 +483,33 @@ function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
     prev = pos;
   }
 
-  // Dots at each keyframe time — for split position we evaluate the
-  // (x, y) at the union of per-component key times.
+  // Direction arrows — small filled triangles every ~12% of samples.
+  const arrowStep = Math.max(4, Math.round(samples / 8));
+  const arrowSize = 10 / viewportScale;
+  for (let i = arrowStep; i <= samples; i += arrowStep) {
+    const cur = posSamples[i];
+    const bk = posSamples[Math.max(0, i - 1)];
+    if (!cur || !bk) continue;
+    const dx = cur.x - bk.x;
+    const dy = cur.y - bk.y;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1) continue;
+    const nx = dx / len;
+    const ny = dy / len;
+    const px = -ny;
+    const py = nx;
+    overlay
+      .poly([
+        cur.x,                                       cur.y,
+        cur.x - nx * arrowSize - px * arrowSize * 0.5, cur.y - ny * arrowSize - py * arrowSize * 0.5,
+        cur.x - nx * arrowSize + px * arrowSize * 0.5, cur.y - ny * arrowSize + py * arrowSize * 0.5,
+      ])
+      .fill({ color: 0xffffff, alpha: 0.7 });
+  }
+
+  // Dots at each keyframe time — also returned for viewport hit-testing.
   const dotR = 5 / viewportScale;
+  const keyDots = [];
   for (const t of keyTimes) {
     const p = evalChannel(posCh, t, 'position');
     if (!p) continue;
@@ -490,14 +517,21 @@ function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
       .circle(p.x, p.y, dotR)
       .fill({ color: 0xffffff, alpha: 0.95 })
       .stroke({ color: 0x1a1d24, width: 1.5 / viewportScale, alpha: 1 });
+    keyDots.push({ t, x: p.x, y: p.y, absT: (clip.start || 0) + t });
   }
-  return true;
+  return { drawn: true, keyDots };
 }
 
-/** Draw selection rectangle + 8 resize handles in world space. */
+/** Draw selection rectangle + 8 resize handles in world space.
+ *  Returns an array of motion-path key dot world positions so the
+ *  viewport controller can hit-test them for click-to-seek. */
 export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = null, guides = null, selectedClip = null, baseT = null) {
   overlay.clear();
-  if (selectedClip) drawMotionPath(overlay, selectedClip, viewportScale, baseT);
+  let keyDots = [];
+  if (selectedClip) {
+    const mp = drawMotionPath(overlay, selectedClip, viewportScale, baseT);
+    keyDots = mp.keyDots || [];
+  }
   if (Array.isArray(guides) && guides.length) {
     const gw = 1 / viewportScale;
     for (const g of guides) {
@@ -505,7 +539,7 @@ export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = nul
     }
   }
   const handles = getHandlePositions(obj, contentRoot);
-  if (!handles) return;
+  if (!handles) return keyDots;
   const strokeW = 2 / viewportScale;
   const [nw, ne, se, sw] = handles.corners;
   overlay
@@ -522,6 +556,7 @@ export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = nul
     overlay.rect(p.x - m / 2, p.y - m / 2, m, m).fill({ color: 0xffd166, alpha: 1 });
     overlay.rect(p.x - m / 2, p.y - m / 2, m, m).stroke({ color: 0x1a1d24, width: 1 / viewportScale, alpha: 1 });
   }
+  return keyDots;
 }
 
 /** Resize the renderer canvas to match its DOM container. */

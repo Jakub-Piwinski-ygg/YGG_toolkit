@@ -16,8 +16,11 @@ import {
   deriveFlowGraph,
   getWorldPosition,
   isDescendantOf,
-  uid
+  SCHEMA,
+  uid,
+  validateScene
 } from './engine/sceneModel.js';
+import { clearSession, loadSession, saveSession } from './engine/sessionStore.js';
 import {
   createInitialFlowState,
   flowPause,
@@ -54,6 +57,31 @@ import './styles/scene-studio.css';
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
 
+/**
+ * Shift all clip-local key times by `delta` seconds to preserve absolute
+ * time positions when the clip's start is moved. Works for linked and split
+ * channel storage. Clamps shifted times to ≥ 0.
+ */
+function shiftAllChannelKeys(channels, delta) {
+  if (!channels || delta === 0) return channels;
+  const result = {};
+  for (const [name, ch] of Object.entries(channels)) {
+    if (!ch) { result[name] = ch; continue; }
+    if (ch.split && ch.perComp) {
+      const perComp = {};
+      for (const [comp, sub] of Object.entries(ch.perComp || {})) {
+        perComp[comp] = { keys: (sub.keys || []).map((k) => ({ ...k, t: Math.max(0, k.t + delta) })) };
+      }
+      result[name] = { ...ch, perComp };
+    } else if (ch.keys) {
+      result[name] = { ...ch, keys: ch.keys.map((k) => ({ ...k, t: Math.max(0, k.t + delta) })) };
+    } else {
+      result[name] = ch;
+    }
+  }
+  return result;
+}
+
 export default function SceneStudioInner() {
   const { log } = useApp();
   const [scene, setSceneInternal] = useState(() => createEmptyScene('Untitled scene'));
@@ -75,6 +103,20 @@ export default function SceneStudioInner() {
   const [autoKey, setAutoKey] = useState(true);
   const autoKeyRef = useRef(autoKey);
   autoKeyRef.current = autoKey;
+
+  // Session persistence: draft shown to user on mount if IDB has a saved scene.
+  // Shape: { scene, rootHandle, savedAt, schemaVersion } | null
+  const [sessionDraft, setSessionDraft] = useState(null);
+  const sessionDraftRef = useRef(sessionDraft);
+  sessionDraftRef.current = sessionDraft;
+  // Guard: only start autosaving once the user has taken an action
+  // (avoids immediately overwriting a good session with a blank scene on mount).
+  const autosaveEnabledRef = useRef(false);
+  const autosaveTimerRef = useRef(null);
+
+  // Confirm dialog for "New project" (shown when current scene has layers).
+  const [newProjectPending, setNewProjectPending] = useState(false);
+
   // Undo / redo: simple stacks of full-scene snapshots. Pushes are
   // coalesced for rapid edits (e.g. drag-scrubbing a value) via
   // `historyCoalesceUntilRef` so a 30-frame drag becomes one undo step.
@@ -84,6 +126,8 @@ export default function SceneStudioInner() {
   const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
+  const rootHandleRef = useRef(rootHandle);
+  rootHandleRef.current = rootHandle;
   const selectedClipIdRef = useRef(selectedClipId);
   selectedClipIdRef.current = selectedClipId;
   const selectedKeyRef = useRef(selectedKey);
@@ -151,6 +195,10 @@ export default function SceneStudioInner() {
   flowRef.current = flowState;
 
   const dropRef = useRef(null);
+  const pixiViewportRef = useRef(null);
+  const assetItemsRef = useRef(assetItems);
+  assetItemsRef.current = assetItems;
+  const addAssetItemFromBrowserRef = useRef(null);
 
   const addAssetLayer = useCallback((prev, asset, layerName, layerPatch = {}) => {
     const layerId = uid('L');
@@ -215,22 +263,38 @@ export default function SceneStudioInner() {
     log(`Scene Studio: + spine ${group.basename}`, 'ok');
   }, [addAssetLayer, log]);
 
-  const addAssetItemFromBrowser = useCallback(async (item) => {
+  const addAssetItemFromBrowser = useCallback(async (item, spawnPos = null) => {
     if (!rootHandle) return;
     try {
+      const newLayerId = uid('L');
+      // Build the layer patch common to all types: pre-assigned id + optional
+      // world-space spawn position (merged into both landscape and portrait transforms).
+      const makePatch = (prev, extra = {}) => {
+        const patch = { id: newLayerId, ...extra };
+        if (spawnPos) {
+          const defT = defaultTransformsForNewLayer(prev.stage);
+          patch.transforms = {
+            landscape: { ...defT.landscape, x: spawnPos.x, y: spawnPos.y },
+            portrait: defT.portrait ? { ...defT.portrait, x: spawnPos.x, y: spawnPos.y } : undefined
+          };
+        }
+        return patch;
+      };
       if (item.type === 'png') {
         setScene((prev) => {
           const asset = { id: uid('a'), type: 'png', src: item.path, meta: { originalName: item.name } };
-          return addAssetLayer(prev, asset, item.name.replace(/\.png$/i, ''));
+          return addAssetLayer(prev, asset, item.name.replace(/\.png$/i, ''), makePatch(prev));
         });
+        if (spawnPos) setSelectedLayerId(newLayerId);
         log(`Scene Studio: + png ${item.path}`, 'ok');
         return;
       }
       if (item.type === 'video') {
         setScene((prev) => {
           const asset = { id: uid('a'), type: 'video', src: item.path, meta: { originalName: item.name } };
-          return addAssetLayer(prev, asset, item.name.replace(VIDEO_EXT, ''), { video: { loop: true, muted: true } });
+          return addAssetLayer(prev, asset, item.name.replace(VIDEO_EXT, ''), makePatch(prev, { video: { loop: true, muted: true } }));
         });
+        if (spawnPos) setSelectedLayerId(newLayerId);
         log(`Scene Studio: + video ${item.path}`, 'ok');
         return;
       }
@@ -244,8 +308,9 @@ export default function SceneStudioInner() {
             texture: item.texturePath,
             meta: { originalName: item.name }
           };
-          return addAssetLayer(prev, asset, item.name, { spine: { defaultAnimation: null, loop: true, skin: null } });
+          return addAssetLayer(prev, asset, item.name, makePatch(prev, { spine: { defaultAnimation: null, loop: true, skin: null } }));
         });
+        if (spawnPos) setSelectedLayerId(newLayerId);
         log(`Scene Studio: + spine ${item.name}`, 'ok');
         return;
       }
@@ -253,6 +318,7 @@ export default function SceneStudioInner() {
       log(`Scene Studio asset add failed: ${e.message || e}`, 'err');
     }
   }, [addAssetLayer, log, rootHandle]);
+  addAssetItemFromBrowserRef.current = addAssetItemFromBrowser;
 
   useEffect(() => {
     const el = dropRef.current;
@@ -266,6 +332,16 @@ export default function SceneStudioInner() {
     const onDrop = async (e) => {
       e.preventDefault();
       el.classList.remove('drop-hover');
+      // Asset panel drag: item id carried as application/x-ygg-asset-id
+      const assetId = e.dataTransfer.getData('application/x-ygg-asset-id');
+      if (assetId) {
+        const item = assetItemsRef.current.find((x) => x.id === assetId);
+        if (item) {
+          const worldPos = pixiViewportRef.current?.screenToWorld(e.clientX, e.clientY) ?? null;
+          await addAssetItemFromBrowserRef.current(item, worldPos);
+        }
+        return;
+      }
       const files = Array.from(e.dataTransfer.files || []);
       if (!files.length) return;
       const { spineGroups, looseFiles } = groupSpineFiles(files);
@@ -341,6 +417,31 @@ export default function SceneStudioInner() {
     }
   }, [flowState.emitted]);
 
+  // ── Session restore: on mount, check IDB for a saved scene ────────────
+  useEffect(() => {
+    loadSession().then((draft) => {
+      if (draft?.scene?.layers?.length > 0) {
+        setSessionDraft(draft);
+      } else {
+        // No meaningful session — safe to start autosaving immediately.
+        autosaveEnabledRef.current = true;
+      }
+    });
+    return () => clearTimeout(autosaveTimerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Autosave: debounced 1 s after every scene / rootHandle change ─────
+  useEffect(() => {
+    if (!autosaveEnabledRef.current) return;
+    clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      saveSession(sceneRef.current, rootHandleRef.current);
+    }, 1000);
+  // We intentionally re-run on every `scene` and `rootHandle` change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, rootHandle]);
+
   const handlePatchLayer = useCallback((layerId, patch) => {
     setScene((prev) => ({
       ...prev,
@@ -372,6 +473,8 @@ export default function SceneStudioInner() {
     let targetClip = null;
     let targetTrack = null;
     const selClipId = selectedClipIdRef.current;
+    let needsExtend = false;   // playhead past clip end — extend + set loop:false
+    let needsShiftBack = false; // playhead before clip start — shift clip backwards
     if (selClipId && autoKeyRef.current) {
       for (const tr of tracks) {
         if (tr.layerId !== layerId) continue;
@@ -380,13 +483,20 @@ export default function SceneStudioInner() {
         if (flowNow.time >= c.start && flowNow.time < c.start + c.duration) {
           targetClip = c;
           targetTrack = tr;
+        } else if (flowNow.time >= c.start + c.duration) {
+          targetClip = c;
+          targetTrack = tr;
+          needsExtend = true;
+        } else if (flowNow.time < c.start) {
+          targetClip = c;
+          targetTrack = tr;
+          needsShiftBack = true;
         }
         break;
       }
     }
 
     if (!targetClip) {
-      // No recording context — patch the layer's base pose as before.
       setScene((prev) => ({
         ...prev,
         layers: prev.layers.map((l) =>
@@ -394,6 +504,54 @@ export default function SceneStudioInner() {
         )
       }));
       return;
+    }
+
+    // Extend clip to playhead (disable loop so the clip doesn't wrap around).
+    if (needsExtend) {
+      const extendedDuration = flowNow.time - targetClip.start;
+      setScene((prev) => ({
+        ...prev,
+        flow: deriveFlowGraph({
+          ...(prev.flow || {}),
+          tracks: (prev.flow?.tracks || []).map((tr) => {
+            if (tr.id !== targetTrack.id) return tr;
+            return {
+              ...tr,
+              clips: tr.clips.map((c) =>
+                c.id === targetClip.id ? { ...c, duration: extendedDuration, loop: false } : c
+              )
+            };
+          })
+        })
+      }));
+      targetClip = { ...targetClip, duration: extendedDuration, loop: false };
+    }
+
+    // Shift clip backwards: new start = playhead, shift all existing keys by delta
+    // so their absolute time positions stay the same.
+    if (needsShiftBack) {
+      const delta = targetClip.start - flowNow.time; // positive: how many s to shift keys
+      const newStart = flowNow.time;
+      const newDuration = targetClip.start + targetClip.duration - newStart;
+      const shiftedChannels = shiftAllChannelKeys(targetClip.channels, delta);
+      setScene((prev) => ({
+        ...prev,
+        flow: deriveFlowGraph({
+          ...(prev.flow || {}),
+          tracks: (prev.flow?.tracks || []).map((tr) => {
+            if (tr.id !== targetTrack.id) return tr;
+            return {
+              ...tr,
+              clips: tr.clips.map((c) =>
+                c.id === targetClip.id
+                  ? { ...c, start: newStart, duration: newDuration, channels: shiftedChannels }
+                  : c
+              )
+            };
+          })
+        })
+      }));
+      targetClip = { ...targetClip, start: newStart, duration: newDuration, channels: shiftedChannels };
     }
 
     // Auto-key path: group the patch by logical channel (position /
@@ -723,6 +881,82 @@ export default function SceneStudioInner() {
     log('Scene Studio: project root cleared (quick mode)', 'info');
   }, [log]);
 
+  // ── Session restore callbacks ─────────────────────────────────────────
+
+  const handleDismissSession = useCallback(async () => {
+    await clearSession();
+    setSessionDraft(null);
+    autosaveEnabledRef.current = true;
+  }, []);
+
+  const handleDownloadOldSession = useCallback(async () => {
+    const draft = sessionDraftRef.current;
+    if (draft?.scene) {
+      const text = JSON.stringify(draft.scene, null, 2);
+      const blob = new Blob([text], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(draft.scene.name || 'scene').replace(/[\\/:*?"<>|]/g, '_')}_backup.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+    await handleDismissSession();
+  }, [handleDismissSession]);
+
+  const handleRestoreSession = useCallback(async () => {
+    const draft = sessionDraftRef.current;
+    if (!draft?.scene) return;
+    replaceSceneNoHistory(validateScene(draft.scene));
+    setFlowState(createInitialFlowState());
+    setSelectedLayerId(null);
+    setSelectedClipId(null);
+    setSelectedKey(null);
+    setSessionDraft(null);
+    autosaveEnabledRef.current = true;
+    log(`Scene Studio: session restored (${draft.scene.layers?.length || 0} layers)`, 'ok');
+    if (draft.rootHandle) {
+      try {
+        const perm = await draft.rootHandle.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          await linkProjectRoot(draft.rootHandle);
+        } else {
+          log('Scene Studio: folder permission denied — scene restored without project folder', 'info');
+        }
+      } catch (e) {
+        log(`Scene Studio: could not restore project folder: ${e.message || e}`, 'info');
+      }
+    }
+  }, [replaceSceneNoHistory, log, linkProjectRoot]);
+
+  // ── New project ───────────────────────────────────────────────────────
+
+  const handleConfirmNewProject = useCallback(async () => {
+    setNewProjectPending(false);
+    await clearSession();
+    replaceSceneNoHistory(createEmptyScene('Untitled scene'));
+    setSelectedLayerId(null);
+    setSelectedClipId(null);
+    setSelectedKey(null);
+    setAssetDescriptors({});
+    setFlowState(createInitialFlowState());
+    setRootHandle(null);
+    setAssetItems([]);
+    setSessionDraft(null);
+    autosaveEnabledRef.current = true;
+    log('Scene Studio: new project', 'info');
+  }, [replaceSceneNoHistory, log]);
+
+  const handleNewProject = useCallback(() => {
+    if (sceneRef.current.layers.length > 0) {
+      setNewProjectPending(true);
+    } else {
+      handleConfirmNewProject();
+    }
+  }, [handleConfirmNewProject]);
+
   const handleRootDragOver = useCallback((e) => {
     // Accept drops in any browser that can present files in DataTransfer.
     // Chromium also supports getAsFileSystemHandle; Firefox / Safari fall
@@ -1033,9 +1267,15 @@ export default function SceneStudioInner() {
     for (const tr of tracks) {
       const c = tr.clips?.find((cl) => cl.id === sel.clipId);
       if (!c) continue;
-      const key = c.channels?.[sel.name]?.keys?.[sel.idx];
+      const ch = c.channels?.[sel.name];
+      let key;
+      if (sel.comp && ch?.split) {
+        key = ch.perComp?.[sel.comp]?.keys?.[sel.idx];
+      } else {
+        key = ch?.keys?.[sel.idx];
+      }
       if (!key) return false;
-      setClipboardKey({ name: sel.name, v: key.v, out: key.out });
+      setClipboardKey({ name: sel.name, comp: sel.comp ?? null, v: key.v, out: key.out });
       return true;
     }
     return false;
@@ -1086,13 +1326,20 @@ export default function SceneStudioInner() {
   }, [handleCopySelectedKey, handlePasteKey]);
 
   // Drop stale selectedKey if its clip / channel / idx no longer exist.
+  // Handles both linked (ch.keys) and split (ch.perComp[comp].keys) channels.
   useEffect(() => {
     if (!selectedKey) return;
     const tracks = scene.flow?.tracks || [];
     for (const tr of tracks) {
       const c = tr.clips?.find((cl) => cl.id === selectedKey.clipId);
       if (!c) continue;
-      const len = c.channels?.[selectedKey.name]?.keys?.length || 0;
+      const ch = c.channels?.[selectedKey.name];
+      let len;
+      if (selectedKey.comp && ch?.split) {
+        len = ch.perComp?.[selectedKey.comp]?.keys?.length || 0;
+      } else {
+        len = ch?.keys?.length || 0;
+      }
       if (selectedKey.idx >= len) setSelectedKey(null);
       return;
     }
@@ -1136,6 +1383,24 @@ export default function SceneStudioInner() {
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (handleDeleteSelectedKey()) e.preventDefault();
+        return;
+      }
+      // Space = play / pause toggle
+      if (e.key === ' ') {
+        e.preventDefault();
+        setFlowState((prev) => prev.playing ? flowPause(prev) : flowPlay(prev));
+        return;
+      }
+      // Arrow keys = stop playback + step one frame
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const dir = e.key === 'ArrowLeft' ? -1 : 1;
+        const fps = sceneRef.current.stage?.fps || 60;
+        setFlowState((prev) => {
+          const stopped = flowPause(prev);
+          const next = Math.max(0, Math.min(sceneRef.current.stage?.duration ?? 5, prev.time + dir / fps));
+          return flowSeek(sceneRef.current, stopped, next);
+        });
         return;
       }
     };
@@ -1293,6 +1558,64 @@ export default function SceneStudioInner() {
 
   return (
     <div className="scene-studio-root">
+      {/* Session restore banner — shown once on mount if IDB has a saved scene */}
+      {sessionDraft && (
+        <div className="scene-session-banner">
+          {sessionDraft.schemaVersion === SCHEMA ? (
+            <>
+              <span className="scene-session-banner__text">
+                Poprzednia sesja: <strong>{sessionDraft.scene?.name || 'scena'}</strong>
+                {' '}({sessionDraft.scene?.layers?.length || 0} warstw
+                {sessionDraft.savedAt ? `, ${new Date(sessionDraft.savedAt).toLocaleString()}` : ''})
+              </span>
+              <button className="scene-btn scene-btn--primary scene-btn--sm" onClick={handleRestoreSession}>
+                Przywróć
+              </button>
+              <button className="scene-btn scene-btn--sm" onClick={handleDismissSession}>
+                Nowa scena
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="scene-session-banner__text">
+                Zapisana sesja pochodzi z innej wersji ({sessionDraft.schemaVersion}).
+              </span>
+              <button className="scene-btn scene-btn--sm" onClick={handleDownloadOldSession}>
+                Pobierz kopię
+              </button>
+              <button className="scene-btn scene-btn--ghost scene-btn--sm" onClick={handleDismissSession}>
+                Odrzuć
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* New project confirm dialog */}
+      {newProjectPending && (
+        <div className="scene-confirm-overlay">
+          <div className="scene-confirm-card">
+            <div className="scene-confirm-title">Nowy projekt</div>
+            <div className="scene-confirm-body">Zapisać obecną scenę przed zamknięciem?</div>
+            <div className="scene-confirm-actions">
+              <button
+                className="scene-btn scene-btn--primary"
+                onClick={async () => { await handleSave(); handleConfirmNewProject(); }}
+                disabled={busy}
+              >
+                Zapisz i nowy
+              </button>
+              <button className="scene-btn" onClick={handleConfirmNewProject}>
+                Odrzuć zmiany
+              </button>
+              <button className="scene-btn scene-btn--ghost" onClick={() => setNewProjectPending(false)}>
+                Anuluj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <StudioToolbar
         scene={scene}
         onRename={handleRename}
@@ -1302,6 +1625,7 @@ export default function SceneStudioInner() {
         onClearRoot={handleClearRoot}
         onSave={handleSave}
         onLoad={handleLoad}
+        onNewProject={handleNewProject}
         onToggleOrientation={handleToggleOrientation}
         livePreview={livePreview}
         onToggleLivePreview={() => setLivePreview((v) => !v)}
@@ -1348,6 +1672,7 @@ export default function SceneStudioInner() {
           <div ref={dropRef} className="scene-viewport-wrap">
             <PixiErrorBoundary>
               <PixiViewport
+                ref={pixiViewportRef}
                 scene={sceneWithRuntime}
                 rootHandle={rootHandle}
                 selectedLayerId={selectedLayerId}
@@ -1358,6 +1683,7 @@ export default function SceneStudioInner() {
                 flowTime={flowState.time}
                 livePreview={livePreview}
                 onViewportClick={() => handleFlowAction('clickResume')}
+                onSeekToKey={(t) => handleFlowAction('seek', t)}
               />
             </PixiErrorBoundary>
             {scene.layers.length === 0 && (
@@ -1405,6 +1731,7 @@ export default function SceneStudioInner() {
           onPatchTransform={handlePatchTransform}
           onResetPortrait={handleResetPortrait}
           onPatchFlow={patchFlow}
+          onFlowAction={handleFlowAction}
         />
       </div>
       {rootDropHover && (

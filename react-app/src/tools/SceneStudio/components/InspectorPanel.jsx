@@ -76,7 +76,8 @@ export function InspectorPanel({
   onPatchLayer,
   onPatchTransform,
   onResetPortrait,
-  onPatchFlow
+  onPatchFlow,
+  onFlowAction
 }) {
   const layer = scene.layers.find((l) => l.id === selectedLayerId);
   const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
@@ -228,6 +229,7 @@ export function InspectorPanel({
           onSelectKey={onSelectKey}
           descriptor={asset?.type === 'spine' ? assetDescriptors[asset.id] : null}
           onPatchFlow={onPatchFlow}
+          onFlowAction={onFlowAction}
         />
       )}
     </div>
@@ -367,7 +369,7 @@ function VideoSection({ layer, onPatchLayer }) {
  * All mutations go through `onPatchFlow(newFlow)` because clips live on
  * `scene.flow.tracks[].clips[]`.
  */
-function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow }) {
+function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction }) {
   const patchClip = (patch) => {
     const nextTracks = (scene.flow?.tracks || []).map((tr) =>
       tr.id === track.id
@@ -418,6 +420,16 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
         clip · {headerLabel}
         <span className="scene-pill scene-pill--clip">on {track.layerId === layer.id ? layer.name : '(other layer)'}</span>
       </div>
+
+      <label className="scene-field">
+        <span>name</span>
+        <input
+          type="text"
+          value={clip.name || ''}
+          placeholder="(auto)"
+          onChange={(e) => patchClip({ name: e.target.value || null })}
+        />
+      </label>
 
       <DragNumberField label="start" value={clip.start} step={0.01} min={0}
         onChange={(v) => patchClip({ start: Math.max(0, v) })} />
@@ -476,6 +488,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           onPatchClip={patchClip}
           selectedKey={selectedKey}
           onSelectKey={onSelectKey}
+          onFlowAction={onFlowAction}
         />
       )}
 
@@ -528,7 +541,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
  * - Auto-key writes (from viewport drags or transform-field edits)
  *   land here via SceneStudioInner's `onPatchTransform` decision logic.
  */
-function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: externalKey = null, onSelectKey: externalOnSelectKey = null }) {
+function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: externalKey = null, onSelectKey: externalOnSelectKey = null, onFlowAction = null }) {
   const channels = clip.channels || {};
   // A channel counts as "enabled" if it has linked keys OR any split
   // sub-list has keys. Split channels store `perComp.x.keys` etc., not
@@ -551,6 +564,11 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
     setLocalKey(keyOrNull);
     if (keyOrNull) {
       externalOnSelectKey?.({ clipId: clip.id, name: keyOrNull.name, idx: keyOrNull.idx, comp: keyOrNull.comp ?? null });
+      // Seek the playhead to the clicked key's absolute time.
+      const ch = channels[keyOrNull.name];
+      const sub = (ch?.split && keyOrNull.comp) ? ch.perComp?.[keyOrNull.comp] : ch;
+      const keyT = sub?.keys?.[keyOrNull.idx]?.t;
+      if (typeof keyT === 'number') onFlowAction?.('seek', clip.start + keyT);
     } else {
       externalOnSelectKey?.(null);
     }
