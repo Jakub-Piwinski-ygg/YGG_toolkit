@@ -1,14 +1,22 @@
 # Scene Studio — design document
 
-> Status: **Phases 1–3 landed** (skeleton + Spine/video + timeline/flow).
-> Phase 3.5 (timeline UI overhaul) also landed.
-> Next: Phase 3.7 (keyframe channels + curve editor, §19), then Phase 4
-> (exporters + polish). GlowForge is no longer part of Scene Studio — it
-> will ship as its own top-level Art Tool.
+> Status: **Phases 1–3.7 landed** (skeleton + Spine/video + timeline/flow
+> + full keyframe-channel animation). Phase 3.7 grew well past its
+> original scope across rounds 4–6 — see **§20** for the as-built record.
+> Next: Phase 4 (exporters + polish + pixi-filters carryover).
+> GlowForge is no longer part of Scene Studio — it will ship as its own
+> top-level Art Tool.
 > Branch: `feat/templates-spine-export-and-repo-browser-merge`
 > (Scene Studio currently rides along on this branch instead of its own
 > `feat/scene-studio` — the originally-proposed branch was never cut).
-> Last updated: 2026-06-01.
+> Last updated: 2026-06-02.
+>
+> **Read order for the animation system:** §19 is the original Phase 3.7
+> *design proposal* (per-property channels, single shared key per vec2).
+> §20 is the **as-built** record — it supersedes §19 wherever they
+> differ (vec2/vec3 logical channels, alpha+tint, graph editor, motion
+> path, split channels, auto-key toggle, add-key menu). When in doubt,
+> §20 + the code win.
 
 > See §18 **Phase audit** at the bottom for the line-by-line
 > reconciliation between this document and the code on disk.
@@ -888,23 +896,29 @@ react-app/src/tools/SceneStudio/
 ├── meta.js                    ← matches §11
 ├── README.md                  ← short pointer (matches §11)
 ├── engine/
-│   ├── sceneModel.js          ← types + validator + tree helpers (matches §11)
+│   ├── sceneModel.js          ← types + validator + channel migration/normalize
 │   ├── persist.js             ← FS Access + virtual-handle integration (matches §11)
-│   ├── pixiApp.js             ← Pixi v8 bootstrap + rebuild + transform sync + flow apply
-│   ├── flowInterpreter.js     ← matches §11
+│   ├── pixiApp.js             ← Pixi v8 bootstrap + rebuild + transform sync + applyPngChannels + motion path
+│   ├── flowInterpreter.js     ← playhead/markers + clipAt / lastClipAt
 │   ├── orientationManager.js  ← matches §11
 │   ├── assetBrowser.js        ← project-folder scan (new — §11 had it under different name)
 │   ├── spineLoader.js         ← Spine 4.2 atlas/skel loader + drop grouping (new)
 │   ├── viewportController.js  ← pan/zoom/select/drag/resize controller (new)
-│   └── virtualHandle.js       ← Firefox/Safari read-only directory shim (new)
+│   ├── virtualHandle.js       ← Firefox/Safari read-only directory shim (new)
+│   └── animation/             ← Phase 3.7 (round 4+) — NOW EXISTS
+│       ├── keyframes.js       ← channels: CHANNEL_DEFS, eval, insert/move/split/link, channelKeyDots
+│       └── curves.js          ← cubic-bezier solver + preset table
 ├── components/                ← §11 split this into panels/ + components/; we flattened
-│   ├── PixiViewport.jsx       ← canvas host + RAF drive loop
+│   ├── PixiViewport.jsx       ← canvas host + RAF drive loop + selection / motion-path redraw
+│   ├── PixiErrorBoundary.jsx  ← isolates Pixi crashes from the rest of the UI (new)
 │   ├── HierarchyPanel.jsx     ← left tree; replaces §11's LayerListPanel
 │   ├── LayerListPanel.jsx     ← legacy flat list (unused — kept temporarily)
-│   ├── InspectorPanel.jsx
+│   ├── InspectorPanel.jsx     ← layer + clip sections, channel chips, graph/list toggle
+│   ├── ClipGraphEditor.jsx    ← whole-clip multi-channel graph, 2D-draggable keys (new)
+│   ├── CurveEditor.jsx        ← editable cubic-bezier popover (new)
 │   ├── AssetBrowserPanel.jsx  ← project-folder asset tree (new — §11 didn't include)
-│   ├── TimelinePanel.jsx
-│   ├── StudioToolbar.jsx
+│   ├── TimelinePanel.jsx      ← tracks, clip blocks, stacked keyframe diamonds, auto-key + add-key UI
+│   ├── StudioToolbar.jsx      ← + undo/redo buttons
 │   └── DragNumberField.jsx    ← shared numeric drag-input
 └── styles/
     └── scene-studio.css       ← all styles, single file (matches §11)
@@ -913,13 +927,16 @@ react-app/src/tools/SceneStudio/
 Deltas worth flagging:
 
 - `panels/` and `components/` directories from §11 are **merged into one
-  `components/`** in code. No `effects/`, no `animation/` (Phase 3.7 /
-  Phase 4 carryover). GlowForge bake panel was removed from the design
-  entirely — it ships as its own top-level Art Tool.
+  `components/`** in code. `animation/` now exists (Phase 3.7). Still
+  no `effects/` (Phase 2/4 carryover — pixi-filters). GlowForge bake
+  panel was removed from the design entirely — it ships as its own
+  top-level Art Tool.
 - New first-class modules absent from §11: `assetBrowser.js`,
   `spineLoader.js`, `viewportController.js`, `virtualHandle.js`,
-  `AssetBrowserPanel.jsx`, `DragNumberField.jsx`. None of these
-  invalidate the design — they fill in gaps §11 had glossed over.
+  `animation/keyframes.js`, `animation/curves.js`, `AssetBrowserPanel.jsx`,
+  `ClipGraphEditor.jsx`, `CurveEditor.jsx`, `PixiErrorBoundary.jsx`,
+  `DragNumberField.jsx`. None invalidate the design — they fill in
+  gaps §11 glossed over plus the Phase 3.7 animation system (§20).
 - `LayerListPanel.jsx` is the old flat list; `HierarchyPanel.jsx`
   superseded it. Safe to delete in a cleanup pass.
 
@@ -1024,20 +1041,31 @@ Deltas worth flagging:
   is not currently possible from the timeline. Decide whether to
   implement it or drop it from §4.
 
-### Phase 3.7 — Keyframe channels + curve editor (NOT STARTED)
+### Phase 3.7 — Keyframe channels + curve editor (DONE, exceeded scope)
 
-Replaces the 2-endpoint tween model currently in code with the
-multi-keyframe channel design in §19. Specifically:
+Replaced the 2-endpoint tween model with multi-keyframe channels and
+then kept going across rounds 4–6. **The full as-built record is §20.**
+Headline deliverables:
 
-- [ ] `validateScene` migrates old `clip.tween` to `clip.channels`.
-- [ ] `applyPngTweens` (`pixiApp.js`) replaced by `applyPngChannels`
-      with segment lookup + eased lerp.
-- [ ] Inspector auto-key flow: clip selected + playhead-in-clip turns
-      every numeric drag-input edit into a keyframe write.
-- [ ] Per-channel keyframe list in inspector with `t / v / out`
-      columns and a curve editor popover (`CurveEditor.jsx`).
-- [ ] Keyframe diamonds rendered on timeline clip blocks; click to
-      select, drag to move in time, right-click to delete.
+- [x] `validateScene` migrates old `clip.tween` to `clip.channels`
+      (and the legacy per-prop channel shape → vec2/vec3 logical
+      channels).
+- [x] `applyPngTweens` (`pixiApp.js`) replaced by `applyPngChannels`
+      with segment lookup + eased lerp; holds the last keyframe past a
+      clip's end instead of snapping to base pose.
+- [x] Inspector auto-key flow: clip selected + playhead-in-clip turns
+      a numeric edit (inspector field OR viewport drag/resize/rotate)
+      into a keyframe write. Plus an **auto-key on/off toggle**.
+- [x] Per-channel keyframe list in inspector with `t / v / out`
+      columns and an **editable cubic-bezier** curve editor popover
+      (`CurveEditor.jsx`).
+- [x] Keyframe diamonds on timeline clip blocks; click selects +
+      seeks, drag moves in time, Delete removes, Ctrl+C/V/D
+      copy/paste/duplicate.
+- [x] **Beyond original scope** (§20): vec2/vec3 logical channels
+      (position/scale/rotation/alpha/tint), whole-clip graph editor,
+      on-scene motion-path overlay, per-channel link/split toggle,
+      vertical keyframe stacking, and an add-key dropdown.
 
 ### Phase 4 — Exporters + polish (NOT STARTED)
 
@@ -1067,23 +1095,28 @@ multi-keyframe channel design in §19. Specifically:
 
 ### Carryover into the next chunk of work
 
-Ranked by what unblocks downstream work fastest:
+Phase 3.7 (animation system) is done — see §20. Ranked by what
+unblocks downstream work fastest now:
 
-1. **Phase 3.7 — keyframe channels (§19).** The single biggest
-   usability gap. Current 2-endpoint `tween` model is hard to author
-   ("ciężko ustalić keypointy"), can't be edited at a midpoint, and
-   the curve picker only shows the result without letting you edit
-   the shape. New model gets auto-key + per-segment bezier-editable
-   curves. **Start here.**
-2. Decide on the `loop` marker type — implement or remove from §4.
-3. Wire up `pixi-filters` + an `effects/` registry + `EffectsPanel`
-   (Phase 2 carryover). Schema is ready; just needs UI + the
-   filter-attach step inside `pixiApp.js#rebuildScene`.
-4. Delete the unused `LayerListPanel.jsx`.
-5. Begin Phase 4 (exporters): `exporter.js` with hero-frame PNG, PNG
+1. **Fix the Pixi v8 viewport crash (§20.10).** Recurring
+   `SpritePipe._initGPUSprite` "Cannot read 'orig' of null" when a
+   sprite renders before its texture source is uploaded. A
+   `PixiErrorBoundary` already isolates it (the rest of the studio
+   keeps working + offers Retry), and `Assets.load` reduced its
+   frequency, but it still fires on rapid add+rebuild of large PNGs.
+   Proper fix: guard the RAF render to skip sprites whose
+   `texture.source` isn't `uploaded`, or defer adding the sprite to
+   the tree until the source is ready. **Most user-visible bug.**
+2. Begin Phase 4 (exporters): `exporter.js` with hero-frame PNG, PNG
    sequence and WebM via `MediaRecorder`; `pngSequence` asset import
    path (drop a numbered-PNG folder onto the Assets panel) so a
    future standalone GlowForge tool's output drops in cleanly.
+3. Wire up `pixi-filters` + an `effects/` registry + `EffectsPanel`
+   (Phase 2 carryover). Schema is ready; just needs UI + the
+   filter-attach step inside `pixiApp.js#rebuildScene`.
+4. Decide on the `loop` marker type — implement or remove from §4.
+5. Delete the unused `LayerListPanel.jsx`.
+6. Smaller animation polish — see the §20.11 backlog.
 
 ---
 
@@ -1443,3 +1476,201 @@ Each step lands as its own commit on the current branch.
 - **Auto-removal of empty channels.** A channel with one key is
   valid (a hold). The user removes it explicitly via the Animate
   chips or per-channel delete button.
+
+---
+
+## 20. Animation system — as-built (rounds 3.7 → 6)
+
+**This section supersedes §19 wherever they differ.** §19 was the
+original proposal; the shipped system grew past it over several
+iteration rounds. This is the source of truth for what's actually in
+the code. Read it alongside `engine/animation/keyframes.js`,
+`engine/animation/curves.js`, `components/ClipGraphEditor.jsx`,
+`components/CurveEditor.jsx`, and the channel logic in
+`SceneStudioInner.handlePatchTransform`.
+
+### 20.1 Logical channels (NOT per-property)
+
+§19 proposed one channel per sprite prop (`x`, `y`, `scaleX`, …). The
+build instead uses **logical channels** so the artist authors x+y in
+one move:
+
+| Channel    | Layout   | Value shape          | Applied to Pixi          |
+|------------|----------|----------------------|--------------------------|
+| `position` | vec2     | `{ x, y }`           | `obj.x`, `obj.y`         |
+| `scale`    | vec2     | `{ x, y }`           | `obj.scale.set(x, y)`    |
+| `rotation` | scalar   | radians (number)     | `obj.rotation`           |
+| `alpha`    | scalar   | 0..1 (number)        | `obj.alpha`              |
+| `tint`     | rgb/vec3 | `{ r, g, b }` 0..1   | `obj.tint` (packed u24)  |
+
+`CHANNEL_DEFS` (in `keyframes.js`) holds the layout + an `apply(obj, v)`
+per channel. `CHANNEL_NAMES` is the canonical order. `SPRITE_PROP_TO_
+CHANNEL` maps a raw transform-field patch (`x`, `y`, `scaleX`, `scaleY`,
+`rotation`, `alpha`, `tintR/G/B`) onto its logical channel + component.
+
+`alpha` and `tint` apply to **PNG, pngSequence, Spine, and video**
+layers (Spine/video get an `{ alphaAndTintOnly: true }` pass so the
+artist can fade / colourise a skeleton without disturbing its own
+animation). The other channels are PNG/pngSequence only.
+
+### 20.2 Two storage shapes per channel — linked vs split
+
+A channel is stored one of two ways:
+
+- **Linked** (default): `{ keys: [{ t, v, out }] }`. For vec2/rgb the
+  `v` is the whole `{x,y}` / `{r,g,b}`; one key holds all components
+  and they share one `out` curve. This is §19's shape.
+- **Split**: `{ split: true, perComp: { x: { keys }, y: { keys } } }`
+  (rgb uses `r`/`g`/`b`). Each component is an **independent scalar
+  curve** — separate key times, values, and `out` curves. Added in
+  round 5 because artists wanted x and y to ease differently.
+
+`splitChannel(ch, name)` / `linkChannel(ch, name)` convert between the
+two (link takes the union of per-comp key times and re-merges). The
+graph editor exposes a per-channel **linked / split toggle**.
+
+`channelKeyDots(channel)` enumerates display dots for either shape —
+the timeline + motion path use it so split channels don't vanish.
+
+### 20.3 Keyframe shape + evaluation
+
+A key is `{ t, v, out }`: clip-local seconds, value (number / vec2 /
+vec3), and the easing curve from this key to the next (`out`; ignored
+on the last key). `evalChannel(channel, t, channelName)`:
+
+- Linked: binary-search the segment, ease `t→p` via `curveEval(out, p)`,
+  lerp `a.v → b.v`.
+- Split: evaluate each per-comp scalar list and assemble the vec.
+- Hold-in / hold-out: clamp to first/last key value; **no
+  extrapolation**. The interpreter also evaluates *past* the clip end
+  (`clipLocalSeconds(..., { clampPastEnd: true })`) so a sprite holds
+  its final keyframe instead of snapping back to base pose.
+
+`lastClipAt(track, t)` (in `flowInterpreter.js`) returns the latest
+clip whose `start ≤ t` so the hold-last behaviour works after a clip
+ends. (Spine/video still use the strict-range `clipAt`.)
+
+### 20.4 Curves — preset OR editable cubic-bezier
+
+`out` is either a preset string (`linear`, `easeIn`, `easeOut`,
+`easeInOut`, `smoothstep`, `backIn`, `backOut`, `overshoot`,
+`stepStart`, `stepEnd`) or `{ bezier: [x1, y1, x2, y2] }`.
+`engine/animation/curves.js` has the Newton-Raphson cubic-bezier
+solver, the preset→bezier table (`PRESET_BEZIER`), `detectPreset`,
+`formatBezier`, `toBezier`. `CurveEditor.jsx` is the real editable
+SVG surface: two draggable handles, preset snap chips, live
+`cubic-bezier(...)` readout. It edits the selected key's `out`.
+
+### 20.5 Auto-key (with on/off toggle)
+
+When **auto-key is ON** (default) AND a clip is selected AND the
+playhead is inside that clip AND the clip is on the selected layer,
+any numeric transform edit (inspector field OR viewport
+drag/resize/rotate) records a keyframe at the playhead instead of
+touching the base pose. Implemented in
+`SceneStudioInner.handlePatchTransform`, which groups the patch by
+logical channel, merges vec2/vec3 components (preserving the
+untouched component via `composeVec2Value` / `composeRgbValue`), and
+writes one key per channel (split-aware).
+
+A **`⦿ / ○ auto-key` toggle** in the timeline header turns recording
+off — then every transform edit writes the base pose, never a key.
+(`autoKeyRef` so the patch callback reads fresh state.)
+
+Inspector transform fields show a diamond indicator: `◆` = this
+channel is keyed on the selected clip, `◇` = recording-armed (will
+create a key on next edit). A `● rec @ <t>s` pill marks the active
+recording window.
+
+### 20.6 Add-key dropdown (explicit keying)
+
+A **`+ key…` dropdown** in the timeline header (enabled when a clip is
+selected) inserts keys at the playhead regardless of the auto-key
+toggle. Options: *key all*, *position (x,y)*, *position x-only*,
+*position y-only*, *scale (x,y)*, *scale x/y-only*, *rotation*,
+*alpha*, *tint*. A component-only target (e.g. *position x-only*)
+forces the channel into **split** mode so the single component gets
+its own independent key. Handler: `SceneStudioInner.handleAddKeys`.
+
+### 20.7 Inspector — graph view vs list view
+
+The Clip section's channel editor (`PngChannelEditor` in
+`InspectorPanel.jsx`) has a **graph / list** toggle:
+
+- **Graph view** (default once any channel exists): `ClipGraphEditor`
+  renders one stacked subplot per channel with a shared time axis and
+  per-subplot **absolute** Y auto-fit. vec2/rgb overlay one coloured
+  line per component (x=red, y=blue; r/g/b for tint). Keyframes are
+  draggable in 2D (changes `t` and `v` at once). Click empty curve →
+  insert a key there. A split channel renders N component sub-rows.
+  The selected key (matched on `name` + `idx` + `comp`) highlights a
+  **single** dot — clicking X no longer selects Y too.
+- **List view**: per-channel `t / v / out / ×` tables (good for typing
+  exact numbers). vec2 rows show two number fields; rgb rows show an
+  `<input type=color>`. Split channels show a "edit in graph view"
+  hint (the per-comp tables would crowd the panel).
+
+`selectedKey` shape is `{ clipId, name, idx, comp }` (comp = null for
+linked / scalar). It's owned by `SceneStudioInner` and threads to both
+the inspector and the timeline.
+
+### 20.8 Timeline keyframe diamonds — stacking
+
+Diamonds render along the bottom of each clip block, colour-coded per
+logical channel. Keyframes that **share a frame stack vertically**
+(one above another) and the track row **grows taller** to fit the
+tallest stack, so overlapping keys from different channels are each
+individually clickable. `buildClipDots(clip, pxPerSec)` buckets dots
+by pixel-x and assigns a `stack` slot; `trackRowHeight()` sizes the
+row. Click a diamond → selects the key + seeks the playhead to it;
+horizontal drag → moves its `t`. Keyboard on the selected key:
+Delete removes, Ctrl+C / Ctrl+V copy/paste, Ctrl+D duplicates (at the
+playhead). All split-aware (carry `comp`).
+
+### 20.9 Motion path overlay on scene
+
+When a clip with an animated `position` channel (≥2 key times,
+linked or split) is selected, `drawMotionPath` (in `pixiApp.js`)
+traces the sampled position path into the selection-overlay Graphics.
+Per-segment **stroke alpha** follows the `alpha` channel, **stroke
+colour** follows `tint` (or base tint), **stroke width** hints at the
+sampled `scale`. White dots mark each keyframe time (union of
+per-component times for split). Renders live as the scene + selection
+change.
+
+### 20.10 Known issue — Pixi v8 viewport crash
+
+`SpritePipe._initGPUSprite` throws `Cannot read properties of null
+(reading 'orig')` when a sprite is rendered before its texture
+source is uploaded — a Pixi v8 race, **not** in the animation logic.
+Mitigations in place:
+
+- `loadTextureFromUrl` uses `Assets.load(url)` (resolves only after
+  `source.orig` exists), with an `<img>.decode()` + `Texture.from`
+  fallback. This cut the frequency a lot.
+- `components/PixiErrorBoundary.jsx` wraps `PixiViewport` so a crash
+  leaves the timeline / inspector / graph editor fully usable and
+  shows a **Retry** button to remount the viewport.
+
+It still fires on rapid add+rebuild of large PNGs. **Proper fix
+(carryover #1):** guard the RAF render to skip sprites whose
+`texture.source` isn't `uploaded`, or defer adding the sprite to the
+scene graph until the source is ready.
+
+### 20.11 Remaining animation backlog (small)
+
+Deferred polish — none block authoring:
+
+- **Right-click context menu** on timeline clips / diamonds (delete,
+  set-curve submenu). Today: keyboard + inspector cover these.
+- **Snap-to-marker / snap-to-neighbour** while dragging a keyframe
+  diamond (clip-block drag already snaps; key drag does not).
+- **Alt-bypass on a single auto-key edit** (§19.4 proposed it; the
+  on/off toggle replaced the need, but a one-shot modifier is nicer).
+- **`loop` marker type** (§4) — still neither implemented nor removed.
+- **pixi-filters / `effects[]`** (Phase 2 carryover) — schema ready,
+  no UI / wiring yet. Belongs with Phase 4.
+- **Weighted / split tangents** per key (AE-style in+out handles).
+  Still out of scope; one `out` curve per segment.
+- **Channels on Spine layers driving transforms** (beyond alpha/tint).
+  Schema permits, interpreter ignores.
