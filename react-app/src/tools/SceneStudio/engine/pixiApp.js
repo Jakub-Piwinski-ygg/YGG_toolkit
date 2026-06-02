@@ -427,9 +427,25 @@ export function pointInsideObject(obj, contentX, contentY, contentRoot = null) {
  * Returns true if anything was drawn (the caller skips this step
  * otherwise to avoid empty redraws).
  */
+function channelKeyTimes(ch) {
+  if (!ch) return [];
+  if (ch.split && ch.perComp) {
+    const set = new Set();
+    for (const c of Object.values(ch.perComp)) {
+      for (const k of c?.keys || []) set.add(Number(k.t.toFixed(6)));
+    }
+    return [...set].sort((a, b) => a - b);
+  }
+  return (ch.keys || []).map((k) => k.t);
+}
+
 function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
-  if (!clip?.channels?.position?.keys || clip.channels.position.keys.length < 2) return false;
-  const posCh = clip.channels.position;
+  const posCh = clip?.channels?.position;
+  if (!posCh) return false;
+  // Position is animated when it has ≥2 linked keys OR any split sub-list
+  // pushes the union of key times to ≥2 distinct moments.
+  const keyTimes = channelKeyTimes(posCh);
+  if (keyTimes.length < 2) return false;
   const scaleCh = clip.channels.scale;
   const alphaCh = clip.channels.alpha;
   const tintCh = clip.channels.tint;
@@ -442,11 +458,11 @@ function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
   let prev = null;
   for (let i = 0; i <= samples; i++) {
     const t = (i / samples) * duration;
-    const pos = evalChannel(posCh, t);
+    const pos = evalChannel(posCh, t, 'position');
     if (!pos) continue;
-    const alpha = alphaCh ? Math.max(0.1, Math.min(1, evalChannel(alphaCh, t))) : 0.85;
-    const tint = tintCh ? evalChannel(tintCh, t) : (baseT?.tint || { r: 1, g: 0.82, b: 0.4 });
-    const scaleV = scaleCh ? evalChannel(scaleCh, t) : { x: 1, y: 1 };
+    const alpha = alphaCh ? Math.max(0.1, Math.min(1, evalChannel(alphaCh, t, 'alpha'))) : 0.85;
+    const tint = tintCh ? evalChannel(tintCh, t, 'tint') : (baseT?.tint || { r: 1, g: 0.82, b: 0.4 });
+    const scaleV = scaleCh ? evalChannel(scaleCh, t, 'scale') : { x: 1, y: 1 };
     const scaleMag = scaleV ? (Math.abs(scaleV.x) + Math.abs(scaleV.y)) * 0.5 : 1;
 
     const r = Math.max(0, Math.min(255, Math.round((tint?.r ?? 1) * 255)));
@@ -464,11 +480,14 @@ function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
     prev = pos;
   }
 
-  // Dots at each keyframe — the artist sees exactly where the curve breaks.
+  // Dots at each keyframe time — for split position we evaluate the
+  // (x, y) at the union of per-component key times.
   const dotR = 5 / viewportScale;
-  for (const k of posCh.keys) {
+  for (const t of keyTimes) {
+    const p = evalChannel(posCh, t, 'position');
+    if (!p) continue;
     overlay
-      .circle(k.v.x, k.v.y, dotR)
+      .circle(p.x, p.y, dotR)
       .fill({ color: 0xffffff, alpha: 0.95 })
       .stroke({ color: 0x1a1d24, width: 1.5 / viewportScale, alpha: 1 });
   }
@@ -801,8 +820,13 @@ function applyPngChannels(obj, layer, tracks, t, orientation, opts = {}) {
     const localT = clipLocalSeconds(clip, t, { clampPastEnd: true });
     for (const name of namesToApply) {
       const ch = clip.channels[name];
-      if (!ch?.keys?.length) continue;
-      const val = evalChannel(ch, localT);
+      if (!ch) continue;
+      // A channel is "live" when it has linked keys OR any split sub-list
+      // has keys. Skip empty channels so they don't override base pose.
+      const hasLinked = ch.keys?.length;
+      const hasSplit = ch.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length);
+      if (!hasLinked && !hasSplit) continue;
+      const val = evalChannel(ch, localT, name);
       if (val == null) continue;
       CHANNEL_DEFS[name]?.apply?.(obj, val);
     }

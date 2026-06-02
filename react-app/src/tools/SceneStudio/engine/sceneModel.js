@@ -522,9 +522,47 @@ function normalizeChannelKey(k, layout = 'scalar', fallbackOut = 'linear') {
   return { t: Math.max(0, t), v, out: normalizeKeyCurve(k.out, fallbackOut) };
 }
 
-/** Normalize a channel (sorted keys, deduped on near-identical `t`). */
+/** Normalize a scalar key list — sorted, deduped on near-identical `t`. */
+function normalizeScalarKeys(raw) {
+  if (!Array.isArray(raw)) return [];
+  const keys = [];
+  for (const k of raw) {
+    const norm = normalizeChannelKey(k, 'scalar');
+    if (norm) keys.push(norm);
+  }
+  keys.sort((a, b) => a.t - b.t);
+  const deduped = [];
+  for (const k of keys) {
+    if (deduped.length && Math.abs(deduped[deduped.length - 1].t - k.t) < 1e-4) {
+      deduped[deduped.length - 1] = k;
+    } else {
+      deduped.push(k);
+    }
+  }
+  return deduped;
+}
+
+/**
+ * Normalize a channel. Two shapes accepted:
+ *   - Linked (default): `{ keys: [{ t, v, out }] }` — sorted, deduped.
+ *   - Split: `{ split: true, perComp: { x: {keys}, y: {keys}, ... } }` —
+ *     each per-comp key list is a scalar list independently sorted.
+ */
 export function normalizeChannel(ch, layout = 'scalar') {
   if (!ch || typeof ch !== 'object') return null;
+  // Split shape — only meaningful for vec2 / rgb layouts.
+  if (ch.split && ch.perComp && typeof ch.perComp === 'object'
+      && (layout === 'vec2' || layout === 'rgb')) {
+    const comps = layout === 'vec2' ? ['x', 'y'] : ['r', 'g', 'b'];
+    const perComp = {};
+    for (const c of comps) {
+      const keys = normalizeScalarKeys(ch.perComp[c]?.keys);
+      if (keys.length) perComp[c] = { keys };
+    }
+    if (!Object.keys(perComp).length) return null;
+    return { split: true, perComp };
+  }
+  // Linked shape.
   const raw = Array.isArray(ch.keys) ? ch.keys : [];
   const keys = [];
   for (const k of raw) {

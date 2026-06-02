@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CURVE_PRESETS, TWEEN_PROPS, uid } from '../engine/sceneModel.js';
+import { channelKeyDots } from '../engine/animation/keyframes.js';
 
 const LABEL_COL_W = 140;
 const DEFAULT_PX_PER_SEC = 120;
@@ -8,6 +9,51 @@ const MAX_PX_PER_SEC = 360;
 const ROW_H = 30;
 const RULER_H = 24;
 const ADJACENT_ADD_MIN_GAP = 0.2;
+
+// Keyframe diamonds stack vertically when several share a timeline frame.
+const KF_CHANNELS = ['position', 'scale', 'rotation', 'alpha', 'tint'];
+const KF_SLOT_H = 11;     // vertical pitch between stacked diamonds
+const KF_BUCKET_PX = 12;  // dots within this many px share a stack column
+
+/**
+ * Build the display dot list for one clip, assigning each dot a vertical
+ * `stack` slot so keyframes sharing a frame don't overlap. Returns
+ * `{ dots, maxStack }`. Each dot: { channel, comp, idx, t, v, stack }.
+ */
+function buildClipDots(clip, pxPerSec) {
+  if (!clip?.channels) return { dots: [], maxStack: 1 };
+  const dots = [];
+  for (const name of KF_CHANNELS) {
+    const ch = clip.channels[name];
+    if (!ch) continue;
+    for (const d of channelKeyDots(ch)) {
+      dots.push({ channel: name, comp: d.comp, idx: d.idx, t: d.t, v: d.v });
+    }
+  }
+  dots.sort((a, b) => a.t - b.t);
+  // Bucket by rounded pixel x; assign stack index within each bucket.
+  const buckets = new Map();
+  let maxStack = 1;
+  for (const d of dots) {
+    const px = Math.round((d.t * pxPerSec) / KF_BUCKET_PX);
+    const arr = buckets.get(px) || [];
+    d.stack = arr.length;
+    arr.push(d);
+    buckets.set(px, arr);
+    if (arr.length > maxStack) maxStack = arr.length;
+  }
+  return { dots, maxStack };
+}
+
+/** Row height for a track — grows so stacked keyframes stay clickable. */
+function trackRowHeight(track, pxPerSec) {
+  let maxStack = 1;
+  for (const c of track.clips || []) {
+    const { maxStack: s } = buildClipDots(c, pxPerSec);
+    if (s > maxStack) maxStack = s;
+  }
+  return ROW_H + (maxStack - 1) * KF_SLOT_H;
+}
 
 /**
  * Single-scroll-container timeline. Layout:
@@ -39,6 +85,9 @@ export function TimelinePanel({
   selectedClipId,
   selectedKey,
   assetDescriptors = {},
+  autoKey = true,
+  onToggleAutoKey,
+  onAddKeys,
   onSelectLayer,
   onSelectClip,
   onSelectKey,
@@ -57,6 +106,14 @@ export function TimelinePanel({
   const [dragPreview, setDragPreview] = useState(null);
   const totalW = Math.max(600, Math.min(36000, Math.round(duration * pxPerSec)));
   const setFlow = useCallback((nextFlow) => onPatchFlow?.(nextFlow), [onPatchFlow]);
+
+  // Per-track row height — taller when a clip stacks keyframes on a frame.
+  const trackHeights = useMemo(() => {
+    const m = new Map();
+    for (const track of tracks) m.set(track.id, trackRowHeight(track, pxPerSec));
+    return m;
+  }, [tracks, pxPerSec]);
+  const heightOf = (track) => trackHeights.get(track.id) || ROW_H;
 
   const defaultClipDurationForLayer = useCallback((layerId, speed = 1, animOverride = null) => {
     const layer = scene.layers.find((l) => l.id === layerId);
@@ -592,6 +649,36 @@ export function TimelinePanel({
             onChange={(e) => onFlowAction?.('setDuration', Number(e.target.value))}
             title="Scene duration (seconds)"
           />
+          <button
+            className={'scene-btn' + (autoKey ? ' scene-btn--primary' : '')}
+            onClick={onToggleAutoKey}
+            title={autoKey
+              ? 'Auto-key ON — editing a transform while a clip is selected records a keyframe at the playhead. Click to turn off.'
+              : 'Auto-key OFF — transform edits change the base pose only. Use "+ key" to record explicitly. Click to turn on.'}
+          >
+            {autoKey ? '⦿ auto-key' : '○ auto-key'}
+          </button>
+          <select
+            className="scene-addkey-select"
+            value=""
+            disabled={!selectedClipId}
+            onChange={(e) => { const v = e.target.value; e.target.value = ''; if (v) onAddKeys?.(v); }}
+            title={selectedClipId
+              ? 'Add a keyframe at the playhead for a specific property'
+              : 'Select a clip first to add keyframes'}
+          >
+            <option value="" disabled>+ key…</option>
+            <option value="all">key all</option>
+            <option value="position">position (x, y)</option>
+            <option value="position.x">position · x only</option>
+            <option value="position.y">position · y only</option>
+            <option value="scale">scale (x, y)</option>
+            <option value="scale.x">scale · x only</option>
+            <option value="scale.y">scale · y only</option>
+            <option value="rotation">rotation</option>
+            <option value="alpha">alpha</option>
+            <option value="tint">tint</option>
+          </select>
           {selectedLayerId && (
             <button className="scene-btn" onClick={addClipOnSelected}>+ clip on selected</button>
           )}
@@ -613,7 +700,7 @@ export function TimelinePanel({
               <div
                 key={track.id}
                 className={'scene-timeline-label-cell' + (selected ? ' selected' : '')}
-                style={{ height: ROW_H }}
+                style={{ height: heightOf(track) }}
                 onClick={() => onSelectLayer?.(track.layerId)}
                 title={labelForTrack(track)}
               >
@@ -684,7 +771,7 @@ export function TimelinePanel({
               <div
                 key={track.id}
                 className={'scene-timeline-lane' + (dragPreview?.trackId === track.id ? ' drag-over' : '')}
-                style={{ height: ROW_H, width: totalW }}
+                style={{ height: heightOf(track), width: totalW }}
                 onDragOver={onTrackLaneDragOver(track)}
                 onDrop={onLaneDrop(track)}
               >
@@ -710,13 +797,12 @@ export function TimelinePanel({
                     onAddLeft={() => insertAdjacentClip(track, c, 'left')}
                     onAddRight={() => insertAdjacentClip(track, c, 'right')}
                     selectedKey={selectedKey}
-                    onSelectKey={(clipId, name, idx) => {
+                    onSelectKey={(clipId, name, idx, comp, t) => {
                       onSelectClip?.(clipId);
-                      onSelectKey?.({ clipId, name, idx });
-                      const key = c.channels?.[name]?.keys?.[idx];
-                      if (key) onFlowAction?.('seek', c.start + key.t);
+                      onSelectKey?.({ clipId, name, idx, comp });
+                      if (typeof t === 'number') onFlowAction?.('seek', c.start + t);
                     }}
-                    onMoveKey={(clipId, name, idx, newT) => onMoveKey?.(clipId, name, idx, newT)}
+                    onMoveKey={(clipId, name, idx, comp, newT) => onMoveKey?.(clipId, name, idx, comp, newT)}
                   />
                 ))}
               </div>
@@ -936,34 +1022,30 @@ function ClipBlock({ clip, label, selected, duration, siblings = [], pxPerSec, o
 function ClipKeyframeDots({
   clip, pxPerSec, selectedKey, onSelectKey, onMoveKey
 }) {
-  if (!clip.channels) return null;
-  const dots = [];
-  for (const name of ['position', 'scale', 'rotation', 'alpha', 'tint']) {
-    const ch = clip.channels[name];
-    if (!ch?.keys?.length) continue;
-    for (let i = 0; i < ch.keys.length; i++) {
-      const k = ch.keys[i];
-      dots.push({ name, idx: i, t: k.t, v: k.v, key: `${name}-${i}` });
-    }
-  }
+  const { dots, maxStack } = buildClipDots(clip, pxPerSec);
   if (!dots.length) return null;
+  // The band is as tall as the stack so dots sharing a frame sit one
+  // above another (the lane / clip already grew to fit — see heightOf).
+  const bandH = 6 + (maxStack - 1) * KF_SLOT_H + 6;
   return (
-    <div className="scene-clip-keyframes">
-      {dots.map((d) => (
-        <KeyframeDot
-          key={d.key}
-          dot={d}
-          clip={clip}
-          pxPerSec={pxPerSec}
-          selected={
-            selectedKey?.clipId === clip.id
-            && selectedKey.name === d.name
-            && selectedKey.idx === d.idx
-          }
-          onSelect={() => onSelectKey?.(clip.id, d.name, d.idx)}
-          onMove={(newT) => onMoveKey?.(clip.id, d.name, d.idx, newT)}
-        />
-      ))}
+    <div className="scene-clip-keyframes" style={{ height: bandH }}>
+      {dots.map((d) => {
+        const isSel = selectedKey?.clipId === clip.id
+          && selectedKey.name === d.channel
+          && selectedKey.idx === d.idx
+          && (selectedKey.comp ?? null) === (d.comp ?? null);
+        return (
+          <KeyframeDot
+            key={`${d.channel}:${d.comp ?? '_'}:${d.idx}`}
+            dot={d}
+            clip={clip}
+            pxPerSec={pxPerSec}
+            selected={isSel}
+            onSelect={() => onSelectKey?.(clip.id, d.channel, d.idx, d.comp, d.t)}
+            onMove={(newT) => onMoveKey?.(clip.id, d.channel, d.idx, d.comp, newT)}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -973,9 +1055,8 @@ function KeyframeDot({ dot, clip, pxPerSec, selected, onSelect, onMove }) {
   const dragRef = useRef(null);
   const fmtVal = (v) => {
     if (typeof v === 'number') return v.toFixed(2);
-    if (v && typeof v === 'object' && typeof v.x === 'number') {
-      return `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`;
-    }
+    if (v && typeof v === 'object' && typeof v.x === 'number') return `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`;
+    if (v && typeof v === 'object' && typeof v.r === 'number') return `rgb(${v.r.toFixed(2)}, ${v.g.toFixed(2)}, ${v.b.toFixed(2)})`;
     return String(v);
   };
   const onPointerDown = (e) => {
@@ -1005,15 +1086,16 @@ function KeyframeDot({ dot, clip, pxPerSec, selected, onSelect, onMove }) {
     try { ref.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
     dragRef.current = null;
   };
+  const label = dot.comp ? `${dot.channel}.${dot.comp}` : dot.channel;
   return (
     <span
       ref={ref}
       className={
-        `scene-clip-keyframe scene-clip-keyframe--${dot.name}`
+        `scene-clip-keyframe scene-clip-keyframe--${dot.channel}`
         + (selected ? ' is-selected' : '')
       }
-      style={{ left: `${dot.t * pxPerSec}px` }}
-      title={`${dot.name} = ${fmtVal(dot.v)} @ ${dot.t.toFixed(2)}s — drag to move, click to seek`}
+      style={{ left: `${dot.t * pxPerSec}px`, bottom: `${1 + (dot.stack || 0) * KF_SLOT_H}px` }}
+      title={`${label} = ${fmtVal(dot.v)} @ ${dot.t.toFixed(2)}s — drag to move, click to seek`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

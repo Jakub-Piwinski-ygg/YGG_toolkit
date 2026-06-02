@@ -1141,6 +1141,19 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
   font-size: 11px;
   padding: 2px 4px;
 }
+.scene-addkey-select {
+  background: var(--bg-2, #1a1d24);
+  border: 1px solid var(--border, #2e3340);
+  color: var(--text-0, #e8eaf0);
+  border-radius: 3px;
+  font-size: 11px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.scene-addkey-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* ── Phase 3.7: keyframe channels + editable curve editor ──────────── */
 
@@ -1389,16 +1402,16 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
   left: 0;
   right: 0;
   bottom: 0;
-  height: 14px;
+  /* height set inline by ClipKeyframeDots to fit the keyframe stack */
   pointer-events: none;
   z-index: 3;
 }
 .scene-clip-keyframe {
   position: absolute;
-  top: 1px;
-  width: 12px;
-  height: 12px;
-  margin-left: -6px;
+  /* `bottom` set inline per dot for vertical stacking */
+  width: 11px;
+  height: 11px;
+  margin-left: -5.5px;
   background: #ffd166;
   border: 2px solid #1a1d24;
   border-radius: 2px;
@@ -1468,6 +1481,22 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+.scene-channels-graph-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+.scene-channels-graph-channel + .scene-channels-graph-channel {
+  border-top: 1px dashed rgba(46, 51, 64, 0.5);
+  padding-top: 8px;
+}
+.scene-channels-graph-channel-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
 }
 .scene-channels-graph-head {
   display: flex;

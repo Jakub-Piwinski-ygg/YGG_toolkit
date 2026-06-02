@@ -522,8 +522,16 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, des
  */
 function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
   const channels = clip.channels || {};
-  const enabled = useMemo(() => new Set(Object.keys(channels).filter((n) => channels[n]?.keys?.length)), [channels]);
-  const [selectedKey, setSelectedKey] = useState(null); // { name, idx } | null
+  // A channel counts as "enabled" if it has linked keys OR any split
+  // sub-list has keys. Split channels store `perComp.x.keys` etc., not
+  // `keys` on the root, so we have to check both shapes.
+  const enabled = useMemo(() => new Set(Object.keys(channels).filter((n) => {
+    const ch = channels[n];
+    if (ch?.keys?.length) return true;
+    if (ch?.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length)) return true;
+    return false;
+  })), [channels]);
+  const [selectedKey, setSelectedKey] = useState(null); // { name, idx, comp } | null
   const [viewMode, setViewMode] = useState('graph');  // 'graph' | 'list'
 
   // Where the playhead currently sits, in clip-local seconds. Used as
@@ -536,12 +544,17 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
 
   const patchChannel = (name, channel) => {
     const next = { ...channels };
-    if (channel?.keys?.length) next[name] = channel;
+    const linkedAlive = channel?.keys?.length;
+    const splitAlive = channel?.split && channel.perComp
+      && Object.values(channel.perComp).some((c) => c?.keys?.length);
+    if (linkedAlive || splitAlive) next[name] = channel;
     else delete next[name];
     writeChannels(next);
     if (selectedKey?.name === name) {
-      const ks = channel?.keys || [];
-      if (selectedKey.idx >= ks.length) setSelectedKey(null);
+      const targetKeys = (channel?.split && selectedKey.comp)
+        ? (channel.perComp?.[selectedKey.comp]?.keys || [])
+        : (channel?.keys || []);
+      if (selectedKey.idx >= targetKeys.length) setSelectedKey(null);
     }
   };
 
@@ -569,9 +582,23 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
     patchChannel(name, { keys });
   };
 
-  const patchKeyAt = (name, idx, patch) => {
+  const patchKeyAt = (name, idx, patch, comp = null) => {
     const ch = channels[name];
     if (!ch) return;
+    // Split channel: operate on the per-comp scalar key list instead of
+    // ch.keys. Component must be provided by the caller (selectedKey.comp).
+    if (ch.split && comp) {
+      const subKeys = ch.perComp?.[comp]?.keys || [];
+      let nextSub = { keys: subKeys };
+      if ('v' in patch) nextSub = setKeyValue(nextSub, idx, patch.v);
+      if ('t' in patch) nextSub = moveKeyTime(nextSub, idx, patch.t);
+      if ('out' in patch) nextSub = setKeyOut(nextSub, idx, patch.out);
+      patchChannel(name, {
+        ...ch,
+        perComp: { ...(ch.perComp || {}), [comp]: { keys: nextSub.keys } }
+      });
+      return;
+    }
     let next = ch;
     if ('v' in patch) next = setKeyValue(next, idx, patch.v);
     if ('component' in patch) next = setKeyComponent(next, idx, patch.component, patch.componentValue);
@@ -667,32 +694,60 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
         />
       ))}
 
-      {selectedKey && channels[selectedKey.name]?.keys?.[selectedKey.idx] && selectedKey.idx < channels[selectedKey.name].keys.length - 1 && (
-        <div className="scene-channel-curve">
-          <div className="scene-channel-curve-head">
-            <span>
-              {selectedKey.name} · curve from key {selectedKey.idx + 1} → {selectedKey.idx + 2}
-            </span>
-            <button
-              type="button"
-              className="scene-icon-btn"
-              onClick={() => setSelectedKey(null)}
-              title="Close curve editor"
-            >
-              ✕
-            </button>
+      {(() => {
+        if (!selectedKey) return null;
+        const ch = channels[selectedKey.name];
+        if (!ch) return null;
+        // Resolve the scalar key list the curve editor edits. For split
+        // channels each comp has its own list; for linked channels we
+        // use the shared `keys` array.
+        const targetKeys = (ch.split && selectedKey.comp)
+          ? (ch.perComp?.[selectedKey.comp]?.keys || null)
+          : (ch.keys || null);
+        if (!targetKeys?.[selectedKey.idx]) return null;
+        if (selectedKey.idx >= targetKeys.length - 1) return null;
+        const label = ch.split && selectedKey.comp
+          ? `${selectedKey.name}.${selectedKey.comp}`
+          : selectedKey.name;
+        return (
+          <div className="scene-channel-curve">
+            <div className="scene-channel-curve-head">
+              <span>
+                {label} · curve from key {selectedKey.idx + 1} → {selectedKey.idx + 2}
+              </span>
+              <button
+                type="button"
+                className="scene-icon-btn"
+                onClick={() => setSelectedKey(null)}
+                title="Close curve editor"
+              >
+                ✕
+              </button>
+            </div>
+            <CurveEditor
+              value={targetKeys[selectedKey.idx].out || 'linear'}
+              onChange={(spec) => patchKeyAt(selectedKey.name, selectedKey.idx, { out: spec }, selectedKey.comp)}
+            />
           </div>
-          <CurveEditor
-            value={channels[selectedKey.name].keys[selectedKey.idx].out || 'linear'}
-            onChange={(spec) => patchKeyAt(selectedKey.name, selectedKey.idx, { out: spec })}
-          />
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
 
 function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSelectKey, onPatchKeyAt, onDeleteKey, onAddKeyAtPlayhead }) {
+  // Split channels are intentionally graph-view-only — the per-component
+  // tables would crowd the inspector. Show a small hint instead.
+  if (channel?.split) {
+    return (
+      <div className="scene-channel-block">
+        <div className="scene-channel-head">
+          <span className="scene-channel-label">{name}</span>
+          <span className="scene-channel-meta">split — edit in graph view</span>
+        </div>
+      </div>
+    );
+  }
   const keys = channel?.keys || [];
   const layout = channelLayout(name);
   const isVec2 = layout === 'vec2';

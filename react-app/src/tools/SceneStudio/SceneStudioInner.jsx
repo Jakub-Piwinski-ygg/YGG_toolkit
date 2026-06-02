@@ -47,6 +47,7 @@ import {
   composeVec2Value,
   evalChannel,
   insertOrUpdateKey,
+  splitChannel,
   SPRITE_PROP_TO_CHANNEL
 } from './engine/animation/keyframes.js';
 import './styles/scene-studio.css';
@@ -68,6 +69,12 @@ export default function SceneStudioInner() {
   const [rootDropHover, setRootDropHover] = useState(false);
   const [pickError, setPickError] = useState(null);
   const [livePreview, setLivePreview] = useState(true);
+  // Auto-key: when ON, editing a transform while a clip is selected and
+  // the playhead is inside it records a keyframe. When OFF, edits always
+  // go to the base pose. Read through a ref by handlePatchTransform.
+  const [autoKey, setAutoKey] = useState(true);
+  const autoKeyRef = useRef(autoKey);
+  autoKeyRef.current = autoKey;
   // Undo / redo: simple stacks of full-scene snapshots. Pushes are
   // coalesced for rapid edits (e.g. drag-scrubbing a value) via
   // `historyCoalesceUntilRef` so a 30-frame drag becomes one undo step.
@@ -359,7 +366,7 @@ export default function SceneStudioInner() {
     let targetClip = null;
     let targetTrack = null;
     const selClipId = selectedClipIdRef.current;
-    if (selClipId) {
+    if (selClipId && autoKeyRef.current) {
       for (const tr of tracks) {
         if (tr.layerId !== layerId) continue;
         const c = (tr.clips || []).find((cl) => cl.id === selClipId);
@@ -415,21 +422,39 @@ export default function SceneStudioInner() {
     for (const [channelName, bag] of Object.entries(grouped)) {
       const existing = nextClipChannels[channelName];
       const layout = channelLayout(channelName);
+
+      // Split path: write each patch component into its own scalar
+      // key list. Lets x and y (or r/g/b) animate on independent
+      // timelines and curves.
+      if (existing?.split && (layout === 'vec2' || layout === 'rgb')) {
+        const comps = layout === 'vec2' ? ['x', 'y'] : ['r', 'g', 'b'];
+        const nextPerComp = { ...(existing.perComp || {}) };
+        for (const c of comps) {
+          if (typeof bag[c] !== 'number' || !Number.isFinite(bag[c])) continue;
+          const compKeys = nextPerComp[c]?.keys || [];
+          nextPerComp[c] = insertOrUpdateKey({ keys: compKeys }, localT, bag[c]);
+        }
+        nextClipChannels[channelName] = { ...existing, perComp: nextPerComp };
+        touched = true;
+        continue;
+      }
+
+      // Linked path.
       let v;
       if (layout === 'vec2') {
         const current = existing?.keys?.length
-          ? evalChannel(existing, localT)
+          ? evalChannel(existing, localT, channelName)
           : channelName === 'scale'
             ? { x: baseT.scaleX ?? 1, y: baseT.scaleY ?? 1 }
             : { x: baseT.x ?? 0, y: baseT.y ?? 0 };
         v = composeVec2Value(current, bag);
       } else if (layout === 'rgb') {
         const current = existing?.keys?.length
-          ? evalChannel(existing, localT)
+          ? evalChannel(existing, localT, channelName)
           : (baseT.tint || { r: 1, g: 1, b: 1 });
         v = composeRgbValue(current, bag);
       } else {
-        v = typeof bag.scalar === 'number' ? bag.scalar : (existing?.keys?.length ? evalChannel(existing, localT) : 0);
+        v = typeof bag.scalar === 'number' ? bag.scalar : (existing?.keys?.length ? evalChannel(existing, localT, channelName) : 0);
       }
       nextClipChannels[channelName] = insertOrUpdateKey(existing || { keys: [] }, localT, v);
       touched = true;
@@ -806,8 +831,106 @@ export default function SceneStudioInner() {
     setSelectedKey(ref);
   }, []);
 
-  /** Update the `t` of a specific key (timeline diamond drag). */
-  const handleMoveKey = useCallback((clipId, name, idx, newT) => {
+  /**
+   * Explicitly add keyframe(s) at the playhead to the selected clip for a
+   * chosen target — used by the timeline "+ key" dropdown. Works
+   * regardless of the auto-key toggle.
+   *
+   * `target` is one of: 'all' | 'position' | 'position.x' | 'position.y'
+   * | 'scale' | 'scale.x' | 'scale.y' | 'rotation' | 'alpha' | 'tint'.
+   * A `channel.comp` target forces the channel into split mode so the
+   * component gets its own independent key.
+   */
+  const handleAddKeys = useCallback((target) => {
+    const clipId = selectedClipIdRef.current;
+    if (!clipId || !target) return;
+    const sceneNow = sceneRef.current;
+    const flowNow = flowRef.current;
+    const tracks = sceneNow.flow?.tracks || [];
+    let track = null;
+    let clip = null;
+    for (const tr of tracks) {
+      const c = tr.clips?.find((cl) => cl.id === clipId);
+      if (c) { track = tr; clip = c; break; }
+    }
+    if (!clip) return;
+    const layer = sceneNow.layers.find((l) => l.id === track.layerId);
+    const baseT = layer?.transforms?.[sceneNow.stage.activeOrientation] || layer?.transforms?.landscape || {};
+    const localT = clipLocalSeconds(clip, flowNow.time, { clampPastEnd: true });
+
+    // Expand the target token into a list of { channel, comp? }.
+    const specs = [];
+    if (target === 'all') {
+      for (const ch of ['position', 'scale', 'rotation', 'alpha', 'tint']) specs.push({ channel: ch });
+    } else if (target.includes('.')) {
+      const [channel, comp] = target.split('.');
+      specs.push({ channel, comp });
+    } else {
+      specs.push({ channel: target });
+    }
+
+    // Current value of a logical channel at the playhead (existing data
+    // wins; otherwise read the base pose).
+    const currentValue = (channelName, ch) => {
+      if (ch) {
+        const v = evalChannel(ch, localT, channelName);
+        if (v != null) return v;
+      }
+      if (channelName === 'position') return { x: baseT.x ?? 0, y: baseT.y ?? 0 };
+      if (channelName === 'scale')    return { x: baseT.scaleX ?? 1, y: baseT.scaleY ?? 1 };
+      if (channelName === 'rotation') return baseT.rotation ?? 0;
+      if (channelName === 'alpha')    return typeof baseT.alpha === 'number' ? baseT.alpha : 1;
+      if (channelName === 'tint')     return baseT.tint || { r: 1, g: 1, b: 1 };
+      return 0;
+    };
+
+    setScene((prev) => {
+      const nextTracks = (prev.flow?.tracks || []).map((tr) => {
+        if (tr.id !== track.id) return tr;
+        return {
+          ...tr,
+          clips: tr.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const channels = { ...(c.channels || {}) };
+            for (const { channel: name, comp } of specs) {
+              const layout = channelLayout(name);
+              let ch = channels[name];
+              if (comp && (layout === 'vec2' || layout === 'rgb')) {
+                // Force split, then add a key to just this component.
+                if (!ch) ch = { split: true, perComp: {} };
+                else if (!ch.split) ch = splitChannel(ch, name);
+                const full = currentValue(name, ch);
+                const compVal = (full && typeof full === 'object') ? Number(full[comp] ?? 0) : 0;
+                const sub = ch.perComp?.[comp] || { keys: [] };
+                const nextSub = insertOrUpdateKey(sub, localT, compVal);
+                ch = { ...ch, split: true, perComp: { ...(ch.perComp || {}), [comp]: nextSub } };
+              } else if (ch?.split) {
+                // Whole-channel key on an already-split channel: key every comp.
+                const comps = layout === 'vec2' ? ['x', 'y'] : layout === 'rgb' ? ['r', 'g', 'b'] : [];
+                const full = currentValue(name, ch);
+                const nextPerComp = { ...(ch.perComp || {}) };
+                for (const cc of comps) {
+                  const sub = nextPerComp[cc] || { keys: [] };
+                  nextPerComp[cc] = insertOrUpdateKey(sub, localT, Number(full?.[cc] ?? 0));
+                }
+                ch = { ...ch, perComp: nextPerComp };
+              } else {
+                // Linked write.
+                const v = currentValue(name, ch);
+                ch = insertOrUpdateKey(ch || { keys: [] }, localT, v);
+              }
+              channels[name] = ch;
+            }
+            return { ...c, channels: Object.keys(channels).length ? channels : null };
+          })
+        };
+      });
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks: nextTracks }) };
+    });
+  }, [setScene]);
+
+  /** Update the `t` of a specific key (timeline diamond drag). comp set = split channel. */
+  const handleMoveKey = useCallback((clipId, name, idx, comp, newT) => {
     setScene((prev) => {
       const tracks = (prev.flow?.tracks || []).map((tr) => {
         if (!tr.clips?.some((c) => c.id === clipId)) return tr;
@@ -816,11 +939,19 @@ export default function SceneStudioInner() {
           clips: tr.clips.map((c) => {
             if (c.id !== clipId) return c;
             const ch = c.channels?.[name];
-            if (!ch?.keys?.[idx]) return c;
+            if (!ch) return c;
             const clamped = Math.max(0, Math.min(c.duration, newT));
+            if (comp && ch.split) {
+              const sub = ch.perComp?.[comp];
+              if (!sub?.keys?.[idx]) return c;
+              const keys = sub.keys.map((k, i) => (i === idx ? { ...k, t: clamped } : k));
+              keys.sort((a, b) => a.t - b.t);
+              return { ...c, channels: { ...c.channels, [name]: { ...ch, perComp: { ...ch.perComp, [comp]: { keys } } } } };
+            }
+            if (!ch.keys?.[idx]) return c;
             const keys = ch.keys.map((k, i) => (i === idx ? { ...k, t: clamped } : k));
             keys.sort((a, b) => a.t - b.t);
-            return { ...c, channels: { ...c.channels, [name]: { keys } } };
+            return { ...c, channels: { ...c.channels, [name]: { ...ch, keys } } };
           })
         };
       });
@@ -838,11 +969,23 @@ export default function SceneStudioInner() {
         clips: tr.clips.map((c) => {
           if (c.id !== sel.clipId) return c;
           const ch = c.channels?.[sel.name];
-          if (!ch?.keys) return c;
-          const keys = ch.keys.filter((_, i) => i !== sel.idx);
+          if (!ch) return c;
           const nextChannels = { ...c.channels };
-          if (keys.length) nextChannels[sel.name] = { keys };
-          else delete nextChannels[sel.name];
+          if (sel.comp && ch.split) {
+            const sub = ch.perComp?.[sel.comp];
+            if (!sub?.keys) return c;
+            const keys = sub.keys.filter((_, i) => i !== sel.idx);
+            const perComp = { ...ch.perComp };
+            if (keys.length) perComp[sel.comp] = { keys };
+            else delete perComp[sel.comp];
+            if (Object.keys(perComp).length) nextChannels[sel.name] = { ...ch, perComp };
+            else delete nextChannels[sel.name];
+          } else {
+            if (!ch.keys) return c;
+            const keys = ch.keys.filter((_, i) => i !== sel.idx);
+            if (keys.length) nextChannels[sel.name] = { ...ch, keys };
+            else delete nextChannels[sel.name];
+          }
           return { ...c, channels: Object.keys(nextChannels).length ? nextChannels : null };
         })
       }));
@@ -1031,7 +1174,7 @@ export default function SceneStudioInner() {
 
   useEffect(() => {
     const api = {
-      getScene: () => scene,
+      getScene: () => sceneRef.current,
       getSelected: () => selectedLayerId,
       getOrientation: () => scene.stage.activeOrientation,
       listLayers: () => scene.layers.map((l) => ({
@@ -1204,6 +1347,9 @@ export default function SceneStudioInner() {
             selectedClipId={selectedClipId}
             selectedKey={selectedKey}
             assetDescriptors={assetDescriptors}
+            autoKey={autoKey}
+            onToggleAutoKey={() => setAutoKey((v) => !v)}
+            onAddKeys={handleAddKeys}
             onSelectLayer={handleSelectLayer}
             onSelectClip={handleSelectClip}
             onSelectKey={handleSelectKey}

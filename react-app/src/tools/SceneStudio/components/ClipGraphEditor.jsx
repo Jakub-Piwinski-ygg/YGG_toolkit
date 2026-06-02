@@ -17,9 +17,11 @@ import {
   channelLayout,
   evalChannel,
   insertOrUpdateKey,
+  linkChannel,
   moveKeyTime,
   setKeyComponent,
-  setKeyValue
+  setKeyValue,
+  splitChannel
 } from '../engine/animation/keyframes.js';
 
 const PLOT_HEIGHT = 96;       // pixels per subplot
@@ -48,8 +50,10 @@ const CHANNEL_DISPLAY_NAME = {
 
 // How the channel's `v` is decomposed into one or more named components.
 // Returns `[{ comp, value }]` — comp === '_' marks a scalar.
-function componentsOfKey(name, v) {
-  const layout = channelLayout(name);
+// `layoutOverride` lets callers force a scalar render (split-mode rows)
+// even though the parent channel name would otherwise imply vec2 / rgb.
+function componentsOfKey(name, v, layoutOverride = null) {
+  const layout = layoutOverride || channelLayout(name);
   if (layout === 'vec2') {
     return [
       { comp: 'x', value: v?.x ?? 0 },
@@ -77,11 +81,11 @@ function valueToStorage(name, display) {
 
 // Auto-fit the Y axis: return [min, max] for a channel given its keys.
 // Pads by 10% of the range, or +/- 1 unit if all keys have the same value.
-function fitYRange(name, keys) {
+function fitYRange(name, keys, layoutOverride = null) {
   let lo = Infinity;
   let hi = -Infinity;
   for (const k of keys) {
-    for (const { value } of componentsOfKey(name, k.v)) {
+    for (const { value } of componentsOfKey(name, k.v, layoutOverride)) {
       if (value < lo) lo = value;
       if (value > hi) hi = value;
     }
@@ -116,7 +120,12 @@ export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPa
   const channels = clip.channels || {};
   const duration = Math.max(0.001, clip.duration || 1);
   const visibleNames = useMemo(
-    () => CHANNEL_NAMES.filter((n) => channels[n]?.keys?.length),
+    () => CHANNEL_NAMES.filter((n) => {
+      const ch = channels[n];
+      if (ch?.keys?.length) return true;
+      if (ch?.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length)) return true;
+      return false;
+    }),
     [channels]
   );
 
@@ -138,35 +147,112 @@ export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPa
 
   if (!visibleNames.length) return null;
 
+  const toggleSplit = (name) => {
+    const ch = channels[name];
+    if (!ch) return;
+    const next = ch.split ? linkChannel(ch, name) : splitChannel(ch, name);
+    onPatchChannel?.(name, next);
+  };
+
   return (
     <div className="scene-channels-graph" ref={wrapRef}>
-      {visibleNames.map((name) => (
-        <ChannelSubplot
-          key={name}
-          name={name}
-          channel={channels[name]}
-          clipDuration={duration}
-          flowTime={flowTime}
-          clipStart={clip.start}
-          plotW={plotW}
-          selectedKey={selectedKey}
-          onSelectKey={onSelectKey}
-          onPatchChannel={onPatchChannel}
-        />
-      ))}
+      {visibleNames.map((name) => {
+        const ch = channels[name];
+        const layout = channelLayout(name);
+        const canSplit = layout === 'vec2' || layout === 'rgb';
+        const isSplit = !!ch.split;
+        return (
+          <div className="scene-channels-graph-channel" key={name}>
+            <div className="scene-channels-graph-channel-head">
+              <span className="scene-channels-graph-name">{CHANNEL_DISPLAY_NAME[name] || name}</span>
+              {canSplit && (
+                <button
+                  type="button"
+                  className={'scene-chip scene-chip--xs' + (isSplit ? ' on' : '')}
+                  onClick={() => toggleSplit(name)}
+                  title={isSplit
+                    ? 'Currently split — components have independent timings and curves. Click to re-link.'
+                    : 'Currently linked — one shared curve for all components. Click to split into independent curves.'}
+                >
+                  {isSplit ? 'split' : 'linked'}
+                </button>
+              )}
+            </div>
+            {isSplit
+              ? renderSplitSubplots({
+                  channel: ch, name, layout,
+                  duration, flowTime, clipStart: clip.start, plotW,
+                  selectedKey, onSelectKey, onPatchChannel
+                })
+              : (
+                <ChannelSubplot
+                  name={name}
+                  channel={ch}
+                  layout={layout}
+                  comp={null}
+                  clipDuration={duration}
+                  flowTime={flowTime}
+                  clipStart={clip.start}
+                  plotW={plotW}
+                  selectedKey={selectedKey}
+                  onSelectKey={onSelectKey}
+                  onPatchChannel={onPatchChannel}
+                />
+              )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
+function renderSplitSubplots({ channel, name, layout, duration, flowTime, clipStart, plotW, selectedKey, onSelectKey, onPatchChannel }) {
+  const comps = layout === 'vec2' ? ['x', 'y'] : ['r', 'g', 'b'];
+  return comps.map((comp) => {
+    const sub = channel.perComp?.[comp] || { keys: [] };
+    const subChannel = { keys: sub.keys || [] };
+    return (
+      <ChannelSubplot
+        key={comp}
+        name={name}
+        comp={comp}
+        channel={subChannel}
+        layout="scalar"
+        labelOverride={`${name}.${comp}`}
+        clipDuration={duration}
+        flowTime={flowTime}
+        clipStart={clipStart}
+        plotW={plotW}
+        selectedKey={selectedKey}
+        onSelectKey={onSelectKey}
+        onPatchChannel={(_chName, newSubChannel) => {
+          // Write the per-comp scalar list back into the parent channel
+          // via onPatchChannel(name, mergedChannel).
+          const nextPerComp = { ...(channel.perComp || {}) };
+          nextPerComp[comp] = { keys: newSubChannel.keys || [] };
+          onPatchChannel?.(name, { ...channel, split: true, perComp: nextPerComp });
+        }}
+      />
+    );
+  });
+}
+
 function ChannelSubplot({
   name, channel, clipDuration, flowTime, clipStart, plotW,
-  selectedKey, onSelectKey, onPatchChannel
+  selectedKey, onSelectKey, onPatchChannel,
+  // For split-mode sub-rows: parent's comp ('x'/'y'/'r'/'g'/'b') so
+  // the dot click reports it. labelOverride displays "position.x" etc.
+  // layout overrides the implicit channelLayout(name) when this subplot
+  // is a scalar view of a parent vec2 / rgb channel.
+  comp: parentComp = null,
+  layout: layoutProp = null,
+  labelOverride = null
 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
-  const layout = channelLayout(name);
+  const layout = layoutProp || channelLayout(name);
   const keys = channel?.keys || [];
-  const [yLo, yHi] = useMemo(() => fitYRange(name, keys), [name, keys]);
+  const [yLo, yHi] = useMemo(() => fitYRange(name, keys, layout), [name, keys, layout]);
   const localT = Math.max(0, Math.min(clipDuration, flowTime - clipStart));
 
   const innerW = Math.max(40, plotW - PAD_LEFT - PAD_RIGHT);
@@ -192,9 +278,9 @@ function ChannelSubplot({
     for (const c of comps) pathByComp[c] = '';
     for (let i = 0; i <= samples; i++) {
       const t = (i / samples) * clipDuration;
-      const v = evalChannel(channel, t);
+      const v = evalChannel(channel, t, name);
       if (v == null) continue;
-      const dispComps = componentsOfKey(name, v);
+      const dispComps = componentsOfKey(name, v, layout);
       for (const { comp, value } of dispComps) {
         const px = xToPx(t);
         const py = yToPx(value);
@@ -204,7 +290,9 @@ function ChannelSubplot({
     return Object.entries(pathByComp).map(([comp, d]) => ({
       comp,
       d,
-      color: COMPONENT_COLORS[name]?.[comp] || '#a8afc0'
+      // For split sub-rows, the parent's comp is what should drive colour
+      // even when the sub-row's own "comp" is the scalar sentinel '_'.
+      color: COMPONENT_COLORS[name]?.[parentComp || comp] || '#a8afc0'
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel, name, layout, clipDuration, innerW, innerH, yLo, yHi, samples]);
@@ -215,7 +303,7 @@ function ChannelSubplot({
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    onSelectKey?.({ name, idx });
+    onSelectKey?.({ name, idx, comp: parentComp || comp });
     const svg = svgRef.current;
     const rect = svg?.getBoundingClientRect();
     if (!rect) return;
@@ -264,7 +352,7 @@ function ChannelSubplot({
     onPatchChannel?.(name, next);
     // Keep selection following the dragged key index.
     if (newIdx >= 0 && newIdx !== st.idx) {
-      onSelectKey?.({ name, idx: newIdx });
+      onSelectKey?.({ name, idx: newIdx, comp: parentComp || st.comp });
       st.idx = newIdx;
     }
   };
@@ -294,12 +382,14 @@ function ChannelSubplot({
 
   const playheadX = xToPx(localT);
 
+  const displayLabel = labelOverride || CHANNEL_DISPLAY_NAME[name] || name;
+  const precision = name === 'alpha' || name === 'tint' ? 2 : 1;
   return (
     <div className="scene-channels-graph-row">
       <div className="scene-channels-graph-head">
-        <span className="scene-channels-graph-name">{CHANNEL_DISPLAY_NAME[name] || name}</span>
+        <span className="scene-channels-graph-name">{displayLabel}</span>
         <span className="scene-channels-graph-range">
-          {yLo.toFixed(name === 'alpha' || name === 'tint' ? 2 : 1)} … {yHi.toFixed(name === 'alpha' || name === 'tint' ? 2 : 1)}
+          {yLo.toFixed(precision)} … {yHi.toFixed(precision)}
         </span>
       </div>
       <svg
@@ -336,21 +426,30 @@ function ChannelSubplot({
         {paths.map((p) => (
           <path key={p.comp} d={p.d} className="scene-channels-graph-curve" stroke={p.color} />
         ))}
-        {/* Keyframe dots — one per component for vec2/rgb */}
+        {/* Keyframe dots — one per component for vec2/rgb (linked mode).
+            Split-mode sub-rows render keys as scalars (one dot per key).
+            `is-selected` matches on (name, idx, comp) so clicking the X
+            dot doesn't also highlight the Y dot. */}
         {keys.map((k, idx) => {
-          const comps = componentsOfKey(name, k.v);
-          const isSel = selectedKey?.name === name && selectedKey.idx === idx;
-          return comps.map((c) => (
-            <circle
-              key={`${idx}-${c.comp}`}
-              cx={xToPx(k.t)}
-              cy={yToPx(c.value)}
-              r={KEY_RADIUS + (isSel ? 1 : 0)}
-              className={'scene-channels-graph-key' + (isSel ? ' is-selected' : '')}
-              fill={COMPONENT_COLORS[name]?.[c.comp] || '#a8afc0'}
-              onPointerDown={beginKeyDrag(idx, c.comp)}
-            />
-          ));
+          const comps = componentsOfKey(name, k.v, layout);
+          return comps.map((c) => {
+            const effectiveComp = parentComp || c.comp;
+            const isSel = selectedKey?.name === name
+              && selectedKey.idx === idx
+              && (selectedKey.comp === effectiveComp
+                  || (selectedKey.comp == null && effectiveComp === '_'));
+            return (
+              <circle
+                key={`${idx}-${c.comp}`}
+                cx={xToPx(k.t)}
+                cy={yToPx(c.value)}
+                r={KEY_RADIUS + (isSel ? 1 : 0)}
+                className={'scene-channels-graph-key' + (isSel ? ' is-selected' : '')}
+                fill={COMPONENT_COLORS[name]?.[effectiveComp] || '#a8afc0'}
+                onPointerDown={beginKeyDrag(idx, c.comp)}
+              />
+            );
+          });
         })}
         {/* Playhead line — only visible while playhead is inside the clip range */}
         {localT >= 0 && localT <= clipDuration && (

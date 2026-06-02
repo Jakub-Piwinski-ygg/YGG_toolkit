@@ -190,10 +190,60 @@ function findSegment(keys, t) {
 }
 
 /**
- * Evaluate a channel at clip-local time `t`. Returns the channel's value
- * (number or `{ x, y }`). Returns `null` when the channel has no keys.
+ * Evaluate a scalar key list at clip-local time `t`. Returns null if
+ * the list is empty. Used both directly for scalar channels and as the
+ * per-component evaluator for `channel.split` storage.
  */
-export function evalChannel(channel, t) {
+export function evalScalarKeys(keys, t) {
+  if (!keys || keys.length === 0) return null;
+  if (keys.length === 1) return keys[0].v;
+  if (t <= keys[0].t) return keys[0].v;
+  const last = keys[keys.length - 1];
+  if (t >= last.t) return last.v;
+  const i = findSegment(keys, t);
+  const a = keys[i];
+  const b = keys[i + 1];
+  const span = b.t - a.t;
+  if (span <= 1e-6) return b.v;
+  const p = (t - a.t) / span;
+  const eased = curveEval(a.out || 'linear', p);
+  return a.v + (b.v - a.v) * eased;
+}
+
+/**
+ * Evaluate a channel at clip-local time `t`. Returns the channel's value
+ * (number or `{ x, y }` or `{ r, g, b }`). Returns `null` when the
+ * channel has no keys.
+ *
+ * Two storage shapes are supported:
+ *   - Linked (default): `{ keys: [{ t, v, out }] }` — vec2/rgb keys
+ *     share a single time + curve.
+ *   - Split (`channel.split === true`): `{ split: true, perComp: { x:
+ *     { keys }, y: { keys } } }` — each component is an independent
+ *     scalar curve. Allows X and Y to have separate timings + easing.
+ *
+ * `channelName` may be passed so the split branch can decide which
+ * component set (x/y vs r/g/b) to expect; it falls back to detecting
+ * from `perComp` keys.
+ */
+export function evalChannel(channel, t, channelName = null) {
+  if (channel?.split && channel.perComp) {
+    const layout = channelName ? channelLayout(channelName) : null;
+    if (layout === 'vec2' || channel.perComp.x || channel.perComp.y) {
+      return {
+        x: evalScalarKeys(channel.perComp.x?.keys, t) ?? 0,
+        y: evalScalarKeys(channel.perComp.y?.keys, t) ?? 0
+      };
+    }
+    if (layout === 'rgb' || channel.perComp.r || channel.perComp.g || channel.perComp.b) {
+      return {
+        r: evalScalarKeys(channel.perComp.r?.keys, t) ?? 1,
+        g: evalScalarKeys(channel.perComp.g?.keys, t) ?? 1,
+        b: evalScalarKeys(channel.perComp.b?.keys, t) ?? 1
+      };
+    }
+    return null;
+  }
   const keys = channel?.keys;
   if (!keys || keys.length === 0) return null;
   if (keys.length === 1) return cloneValue(keys[0].v);
@@ -210,7 +260,95 @@ export function evalChannel(channel, t) {
   return lerpValue(a.v, b.v, eased);
 }
 
+/**
+ * Convert a linked vec2 / rgb channel into split form. Each component
+ * becomes its own scalar key list, preserving the linked key times and
+ * `out` curve. Scalar channels are returned unchanged.
+ */
+export function splitChannel(channel, channelName) {
+  if (!channel || channel.split) return channel;
+  const layout = channelLayout(channelName);
+  const comps = layout === 'vec2' ? ['x', 'y']
+    : layout === 'rgb' ? ['r', 'g', 'b']
+    : null;
+  if (!comps) return channel;
+  const keys = channel.keys || [];
+  const perComp = {};
+  for (const c of comps) {
+    perComp[c] = {
+      keys: keys.map((k) => ({
+        t: k.t,
+        v: Number(k.v?.[c] ?? 0),
+        out: k.out || 'linear'
+      }))
+    };
+  }
+  return { split: true, perComp };
+}
+
+/**
+ * Convert a split channel back into linked form. Takes the union of
+ * key times across all components, evaluates each at every time, and
+ * builds vec2/rgb keys. Out-curves come from the first component's key
+ * at that time (or 'linear' if none).
+ */
+export function linkChannel(channel, channelName) {
+  if (!channel?.split) return channel;
+  const layout = channelLayout(channelName);
+  const comps = layout === 'vec2' ? ['x', 'y']
+    : layout === 'rgb' ? ['r', 'g', 'b']
+    : null;
+  if (!comps) return channel;
+  const allTimes = new Set();
+  for (const c of comps) {
+    for (const k of channel.perComp?.[c]?.keys || []) allTimes.add(Number(k.t.toFixed(6)));
+  }
+  const sorted = [...allTimes].sort((a, b) => a - b);
+  if (!sorted.length) return { keys: [] };
+  const keys = sorted.map((t) => {
+    const v = {};
+    for (const c of comps) {
+      v[c] = evalScalarKeys(channel.perComp?.[c]?.keys, t) ?? 0;
+    }
+    // Prefer the X / R key's out curve when it lands exactly on this time;
+    // fall back to the first component-key that does.
+    let out = 'linear';
+    for (const c of comps) {
+      const k = channel.perComp?.[c]?.keys?.find((kk) => Math.abs(kk.t - t) < 1e-5);
+      if (k?.out) { out = k.out; break; }
+    }
+    return { t, v, out };
+  });
+  return { keys };
+}
+
 // ── Mutation helpers ─────────────────────────────────────────────────
+
+/**
+ * Enumerate a channel's keyframes for DISPLAY (timeline dots, motion
+ * path). Returns a flat list of `{ comp, idx, t, v }` entries:
+ *   - Linked channels (vec2 / rgb / scalar): one entry per key, comp = null.
+ *   - Split channels: one entry per per-component key, comp = 'x' / 'y' /
+ *     'r' / 'g' / 'b'. `idx` is the index within that component's list.
+ *
+ * Used so split channels stop disappearing from the timeline + motion
+ * path, which only knew the linked `keys` shape.
+ */
+export function channelKeyDots(channel) {
+  if (!channel) return [];
+  if (channel.split && channel.perComp) {
+    const out = [];
+    for (const comp of Object.keys(channel.perComp)) {
+      const keys = channel.perComp[comp]?.keys || [];
+      for (let i = 0; i < keys.length; i++) {
+        out.push({ comp, idx: i, t: keys[i].t, v: keys[i].v });
+      }
+    }
+    return out;
+  }
+  const keys = channel.keys || [];
+  return keys.map((k, i) => ({ comp: null, idx: i, t: k.t, v: k.v }));
+}
 
 /**
  * Insert or update a key at `t` with value `v`. Returns a new channel.
