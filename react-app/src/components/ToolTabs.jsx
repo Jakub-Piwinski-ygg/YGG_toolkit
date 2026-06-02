@@ -2,11 +2,13 @@ import { motion } from 'framer-motion';
 import { TOOL_CATEGORIES } from '../tools/registry.js';
 import { useApp } from '../context/AppContext.jsx';
 
-export function ToolTabs() {
+export function ToolTabs({ placement = 'sidebar' }) {
   const { currentTool, setCurrentTool, currentCategory } = useApp();
   const cat = TOOL_CATEGORIES.find((c) => c.id === currentCategory) || TOOL_CATEGORIES[0];
+  const className = `tool-tabs tool-tabs-${placement}`;
+
   return (
-    <div className="tool-tabs">
+    <div className={className}>
       {cat.tools.map((t) => {
         const active = currentTool === t.meta.id;
         return (

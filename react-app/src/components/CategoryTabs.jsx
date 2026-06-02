@@ -1,7 +1,7 @@
 import { TOOL_CATEGORIES } from '../tools/registry.js';
 import { useApp } from '../context/AppContext.jsx';
 
-export function CategoryTabs() {
+export function CategoryTabs({ placement = 'sidebar' }) {
   const { currentCategory, setCurrentCategory, setCurrentTool } = useApp();
 
   const handleSwitch = (catId) => {
@@ -12,7 +12,7 @@ export function CategoryTabs() {
   };
 
   return (
-    <div className="sidebar-categories">
+    <div className={`category-tabs category-tabs-${placement}`}>
       {TOOL_CATEGORIES.map((c) => (
         <button
           key={c.id}

@@ -1301,13 +1301,19 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
   stroke-width: 1.5;
 }
 
-/* Selected-key curve editor block — sits beneath the channel table. */
+/* Selected-key curve editor block — sits beneath the channel table or graph. */
 .scene-channel-curve {
   border: 1px solid var(--border, #2e3340);
   border-radius: 4px;
   background: var(--bg-1, #13151a);
   padding: 8px;
   margin-top: 4px;
+}
+/* Inline variant: slightly more prominent border to visually connect to the row above */
+.scene-channel-curve--inline,
+.scene-channel-curve--graph {
+  border-color: rgba(79, 158, 255, 0.35);
+  background: rgba(13, 15, 20, 0.9);
 }
 .scene-channel-curve-head {
   display: flex;
@@ -1318,6 +1324,32 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
   text-transform: uppercase;
   letter-spacing: 0.03em;
   margin-bottom: 6px;
+}
+
+/* Subtle highlight band for the selected key's curve segment on the global graph. */
+.scene-channels-graph-seg-highlight {
+  fill: rgba(79, 158, 255, 0.08);
+  pointer-events: none;
+}
+
+/* FPS input in the timeline header */
+.scene-timeline-fps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-1, #a8afc0);
+  white-space: nowrap;
+}
+.scene-timeline-fps input {
+  width: 40px;
+  padding: 2px 4px;
+  font-size: 10px;
+  background: var(--bg-1, #13151a);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 3px;
+  color: var(--text-0, #dde1ec);
+  text-align: center;
 }
 
 /* Bezier curve editor surface. */

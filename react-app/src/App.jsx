@@ -10,6 +10,8 @@ import { DownloadBar } from './components/DownloadBar.jsx';
 import { useApp } from './context/AppContext.jsx';
 import { ART_TOOLS } from './tools/registry.js';
 
+const SIDEBAR_CATEGORIES = new Set(['arttools', 'review']);
+
 function OutputPanel() {
   const { outputFiles } = useApp();
   return (
@@ -39,11 +41,13 @@ function MainArea() {
 
 function Shell() {
   useMagick();
+  const { currentCategory } = useApp();
+  const showSidebar = SIDEBAR_CATEGORIES.has(currentCategory);
   return (
     <>
       <Header />
-      <div className="app-layout">
-        <Sidebar />
+      <div className={`app-layout${showSidebar ? '' : ' no-sidebar'}`}>
+        {showSidebar ? <Sidebar /> : null}
         <MainArea />
       </div>
     </>

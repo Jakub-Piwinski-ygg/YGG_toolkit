@@ -1,7 +1,7 @@
 // InspectorPanel — right panel with properties of the selected layer and,
 // when a clip is selected on the timeline, properties of that clip.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasPortraitOverride } from '../engine/orientationManager.js';
 import { CURVE_PRESETS } from '../engine/sceneModel.js';
 import {
@@ -69,6 +69,10 @@ export function InspectorPanel({
   selectedClip = null,
   assetDescriptors = {},
   flowTime = 0,
+  selectedKey = null,
+  onSelectKey,
+  onDeleteKey,
+  onMoveKeyByFrame,
   onPatchLayer,
   onPatchTransform,
   onResetPortrait,
@@ -220,6 +224,8 @@ export function InspectorPanel({
           track={selectedClip.track}
           clip={selectedClip.clip}
           flowTime={flowTime}
+          selectedKey={selectedKey}
+          onSelectKey={onSelectKey}
           descriptor={asset?.type === 'spine' ? assetDescriptors[asset.id] : null}
           onPatchFlow={onPatchFlow}
         />
@@ -361,7 +367,7 @@ function VideoSection({ layer, onPatchLayer }) {
  * All mutations go through `onPatchFlow(newFlow)` because clips live on
  * `scene.flow.tracks[].clips[]`.
  */
-function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, descriptor, onPatchFlow }) {
+function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow }) {
   const patchClip = (patch) => {
     const nextTracks = (scene.flow?.tracks || []).map((tr) =>
       tr.id === track.id
@@ -468,6 +474,8 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, des
           basePose={basePose}
           flowTime={flowTime}
           onPatchClip={patchClip}
+          selectedKey={selectedKey}
+          onSelectKey={onSelectKey}
         />
       )}
 
@@ -520,7 +528,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, des
  * - Auto-key writes (from viewport drags or transform-field edits)
  *   land here via SceneStudioInner's `onPatchTransform` decision logic.
  */
-function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
+function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: externalKey = null, onSelectKey: externalOnSelectKey = null }) {
   const channels = clip.channels || {};
   // A channel counts as "enabled" if it has linked keys OR any split
   // sub-list has keys. Split channels store `perComp.x.keys` etc., not
@@ -531,7 +539,30 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
     if (ch?.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length)) return true;
     return false;
   })), [channels]);
-  const [selectedKey, setSelectedKey] = useState(null); // { name, idx, comp } | null
+
+  // Derive local key selection from external global state (filtered to this clip).
+  // Falls back to local state when external is not provided (standalone use).
+  const [localKey, setLocalKey] = useState(null);
+  const selectedKey = externalKey?.clipId === clip.id
+    ? { name: externalKey.name, idx: externalKey.idx, comp: externalKey.comp ?? null }
+    : localKey;
+
+  const setSelectedKey = (keyOrNull) => {
+    setLocalKey(keyOrNull);
+    if (keyOrNull) {
+      externalOnSelectKey?.({ clipId: clip.id, name: keyOrNull.name, idx: keyOrNull.idx, comp: keyOrNull.comp ?? null });
+    } else {
+      externalOnSelectKey?.(null);
+    }
+  };
+
+  // Scroll the curve editor into view whenever the selected key changes.
+  const curveRef = useRef(null);
+  useEffect(() => {
+    if (!selectedKey || !curveRef.current) return;
+    curveRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [selectedKey?.name, selectedKey?.idx, selectedKey?.comp]);
+
   const [viewMode, setViewMode] = useState('graph');  // 'graph' | 'list'
 
   // Where the playhead currently sits, in clip-local seconds. Used as
@@ -676,6 +707,7 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
           selectedKey={selectedKey}
           onSelectKey={setSelectedKey}
           onPatchChannel={patchChannel}
+          curveRef={curveRef}
         />
       )}
 
@@ -691,51 +723,15 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
           onPatchKeyAt={patchKeyAt}
           onDeleteKey={deleteKey}
           onAddKeyAtPlayhead={addKeyAtPlayhead}
+          curveRef={curveRef}
         />
       ))}
 
-      {(() => {
-        if (!selectedKey) return null;
-        const ch = channels[selectedKey.name];
-        if (!ch) return null;
-        // Resolve the scalar key list the curve editor edits. For split
-        // channels each comp has its own list; for linked channels we
-        // use the shared `keys` array.
-        const targetKeys = (ch.split && selectedKey.comp)
-          ? (ch.perComp?.[selectedKey.comp]?.keys || null)
-          : (ch.keys || null);
-        if (!targetKeys?.[selectedKey.idx]) return null;
-        if (selectedKey.idx >= targetKeys.length - 1) return null;
-        const label = ch.split && selectedKey.comp
-          ? `${selectedKey.name}.${selectedKey.comp}`
-          : selectedKey.name;
-        return (
-          <div className="scene-channel-curve">
-            <div className="scene-channel-curve-head">
-              <span>
-                {label} · curve from key {selectedKey.idx + 1} → {selectedKey.idx + 2}
-              </span>
-              <button
-                type="button"
-                className="scene-icon-btn"
-                onClick={() => setSelectedKey(null)}
-                title="Close curve editor"
-              >
-                ✕
-              </button>
-            </div>
-            <CurveEditor
-              value={targetKeys[selectedKey.idx].out || 'linear'}
-              onChange={(spec) => patchKeyAt(selectedKey.name, selectedKey.idx, { out: spec }, selectedKey.comp)}
-            />
-          </div>
-        );
-      })()}
     </div>
   );
 }
 
-function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSelectKey, onPatchKeyAt, onDeleteKey, onAddKeyAtPlayhead }) {
+function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSelectKey, onPatchKeyAt, onDeleteKey, onAddKeyAtPlayhead, curveRef }) {
   // Split channels are intentionally graph-view-only — the per-component
   // tables would crowd the inspector. Show a small hint instead.
   if (channel?.split) {
@@ -790,6 +786,7 @@ function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSele
           {keys.map((k, i) => {
             const isLast = i === keys.length - 1;
             const isSelected = selectedKey?.name === name && selectedKey.idx === i;
+            const showCurve = isSelected && !isLast;
             return (
               <tr key={i} className={'scene-channel-row' + (isSelected ? ' selected' : '')}>
                 <td>
@@ -889,6 +886,30 @@ function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSele
           })}
         </tbody>
       </table>
+      {/* Inline CurveEditor — appears directly below the selected row */}
+      {selectedKey?.name === name && !((selectedKey.idx ?? -1) >= keys.length - 1) && (() => {
+        const idx = selectedKey.idx;
+        if (idx == null || idx >= keys.length - 1) return null;
+        return (
+          <div ref={curveRef} className="scene-channel-curve scene-channel-curve--inline">
+            <div className="scene-channel-curve-head">
+              <span>{name} · curve key {idx + 1} → {idx + 2}</span>
+              <button
+                type="button"
+                className="scene-icon-btn"
+                onClick={() => onSelectKey(null)}
+                title="Close curve editor"
+              >
+                ✕
+              </button>
+            </div>
+            <CurveEditor
+              value={keys[idx].out || 'linear'}
+              onChange={(spec) => onPatchKeyAt(name, idx, { out: spec })}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 }

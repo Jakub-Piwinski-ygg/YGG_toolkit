@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ART_TOOLS } from '../tools/registry.js';
 import { useApp } from '../context/AppContext.jsx';
 import { OutputLog } from './OutputLog.jsx';
+import { WasmBadge } from './WasmBadge.jsx';
 
 export function ToolPanel() {
   const {
@@ -17,15 +18,23 @@ export function ToolPanel() {
     clearLog,
     setIsRunning,
     setProgressLabel,
-    getRunner
+    getRunner,
+    currentCategory
   } = useApp();
 
   const tool = ART_TOOLS.find((t) => t.meta.id === currentTool);
   const fullBleed = tool?.meta.fullBleed === true;
   const needsWasm = tool?.meta.needsMagick ?? true;
   const needsFiles = tool?.meta.needsFiles !== false;
+  const showArtToolbar = currentCategory === 'arttools';
   const runDisabled =
     isRunning || (needsFiles && inputFiles.length === 0) || (needsWasm && !magickReady);
+
+  const handleRestart = () => {
+    resetOutputs();
+    clearLog();
+    log('— restarted — loaded files preserved —', 'info');
+  };
 
   if (fullBleed && tool) {
     return (
@@ -117,7 +126,21 @@ export function ToolPanel() {
   return (
     <div className="panel">
       <div className="panel-header">
-        settings <span>{tool?.meta.label || ''}</span>
+        <div className="panel-header-title">
+          settings <span>{tool?.meta.label || ''}</span>
+        </div>
+        {showArtToolbar ? (
+          <div className="panel-header-tools">
+            <WasmBadge />
+            <button
+              className="restart-btn"
+              title="Restart toolkit — loaded files are preserved"
+              onClick={handleRestart}
+            >
+              ↻ restart
+            </button>
+          </div>
+        ) : null}
       </div>
       <div className="settings-body">
         <AnimatePresence mode="wait">

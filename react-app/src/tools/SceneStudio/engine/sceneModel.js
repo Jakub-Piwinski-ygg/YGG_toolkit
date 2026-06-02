@@ -85,7 +85,7 @@ export const SCHEMA = 'ygg-scene/1';
 export const VERSION = 1;
 
 export const DEFAULT_STAGE = {
-  fps: 30,
+  fps: 60,
   duration: 5.0,
   orientations: {
     landscape: { w: 1920, h: 1080 },

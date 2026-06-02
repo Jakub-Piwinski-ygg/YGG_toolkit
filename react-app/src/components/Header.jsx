@@ -1,18 +1,6 @@
-import { WasmBadge } from './WasmBadge.jsx';
-import { useApp } from '../context/AppContext.jsx';
-import { TOOL_CATEGORIES } from '../tools/registry.js';
-
-const SUBTITLE_TOOLS = TOOL_CATEGORIES.find((c) => c.id === 'arttools')?.tools || [];
+import { CategoryTabs } from './CategoryTabs.jsx';
 
 export function Header() {
-  const { setCurrentTool, inputFiles, resetOutputs, log, clearLog } = useApp();
-
-  const handleRestart = () => {
-    resetOutputs();
-    clearLog();
-    log('— restarted — loaded files preserved —', 'info');
-  };
-
   return (
     <header>
       <div className="header-logo">
@@ -23,29 +11,12 @@ export function Header() {
             style={{ width: 70, display: 'block' }}
           />
         </a>
-        <div>
+        <div className="header-title-wrap">
           <h1>YGG&nbsp;&nbsp;&nbsp;TOOLKIT</h1>
-          <span className="subtitle">
-            {SUBTITLE_TOOLS.map((t, i) => (
-              <span key={t.meta.id}>
-                <span className="subtitle-link" onClick={() => setCurrentTool(t.meta.id)}>
-                  {t.meta.label.toLowerCase()}
-                </span>
-                {i < SUBTITLE_TOOLS.length - 1 && ' · '}
-              </span>
-            ))}
-          </span>
         </div>
       </div>
-      <div className="header-right">
-        <WasmBadge />
-        <button
-          className="restart-btn"
-          title="Restart toolkit — loaded files are preserved"
-          onClick={handleRestart}
-        >
-          ↻ restart
-        </button>
+      <div className="header-categories-wrap">
+        <CategoryTabs placement="header" />
       </div>
     </header>
   );

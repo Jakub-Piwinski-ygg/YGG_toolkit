@@ -7,6 +7,11 @@
 // a new key at that exact moment. The subplots stack vertically so
 // the artist can see the whole motion in one place.
 //
+// When a key is selected, a CurveEditor (normalised bezier) appears
+// immediately below that channel's subplots so the artist doesn't
+// have to scroll to find the curve controls. The edited segment is
+// also subtly highlighted on the plot.
+//
 // vec2 / rgb channels overlay one line per component in distinct
 // colours. Scalar channels (rotation, alpha) render a single line.
 
@@ -23,6 +28,7 @@ import {
   setKeyValue,
   splitChannel
 } from '../engine/animation/keyframes.js';
+import { CurveEditor } from './CurveEditor.jsx';
 
 const PLOT_HEIGHT = 96;       // pixels per subplot
 const PAD_LEFT = 36;
@@ -116,7 +122,20 @@ function fitYRange(name, keys, layoutOverride = null) {
   return [lo, hi];
 }
 
-export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPatchChannel }) {
+// Patch a single key's `out` curve inside a channel object without mutating.
+function patchKeyOut(channel, idx, spec, comp) {
+  if (comp && channel.split) {
+    const sub = channel.perComp?.[comp];
+    if (!sub?.keys) return channel;
+    const keys = sub.keys.map((k, i) => (i === idx ? { ...k, out: spec } : k));
+    return { ...channel, perComp: { ...channel.perComp, [comp]: { keys } } };
+  }
+  if (!channel.keys) return channel;
+  const keys = channel.keys.map((k, i) => (i === idx ? { ...k, out: spec } : k));
+  return { ...channel, keys };
+}
+
+export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPatchChannel, curveRef }) {
   const channels = clip.channels || {};
   const duration = Math.max(0.001, clip.duration || 1);
   const visibleNames = useMemo(
@@ -161,6 +180,18 @@ export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPa
         const layout = channelLayout(name);
         const canSplit = layout === 'vec2' || layout === 'rgb';
         const isSplit = !!ch.split;
+
+        // Resolve the key list for the selected key (if it's in this channel).
+        const selIsHere = selectedKey?.name === name;
+        const selComp = selIsHere ? (selectedKey.comp ?? null) : null;
+        const selKeys = selIsHere
+          ? ((ch.split && selComp)
+              ? (ch.perComp?.[selComp]?.keys || [])
+              : (ch.keys || []))
+          : [];
+        const selKeyObj = selIsHere ? selKeys[selectedKey.idx] : null;
+        const hasNextKey = selIsHere && selectedKey.idx < selKeys.length - 1;
+
         return (
           <div className="scene-channels-graph-channel" key={name}>
             <div className="scene-channels-graph-channel-head">
@@ -199,6 +230,32 @@ export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPa
                   onPatchChannel={onPatchChannel}
                 />
               )}
+
+            {/* Inline CurveEditor — appears only for the selected key in this channel */}
+            {selIsHere && selKeyObj && hasNextKey && (
+              <div ref={curveRef} className="scene-channel-curve scene-channel-curve--graph">
+                <div className="scene-channel-curve-head">
+                  <span>
+                    {name}{selComp ? '.' + selComp : ''} · curve key {selectedKey.idx + 1} → {selectedKey.idx + 2}
+                  </span>
+                  <button
+                    type="button"
+                    className="scene-icon-btn"
+                    onClick={() => onSelectKey?.(null)}
+                    title="Close curve editor"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <CurveEditor
+                  value={selKeyObj.out || 'linear'}
+                  onChange={(spec) => {
+                    const updated = patchKeyOut(ch, selectedKey.idx, spec, selComp);
+                    onPatchChannel?.(name, updated);
+                  }}
+                />
+              </div>
+            )}
           </div>
         );
       })}
@@ -296,6 +353,22 @@ function ChannelSubplot({
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel, name, layout, clipDuration, innerW, innerH, yLo, yHi, samples]);
+
+  // Compute the highlight segment for the selected key in this subplot.
+  // Only shown when a key in this subplot is selected and has a next key.
+  const segmentHighlight = (() => {
+    if (!selectedKey || selectedKey.name !== name) return null;
+    const effectiveComp = parentComp || null;
+    // For split sub-rows, the selectedKey.comp must match this subplot's parentComp.
+    if (parentComp && selectedKey.comp !== parentComp) return null;
+    // For linked (parentComp=null), accept comp=null or matched.
+    if (!parentComp && selectedKey.comp != null && layout !== 'vec2' && layout !== 'rgb') return null;
+    const idx = selectedKey.idx;
+    if (idx < 0 || idx >= keys.length - 1) return null;
+    const x1 = xToPx(keys[idx].t);
+    const x2 = xToPx(keys[idx + 1].t);
+    return { x: Math.min(x1, x2), width: Math.abs(x2 - x1) };
+  })();
 
   // Begin dragging a key. We carry comp so vec2 / rgb drags only touch
   // that component (drag y-axis updates only `x` of position, etc.).
@@ -404,6 +477,18 @@ function ChannelSubplot({
       >
         {/* Background + frame */}
         <rect x={PAD_LEFT} y={PAD_TOP} width={innerW} height={innerH} className="scene-channels-graph-bg" />
+
+        {/* Segment highlight for the selected key's curve */}
+        {segmentHighlight && (
+          <rect
+            x={segmentHighlight.x}
+            y={PAD_TOP}
+            width={segmentHighlight.width}
+            height={innerH}
+            className="scene-channels-graph-seg-highlight"
+          />
+        )}
+
         {/* Y-axis ticks at min / mid / max */}
         {[0, 0.5, 1].map((p) => {
           const v = yLo + (yHi - yLo) * (1 - p);

@@ -17,7 +17,13 @@
       "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File \"C:/Users/jakub.pi/YGG_toolkit/.claude/worktrees/ecstatic-aryabhata-77480e/react-app/dev.ps1\")",
       "Bash(npm run *)",
       "Bash(git add *)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(git checkout *)",
+      "Bash(python -c ' *)",
+      "Bash(node -e ' *)",
+      "Bash(xargs grep -l \"folder\\\\|dir\\\\|tree\")",
+      "Bash(git commit -m ' *)",
+      "Bash(xargs wc -l)"
     ]
   }
 }

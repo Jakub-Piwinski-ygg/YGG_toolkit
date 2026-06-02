@@ -92,10 +92,12 @@ export function TimelinePanel({
   onSelectClip,
   onSelectKey,
   onMoveKey,
+  onDeleteKey,
+  onMoveKeyByFrame,
   onPatchFlow,
   onFlowAction
 }) {
-  const fps = scene.stage.fps || 30;
+  const fps = scene.stage.fps || 60;
   const duration = clampFinite(scene.stage.duration, 0.01, 300, 5);
 
   const tracks = scene.flow?.tracks || [];
@@ -679,6 +681,44 @@ export function TimelinePanel({
             <option value="alpha">alpha</option>
             <option value="tint">tint</option>
           </select>
+          <button
+            className="scene-btn"
+            disabled={!selectedKey}
+            onClick={() => onMoveKeyByFrame?.(-1)}
+            title={selectedKey ? `Move selected key 1 frame left (1/${fps} s)` : 'No key selected'}
+          >
+            ← frame
+          </button>
+          <button
+            className="scene-btn"
+            disabled={!selectedKey}
+            onClick={() => onMoveKeyByFrame?.(1)}
+            title={selectedKey ? `Move selected key 1 frame right (1/${fps} s)` : 'No key selected'}
+          >
+            frame →
+          </button>
+          <button
+            className="scene-btn"
+            disabled={!selectedKey}
+            onClick={() => { if (selectedKey) onDeleteKey?.(); }}
+            title={selectedKey ? 'Delete selected keyframe (Del)' : 'No key selected'}
+          >
+            del key
+          </button>
+          <label className="scene-timeline-fps" title="Frames per second — affects keyframe snap and move-by-frame">
+            <span>fps</span>
+            <input
+              type="number"
+              min={1}
+              max={120}
+              step={1}
+              value={fps}
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n) && n >= 1) onFlowAction?.('setFps', n);
+              }}
+            />
+          </label>
           {selectedLayerId && (
             <button className="scene-btn" onClick={addClipOnSelected}>+ clip on selected</button>
           )}

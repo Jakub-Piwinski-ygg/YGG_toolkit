@@ -305,6 +305,12 @@ export default function SceneStudioInner() {
       if (action === 'seek') return flowSeek(curScene, prev, Number(payload) || 0);
       if (action === 'clickResume') return flowResumeByClick(prev);
       if (action === 'emitSignal') return flowResolveSignal(prev, String(payload || ''));
+      if (action === 'setFps') {
+        const n = Math.round(Number(payload));
+        const fps = Number.isFinite(n) ? Math.max(1, Math.min(120, n)) : (curScene?.stage?.fps || 60);
+        setScene((s) => ({ ...s, stage: { ...s.stage, fps } }));
+        return prev;
+      }
       if (action === 'setDuration') {
         const n = Number(payload);
         const d = Number.isFinite(n) ? Math.max(0.5, Math.min(300, n)) : (curScene?.stage?.duration || 5);
@@ -959,6 +965,30 @@ export default function SceneStudioInner() {
     });
   }, [setScene]);
 
+  /** Shift the selected key by `dir` frames (±1). Clamps to clip bounds. */
+  const handleMoveKeyByFrame = useCallback((dir) => {
+    const sel = selectedKeyRef.current;
+    if (!sel) return;
+    const fps = sceneRef.current.stage?.fps || 60;
+    const dt = dir / fps;
+    const tracks = sceneRef.current.flow?.tracks || [];
+    for (const tr of tracks) {
+      const clip = tr.clips?.find((c) => c.id === sel.clipId);
+      if (!clip) continue;
+      const ch = clip.channels?.[sel.name];
+      let keyT;
+      if (sel.comp && ch?.split) {
+        keyT = ch.perComp?.[sel.comp]?.keys?.[sel.idx]?.t;
+      } else {
+        keyT = ch?.keys?.[sel.idx]?.t;
+      }
+      if (typeof keyT !== 'number') return;
+      const newT = Math.max(0, Math.min(clip.duration, keyT + dt));
+      handleMoveKey(sel.clipId, sel.name, sel.idx, sel.comp, newT);
+      return;
+    }
+  }, [handleMoveKey]);
+
   /** Delete the selected timeline keyframe. */
   const handleDeleteSelectedKey = useCallback(() => {
     const sel = selectedKeyRef.current;
@@ -1354,6 +1384,8 @@ export default function SceneStudioInner() {
             onSelectClip={handleSelectClip}
             onSelectKey={handleSelectKey}
             onMoveKey={handleMoveKey}
+            onDeleteKey={handleDeleteSelectedKey}
+            onMoveKeyByFrame={handleMoveKeyByFrame}
             onPatchFlow={patchFlow}
             onFlowAction={handleFlowAction}
           />
@@ -1365,6 +1397,10 @@ export default function SceneStudioInner() {
           selectedClip={selectedClipContext}
           assetDescriptors={assetDescriptors}
           flowTime={flowState.time}
+          selectedKey={selectedKey}
+          onSelectKey={handleSelectKey}
+          onDeleteKey={handleDeleteSelectedKey}
+          onMoveKeyByFrame={handleMoveKeyByFrame}
           onPatchLayer={handlePatchLayer}
           onPatchTransform={handlePatchTransform}
           onResetPortrait={handleResetPortrait}
