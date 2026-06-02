@@ -17,6 +17,7 @@ import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.
 import { CharExtractorTool, charExtractorMeta } from './CharExtractorTool.jsx';
 import { CheatTool, cheatToolMeta } from './CheatTool/index.jsx';
 import { TemplatesTool, templatesMeta } from './TemplatesTool.jsx';
+import { SceneStudioTool, sceneStudioMeta } from './SceneStudio/SceneStudioTool.jsx';
 
 const ART = [
   { meta: cropMeta, Component: CropTool },
@@ -46,9 +47,14 @@ const CHEETS = [
   { meta: cheatToolMeta, Component: CheatTool }
 ];
 
+const STUDIO = [
+  { meta: sceneStudioMeta, Component: SceneStudioTool }
+];
+
 export const TOOL_CATEGORIES = [
   { id: 'arttools', label: 'Art Tools', icon: '🎨', tools: ART },
   { id: 'review', label: 'Asset Pipeline', icon: '🏗️', tools: REVIEW },
+  { id: 'studio', label: 'Scene Studio', icon: '🎬', tools: STUDIO },
   { id: 'cheets', label: 'Cheets', icon: '🎲', tools: CHEETS }
 ];
 
