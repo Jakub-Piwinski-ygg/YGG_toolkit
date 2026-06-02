@@ -14,7 +14,7 @@ import {
 } from '../engine/pixiApp.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 
-export function PixiViewport({ scene, rootHandle, selectedLayerId, onSelectLayer, onTransformLayer, onAssetReady, onViewportClick, flowTime = 0, livePreview = true }) {
+export function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onViewportClick, flowTime = 0, livePreview = true }) {
   const hostRef = useRef(null);
   const appRef = useRef(null);
   const viewportRef = useRef(null);
@@ -43,6 +43,8 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, onSelectLayer
   onTransformRef.current = onTransformLayer;
   const onViewportClickRef = useRef(onViewportClick);
   onViewportClickRef.current = onViewportClick;
+  const selectedClipRef = useRef(selectedClip);
+  selectedClipRef.current = selectedClip;
 
   const requestRender = () => {
     const app = appRef.current;
@@ -52,7 +54,20 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, onSelectLayer
     const content = contentRef.current;
     const s = sceneRef.current;
     const vScale = viewport?.scale?.x ?? 1;
-    if (sel) drawSelection(sel, handlesRef.current.get(selectedRef.current), vScale, content, interactionGuidesRef.current);
+    if (sel) {
+      // Motion path is drawn into the same overlay layer; it only renders
+      // when the selected clip has a position channel with ≥ 2 keys.
+      const ctx = selectedClipRef.current;
+      const selClip = ctx?.clip || ctx || null;
+      const selLayerId = selectedRef.current;
+      const selLayer = selLayerId ? s.layers.find((l) => l.id === selLayerId) : null;
+      const baseT = selLayer
+        ? (s.stage.activeOrientation === 'portrait'
+            ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
+            : selLayer.transforms?.landscape)
+        : null;
+      drawSelection(sel, handlesRef.current.get(selLayerId), vScale, content, interactionGuidesRef.current, selClip, baseT);
+    }
     if (frame) {
       const stage = s.stage.orientations[s.stage.activeOrientation];
       drawStageFrame(frame, stage.w, stage.h, vScale);
@@ -238,16 +253,26 @@ export function PixiViewport({ scene, rootHandle, selectedLayerId, onSelectLayer
     syncTransforms(appRef.current, handlesRef.current, scene);
     applyFlowAtTime(handlesRef.current, scene, flowTime);
     if (selectionOverlayRef.current) {
+      const ctx = selectedClipRef.current;
+      const selClip = ctx?.clip || ctx || null;
+      const selLayer = selectedLayerId ? scene.layers.find((l) => l.id === selectedLayerId) : null;
+      const baseT = selLayer
+        ? (scene.stage.activeOrientation === 'portrait'
+            ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
+            : selLayer.transforms?.landscape)
+        : null;
       drawSelection(
         selectionOverlayRef.current,
         handlesRef.current.get(selectedLayerId),
         viewportRef.current?.scale?.x ?? 1,
         contentRef.current,
-        interactionGuidesRef.current
+        interactionGuidesRef.current,
+        selClip,
+        baseT
       );
       appRef.current?.render();
     }
-  }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, flowTime]);
+  }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime]);
 
   return <div ref={hostRef} className="scene-pixi-host" />;
 }

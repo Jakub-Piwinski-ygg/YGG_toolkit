@@ -138,9 +138,23 @@ export function defaultTransformAt(stage) {
 export function defaultTransformsForNewLayer(stage) {
   const land = stage.orientations.landscape;
   const port = stage.orientations.portrait;
-  const landscape = { x: land.w / 2, y: land.h / 2, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5] };
+  const landscape = {
+    x: land.w / 2, y: land.h / 2,
+    scaleX: 1, scaleY: 1,
+    rotation: 0,
+    anchor: [0.5, 0.5],
+    alpha: 1,
+    tint: { r: 1, g: 1, b: 1 }
+  };
   const portrait = stage.activeOrientation === 'portrait'
-    ? { x: port.w / 2, y: port.h / 2, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5] }
+    ? {
+        x: port.w / 2, y: port.h / 2,
+        scaleX: 1, scaleY: 1,
+        rotation: 0,
+        anchor: [0.5, 0.5],
+        alpha: 1,
+        tint: { r: 1, g: 1, b: 1 }
+      }
     : null;
   return { landscape, portrait };
 }
@@ -148,7 +162,10 @@ export function defaultTransformsForNewLayer(stage) {
 /** Normalise a transform, accepting the legacy { scale: number } form. */
 export function normalizeTransform(t) {
   if (!t || typeof t !== 'object') {
-    return { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5] };
+    return {
+      x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
+      anchor: [0.5, 0.5], alpha: 1, tint: { r: 1, g: 1, b: 1 }
+    };
   }
   const out = { ...t };
   if (out.scaleX == null) out.scaleX = (typeof t.scale === 'number') ? t.scale : 1;
@@ -156,6 +173,17 @@ export function normalizeTransform(t) {
   delete out.scale;
   if (out.rotation == null) out.rotation = 0;
   if (!Array.isArray(out.anchor)) out.anchor = [0.5, 0.5];
+  // Alpha + tint default for layers that predate Round 4.
+  if (typeof out.alpha !== 'number' || !Number.isFinite(out.alpha)) out.alpha = 1;
+  if (!out.tint || typeof out.tint !== 'object') {
+    out.tint = { r: 1, g: 1, b: 1 };
+  } else {
+    out.tint = {
+      r: Number.isFinite(Number(out.tint.r)) ? Number(out.tint.r) : 1,
+      g: Number.isFinite(Number(out.tint.g)) ? Number(out.tint.g) : 1,
+      b: Number.isFinite(Number(out.tint.b)) ? Number(out.tint.b) : 1
+    };
+  }
   return out;
 }
 
@@ -441,7 +469,13 @@ export function normalizeTween(t) {
  *   - `scale`    → vec2 { x, y }
  *   - `rotation` → scalar
  */
-const CHANNEL_LAYOUTS = { position: 'vec2', scale: 'vec2', rotation: 'scalar' };
+const CHANNEL_LAYOUTS = {
+  position: 'vec2',
+  scale:    'vec2',
+  rotation: 'scalar',
+  alpha:    'scalar',
+  tint:     'rgb'
+};
 
 function normalizeKeyCurve(out, fallbackOut = 'linear') {
   if (typeof out === 'string') {
@@ -473,6 +507,13 @@ function normalizeChannelKey(k, layout = 'scalar', fallbackOut = 'linear') {
     const vy = Number(k.v.y);
     if (!Number.isFinite(vx) || !Number.isFinite(vy)) return null;
     v = { x: vx, y: vy };
+  } else if (layout === 'rgb') {
+    if (!k.v || typeof k.v !== 'object') return null;
+    const vr = Number(k.v.r);
+    const vg = Number(k.v.g);
+    const vb = Number(k.v.b);
+    if (!Number.isFinite(vr) || !Number.isFinite(vg) || !Number.isFinite(vb)) return null;
+    v = { r: vr, g: vg, b: vb };
   } else {
     const num = Number(k.v);
     if (!Number.isFinite(num)) return null;

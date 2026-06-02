@@ -23,15 +23,26 @@
 import { curveEval } from './curves.js';
 
 /**
+ * Pack three 0..1 RGB floats into a single 0xRRGGBB Pixi tint value.
+ * Clamps each channel and rounds to the nearest integer.
+ */
+function packRgbToTint(v) {
+  const r = Math.max(0, Math.min(255, Math.round((v.r ?? 1) * 255)));
+  const g = Math.max(0, Math.min(255, Math.round((v.g ?? 1) * 255)));
+  const b = Math.max(0, Math.min(255, Math.round((v.b ?? 1) * 255)));
+  return (r << 16) | (g << 8) | b;
+}
+
+/**
  * Logical channel definitions. Each entry says how the channel's value
- * maps onto Pixi sprite props and whether keys carry a scalar or vec2.
+ * maps onto Pixi sprite props and whether keys carry a scalar / vec2 /
+ * vec3 (rgb).
  */
 export const CHANNEL_DEFS = {
   position: {
     layout: 'vec2',
     label: 'position',
     components: ['x', 'y'],
-    // How the eval result is written to a Pixi container.
     apply: (obj, v) => { obj.x = v.x; obj.y = v.y; }
   },
   scale: {
@@ -45,10 +56,28 @@ export const CHANNEL_DEFS = {
     label: 'rotation',
     components: null,
     apply: (obj, v) => { obj.rotation = v; }
+  },
+  alpha: {
+    layout: 'scalar',
+    label: 'alpha',
+    components: null,
+    apply: (obj, v) => { obj.alpha = Math.max(0, Math.min(1, v)); }
+  },
+  tint: {
+    layout: 'rgb',
+    label: 'tint',
+    components: ['r', 'g', 'b'],
+    apply: (obj, v) => {
+      // Pixi v8 Sprite and Spine container both accept obj.tint as a
+      // uint24 RGB value. Spine 4.2 also exposes .skeleton.color.{r,g,b}
+      // but Container.tint already routes through the renderer's
+      // batch tint, so use that for parity.
+      try { obj.tint = packRgbToTint(v); } catch { /* ignore */ }
+    }
   }
 };
 
-export const CHANNEL_NAMES = ['position', 'scale', 'rotation'];
+export const CHANNEL_NAMES = ['position', 'scale', 'rotation', 'alpha', 'tint'];
 
 /**
  * Map a sprite-level transform prop (the keys of the patch object that
@@ -60,7 +89,11 @@ export const SPRITE_PROP_TO_CHANNEL = {
   y:        { channel: 'position', component: 'y' },
   scaleX:   { channel: 'scale',    component: 'x' },
   scaleY:   { channel: 'scale',    component: 'y' },
-  rotation: { channel: 'rotation', component: null }
+  rotation: { channel: 'rotation', component: null },
+  alpha:    { channel: 'alpha',    component: null },
+  tintR:    { channel: 'tint',     component: 'r' },
+  tintG:    { channel: 'tint',     component: 'g' },
+  tintB:    { channel: 'tint',     component: 'b' }
 };
 
 /** Sub-frame tolerance (~ 1/240s) for "two keys at the same time". */
@@ -69,12 +102,19 @@ export const KEY_EPSILON = 1 / 240;
 // ── Channel value helpers ─────────────────────────────────────────────
 
 function isVec2(v) {
-  return v && typeof v === 'object' && typeof v.x === 'number' && typeof v.y === 'number';
+  return v && typeof v === 'object'
+    && typeof v.x === 'number' && typeof v.y === 'number'
+    && typeof v.r !== 'number';
+}
+function isRgb(v) {
+  return v && typeof v === 'object'
+    && typeof v.r === 'number' && typeof v.g === 'number' && typeof v.b === 'number';
 }
 
 function cloneValue(v) {
   if (typeof v === 'number') return v;
   if (isVec2(v)) return { x: v.x, y: v.y };
+  if (isRgb(v))  return { r: v.r, g: v.g, b: v.b };
   return v;
 }
 
@@ -82,6 +122,13 @@ function lerpValue(a, b, t) {
   if (typeof a === 'number' && typeof b === 'number') return a + (b - a) * t;
   if (isVec2(a) && isVec2(b)) {
     return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+  }
+  if (isRgb(a) && isRgb(b)) {
+    return {
+      r: a.r + (b.r - a.r) * t,
+      g: a.g + (b.g - a.g) * t,
+      b: a.b + (b.b - a.b) * t
+    };
   }
   return cloneValue(b);
 }
@@ -99,7 +146,9 @@ export function channelLayout(name) {
  * does not yet exist and a patch only sets one component.
  */
 export function defaultValueForChannel(name) {
-  if (channelLayout(name) === 'vec2') return { x: 0, y: 0 };
+  const layout = channelLayout(name);
+  if (layout === 'vec2') return { x: 0, y: 0 };
+  if (layout === 'rgb')  return { r: 1, g: 1, b: 1 };
   return 0;
 }
 
@@ -114,6 +163,16 @@ export function composeVec2Value(current, patchComponents) {
   return {
     x: typeof patchComponents.x === 'number' ? patchComponents.x : c.x,
     y: typeof patchComponents.y === 'number' ? patchComponents.y : c.y
+  };
+}
+
+/** Compose a vec3 (rgb) value the same way `composeVec2Value` works. */
+export function composeRgbValue(current, patchComponents) {
+  const c = isRgb(current) ? current : { r: 1, g: 1, b: 1 };
+  return {
+    r: typeof patchComponents.r === 'number' ? patchComponents.r : c.r,
+    g: typeof patchComponents.g === 'number' ? patchComponents.g : c.g,
+    b: typeof patchComponents.b === 'number' ? patchComponents.b : c.b
   };
 }
 

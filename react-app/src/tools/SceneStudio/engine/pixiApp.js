@@ -12,7 +12,7 @@
 //          ├─ contentLayer (all asset layers)
 //          └─ selectionOverlay (outline around selected sprite)
 
-import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { Application, Assets, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { resolveTransform } from './orientationManager.js';
 import { resolveAssetUrl } from './persist.js';
 import { buildLayerTree, tracksForLayer } from './sceneModel.js';
@@ -21,6 +21,16 @@ import { CHANNEL_DEFS, CHANNEL_NAMES, clipLocalSeconds, evalChannel } from './an
 import { buildSpineFromUrls, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
 
 async function loadTextureFromUrl(url) {
+  // Use Pixi v8 Assets.load — it returns a Texture whose `source.orig` is
+  // fully populated before resolve, avoiding the "Cannot read properties
+  // of null (reading 'orig')" crash that happens when a sprite is added
+  // to the scene graph while its texture source is still uninitialised.
+  // Falls back to the legacy <img> + Texture.from path if Assets fails
+  // (e.g. odd cross-origin / data:url cases).
+  try {
+    const tex = await Assets.load(url);
+    if (tex && tex.source && tex.source.orig) return tex;
+  } catch { /* fall through */ }
   const img = new Image();
   img.crossOrigin = 'anonymous';
   await new Promise((resolve, reject) => {
@@ -28,6 +38,12 @@ async function loadTextureFromUrl(url) {
     img.onerror = () => reject(new Error('image load failed'));
     img.src = url;
   });
+  // Decode to be doubly sure the bitmap is fully ready before handing it
+  // to Pixi (Texture.from is sync and can yield a not-yet-uploaded source
+  // on some browsers).
+  if (typeof img.decode === 'function') {
+    try { await img.decode(); } catch { /* ignore */ }
+  }
   return Texture.from(img);
 }
 
@@ -404,9 +420,65 @@ export function pointInsideObject(obj, contentX, contentY, contentRoot = null) {
   return local.x >= lx && local.x <= lx + m.baseW && local.y >= ly && local.y <= ly + m.baseH;
 }
 
+/**
+ * Sample a clip's `position` channel finely and trace its motion path
+ * into `overlay`. Stroke colour modulated by sampled tint; stroke alpha
+ * modulated by sampled alpha; stroke width hints at sampled scale.
+ * Returns true if anything was drawn (the caller skips this step
+ * otherwise to avoid empty redraws).
+ */
+function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
+  if (!clip?.channels?.position?.keys || clip.channels.position.keys.length < 2) return false;
+  const posCh = clip.channels.position;
+  const scaleCh = clip.channels.scale;
+  const alphaCh = clip.channels.alpha;
+  const tintCh = clip.channels.tint;
+
+  const duration = Math.max(0.001, Number(clip.duration) || 1);
+  // ~80 samples — enough for smooth visualisation, cheap to draw.
+  const samples = Math.max(40, Math.min(160, Math.round(duration * 80)));
+  const baseStrokeBase = 2 / viewportScale;
+
+  let prev = null;
+  for (let i = 0; i <= samples; i++) {
+    const t = (i / samples) * duration;
+    const pos = evalChannel(posCh, t);
+    if (!pos) continue;
+    const alpha = alphaCh ? Math.max(0.1, Math.min(1, evalChannel(alphaCh, t))) : 0.85;
+    const tint = tintCh ? evalChannel(tintCh, t) : (baseT?.tint || { r: 1, g: 0.82, b: 0.4 });
+    const scaleV = scaleCh ? evalChannel(scaleCh, t) : { x: 1, y: 1 };
+    const scaleMag = scaleV ? (Math.abs(scaleV.x) + Math.abs(scaleV.y)) * 0.5 : 1;
+
+    const r = Math.max(0, Math.min(255, Math.round((tint?.r ?? 1) * 255)));
+    const g = Math.max(0, Math.min(255, Math.round((tint?.g ?? 1) * 255)));
+    const b = Math.max(0, Math.min(255, Math.round((tint?.b ?? 1) * 255)));
+    const color = (r << 16) | (g << 8) | b;
+    const width = baseStrokeBase * (0.7 + 0.6 * Math.min(2, Math.max(0.25, scaleMag)));
+
+    if (prev) {
+      overlay
+        .moveTo(prev.x, prev.y)
+        .lineTo(pos.x, pos.y)
+        .stroke({ color, width, alpha });
+    }
+    prev = pos;
+  }
+
+  // Dots at each keyframe — the artist sees exactly where the curve breaks.
+  const dotR = 5 / viewportScale;
+  for (const k of posCh.keys) {
+    overlay
+      .circle(k.v.x, k.v.y, dotR)
+      .fill({ color: 0xffffff, alpha: 0.95 })
+      .stroke({ color: 0x1a1d24, width: 1.5 / viewportScale, alpha: 1 });
+  }
+  return true;
+}
+
 /** Draw selection rectangle + 8 resize handles in world space. */
-export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = null, guides = null) {
+export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = null, guides = null, selectedClip = null, baseT = null) {
   overlay.clear();
+  if (selectedClip) drawMotionPath(overlay, selectedClip, viewportScale, baseT);
   if (Array.isArray(guides) && guides.length) {
     const gw = 1 / viewportScale;
     for (const g of guides) {
@@ -458,6 +530,14 @@ export function syncTransforms(app, handles, scene) {
     if (obj.scale?.set) obj.scale.set(t.scaleX ?? 1, t.scaleY ?? 1);
     obj.rotation = t.rotation;
     if (obj.anchor?.set && t.anchor) obj.anchor.set(t.anchor[0] ?? 0.5, t.anchor[1] ?? 0.5);
+    // Alpha + tint (Round 4). Defaults sit in normalizeTransform so older
+    // scenes loading without these fields still get sensible values.
+    obj.alpha = typeof t.alpha === 'number' ? Math.max(0, Math.min(1, t.alpha)) : 1;
+    const tint = t.tint || { r: 1, g: 1, b: 1 };
+    const r = Math.max(0, Math.min(255, Math.round((tint.r ?? 1) * 255)));
+    const g = Math.max(0, Math.min(255, Math.round((tint.g ?? 1) * 255)));
+    const b = Math.max(0, Math.min(255, Math.round((tint.b ?? 1) * 255)));
+    try { obj.tint = (r << 16) | (g << 8) | b; } catch { /* spine container may reject */ }
   }
   if (app?.renderer) app.render();
 }
@@ -567,15 +647,19 @@ export function applyFlowAtTime(handles, scene, t) {
 
     if (asset.type === 'spine' && obj.state && obj.skeleton) {
       applySpineMultiTrack(obj, layer, tracks, t);
+      // Alpha + tint channels also apply on Spine layers so the user
+      // can fade / colourise the whole skeleton from the timeline.
+      applyPngChannels(obj, layer, tracks, t, orientation, { alphaAndTintOnly: true });
       continue;
     }
 
     if (asset.type === 'video' && obj.texture?.source?.resource?.source) {
       applyVideoClip(obj, tracks[0], t, runtimePlaying, runtimeHeld);
+      applyPngChannels(obj, layer, tracks, t, orientation, { alphaAndTintOnly: true });
       continue;
     }
 
-    if (asset.type === 'png') {
+    if (asset.type === 'png' || asset.type === 'pngSequence') {
       applyPngChannels(obj, layer, tracks, t, orientation);
     }
   }
@@ -700,18 +784,22 @@ function applyVideoClip(obj, track, t, runtimePlaying, runtimeHeld) {
  * keyframe instead of snapping back to base pose. Multiple tracks
  * animating the same channel = last-wins (array order).
  */
-function applyPngChannels(obj, layer, tracks, t, orientation) {
+function applyPngChannels(obj, layer, tracks, t, orientation, opts = {}) {
   if (!tracks.length) return;
   const baseT = orientation === 'portrait'
     ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
     : layer.transforms?.landscape;
   if (!baseT) return;
 
+  const namesToApply = opts.alphaAndTintOnly
+    ? CHANNEL_NAMES.filter((n) => n === 'alpha' || n === 'tint')
+    : CHANNEL_NAMES;
+
   for (const track of tracks) {
     const clip = lastClipAt(track, t);
     if (!clip?.channels) continue;
     const localT = clipLocalSeconds(clip, t, { clampPastEnd: true });
-    for (const name of CHANNEL_NAMES) {
+    for (const name of namesToApply) {
       const ch = clip.channels[name];
       if (!ch?.keys?.length) continue;
       const val = evalChannel(ch, localT);

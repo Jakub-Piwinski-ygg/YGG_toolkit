@@ -1419,6 +1419,159 @@ body:has(.scene-studio-root) .main-panel { flex: 1; }
 .scene-clip-keyframe--position { background: #4f9eff; }
 .scene-clip-keyframe--scale    { background: #6bcb77; }
 .scene-clip-keyframe--rotation { background: #ffd166; }
+.scene-clip-keyframe--alpha    { background: #a8afc0; }
+.scene-clip-keyframe--tint     { background: #ff6b6b; }
+
+/* ── Round 4: graph editor, colour picker, motion path ─────────────── */
+
+.scene-field--color {
+  align-items: center;
+}
+.scene-field--color input[type="color"] {
+  width: 32px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 4px;
+  background: var(--bg-1, #13151a);
+  cursor: pointer;
+  flex: none;
+}
+.scene-channel-color {
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.scene-channels-viewtoggle {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  margin-bottom: 2px;
+}
+
+.scene-channels-graph {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 4px;
+  background: var(--bg-1, #13151a);
+  padding: 6px;
+}
+.scene-channels-graph-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scene-channels-graph-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0 4px;
+}
+.scene-channels-graph-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-1, #a8afc0);
+}
+.scene-channels-graph-range {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 9px;
+  color: var(--text-2, #6a7288);
+}
+.scene-channels-graph-svg {
+  display: block;
+  touch-action: none;
+  user-select: none;
+  background: rgba(20, 23, 28, 0.6);
+  border-radius: 3px;
+}
+.scene-channels-graph-bg {
+  fill: rgba(20, 23, 28, 0.7);
+  stroke: var(--border, #2e3340);
+  stroke-width: 1;
+}
+.scene-channels-graph-tick line {
+  stroke: rgba(106, 114, 136, 0.2);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.scene-channels-graph-tick-label {
+  fill: var(--text-2, #6a7288);
+  font-size: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  pointer-events: none;
+}
+.scene-channels-graph-curve {
+  fill: none;
+  stroke-width: 1.6;
+  opacity: 0.92;
+  pointer-events: none;
+}
+.scene-channels-graph-playhead {
+  stroke: rgba(255, 209, 102, 0.85);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  pointer-events: none;
+}
+.scene-channels-graph-key {
+  stroke: #1a1d24;
+  stroke-width: 1.5;
+  cursor: grab;
+  transition: r 80ms;
+}
+.scene-channels-graph-key:hover {
+  filter: brightness(1.2);
+}
+.scene-channels-graph-key.is-selected {
+  stroke: #fff;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
+}
+
+/* Error boundary fallback for PixiViewport crashes. */
+.scene-pixi-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  background: rgba(244, 92, 81, 0.04);
+  border: 1px dashed rgba(244, 92, 81, 0.4);
+  border-radius: 6px;
+  margin: 12px;
+  text-align: center;
+}
+.scene-pixi-error-title {
+  font-size: 13px;
+  color: #ffbcb6;
+  font-weight: 500;
+}
+.scene-pixi-error-msg {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-1, #a8afc0);
+  max-width: 480px;
+  word-break: break-word;
+}
+.scene-pixi-error-hint {
+  font-size: 10px;
+  color: var(--text-2, #6a7288);
+}
+.scene-pixi-error-hint em {
+  color: var(--text-0, #e8eaf0);
+  font-style: normal;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
 
 /* Disable text selection across the entire timeline UI — drag operations
    would otherwise highlight ruler numbers, the "zoom" label, etc. Input

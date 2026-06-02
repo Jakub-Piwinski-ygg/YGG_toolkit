@@ -5,6 +5,7 @@ import { useApp } from '../../context/AppContext.jsx';
 import { AssetBrowserPanel } from './components/AssetBrowserPanel.jsx';
 import { HierarchyPanel } from './components/HierarchyPanel.jsx';
 import { InspectorPanel } from './components/InspectorPanel.jsx';
+import { PixiErrorBoundary } from './components/PixiErrorBoundary.jsx';
 import { PixiViewport } from './components/PixiViewport.jsx';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
@@ -42,6 +43,7 @@ import { groupSpineFiles } from './engine/spineLoader.js';
 import {
   channelLayout,
   clipLocalSeconds,
+  composeRgbValue,
   composeVec2Value,
   evalChannel,
   insertOrUpdateKey,
@@ -382,13 +384,23 @@ export default function SceneStudioInner() {
     }
 
     // Auto-key path: group the patch by logical channel (position /
-    // scale / rotation), build the merged value (preserving the OTHER
-    // component for vec2 channels from the channel's current value at
-    // the playhead OR the base pose), then write one key per channel.
+    // scale / rotation / alpha / tint), build the merged value
+    // (preserving the OTHER component for vec2 / vec3 channels from the
+    // channel's current value at the playhead OR the base pose), then
+    // write one key per channel.
     const localT = clipLocalSeconds(targetClip, flowNow.time, { clampPastEnd: true });
     let nextClipChannels = { ...(targetClip.channels || {}) };
-    const grouped = {};   // { [channelName]: { x?, y?, scalar? } }
+    const grouped = {};
     for (const [prop, value] of Object.entries(patch)) {
+      // Whole-vec3 patch ({ tint: { r, g, b } }) from the colour picker —
+      // unpacks straight into the tint bag.
+      if (prop === 'tint' && value && typeof value === 'object') {
+        const bag = grouped.tint || (grouped.tint = {});
+        if (typeof value.r === 'number') bag.r = value.r;
+        if (typeof value.g === 'number') bag.g = value.g;
+        if (typeof value.b === 'number') bag.b = value.b;
+        continue;
+      }
       const mapping = SPRITE_PROP_TO_CHANNEL[prop];
       if (!mapping) continue;
       if (typeof value !== 'number' || !Number.isFinite(value)) continue;
@@ -396,6 +408,9 @@ export default function SceneStudioInner() {
       if (mapping.component) bag[mapping.component] = value;
       else bag.scalar = value;
     }
+    const layerNow = sceneNow.layers.find((l) => l.id === layerId);
+    const baseT = layerNow?.transforms?.[sceneNow.stage.activeOrientation]
+      || layerNow?.transforms?.landscape || {};
     let touched = false;
     for (const [channelName, bag] of Object.entries(grouped)) {
       const existing = nextClipChannels[channelName];
@@ -405,9 +420,14 @@ export default function SceneStudioInner() {
         const current = existing?.keys?.length
           ? evalChannel(existing, localT)
           : channelName === 'scale'
-            ? { x: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.scaleX ?? 1, y: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.scaleY ?? 1 }
-            : { x: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.x ?? 0, y: sceneNow.layers.find((l) => l.id === layerId)?.transforms?.[sceneNow.stage.activeOrientation]?.y ?? 0 };
+            ? { x: baseT.scaleX ?? 1, y: baseT.scaleY ?? 1 }
+            : { x: baseT.x ?? 0, y: baseT.y ?? 0 };
         v = composeVec2Value(current, bag);
+      } else if (layout === 'rgb') {
+        const current = existing?.keys?.length
+          ? evalChannel(existing, localT)
+          : (baseT.tint || { r: 1, g: 1, b: 1 });
+        v = composeRgbValue(current, bag);
       } else {
         v = typeof bag.scalar === 'number' ? bag.scalar : (existing?.keys?.length ? evalChannel(existing, localT) : 0);
       }
@@ -1153,17 +1173,20 @@ export default function SceneStudioInner() {
 
         <div className="scene-center-stack">
           <div ref={dropRef} className="scene-viewport-wrap">
-            <PixiViewport
-              scene={sceneWithRuntime}
-              rootHandle={rootHandle}
-              selectedLayerId={selectedLayerId}
-              onSelectLayer={handleSelectLayer}
-              onTransformLayer={handleTransformLayer}
-              onAssetReady={handleAssetReady}
-              flowTime={flowState.time}
-              livePreview={livePreview}
-              onViewportClick={() => handleFlowAction('clickResume')}
-            />
+            <PixiErrorBoundary>
+              <PixiViewport
+                scene={sceneWithRuntime}
+                rootHandle={rootHandle}
+                selectedLayerId={selectedLayerId}
+                selectedClip={selectedClipContext}
+                onSelectLayer={handleSelectLayer}
+                onTransformLayer={handleTransformLayer}
+                onAssetReady={handleAssetReady}
+                flowTime={flowState.time}
+                livePreview={livePreview}
+                onViewportClick={() => handleFlowAction('clickResume')}
+              />
+            </PixiErrorBoundary>
             {scene.layers.length === 0 && (
               <div className="scene-viewport-empty">
                 <div className="scene-viewport-empty-icon">🎬</div>

@@ -16,6 +16,7 @@ import {
   setKeyOut,
   setKeyValue
 } from '../engine/animation/keyframes.js';
+import { ClipGraphEditor } from './ClipGraphEditor.jsx';
 import { CurveEditor, CurveThumbnail } from './CurveEditor.jsx';
 import { DragNumberField } from './DragNumberField.jsx';
 
@@ -33,7 +34,9 @@ const PROP_META = {
 const CHANNEL_LABEL = {
   position: 'position (x, y)',
   scale:    'scale (x, y)',
-  rotation: 'rotation'
+  rotation: 'rotation',
+  alpha:    'alpha',
+  tint:     'tint (r, g, b)'
 };
 
 /** Map a sprite transform prop name → logical channel name. */
@@ -42,8 +45,23 @@ const PROP_TO_CHANNEL = {
   y: 'position',
   scaleX: 'scale',
   scaleY: 'scale',
-  rotation: 'rotation'
+  rotation: 'rotation',
+  alpha: 'alpha',
+  tint: 'tint'
 };
+
+function tintToHex(tint) {
+  const r = Math.max(0, Math.min(255, Math.round((tint?.r ?? 1) * 255)));
+  const g = Math.max(0, Math.min(255, Math.round((tint?.g ?? 1) * 255)));
+  const b = Math.max(0, Math.min(255, Math.round((tint?.b ?? 1) * 255)));
+  return '#' + [r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('');
+}
+function hexToTint(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return { r: 1, g: 1, b: 1 };
+  const n = parseInt(m[1], 16);
+  return { r: ((n >> 16) & 255) / 255, g: ((n >> 8) & 255) / 255, b: (n & 255) / 255 };
+}
 
 export function InspectorPanel({
   scene,
@@ -155,6 +173,22 @@ export function InspectorPanel({
           onChange={(v) => onPatchTransform(layer.id, { rotation: (v * Math.PI) / 180 })}
         />
 
+        <TransformField
+          label="alpha" prop="alpha"
+          value={typeof t.alpha === 'number' ? t.alpha : 1}
+          step={0.01} min={0} max={1}
+          recording={!!recordingClip} hasChannel={!!recordingChannels?.alpha}
+          onChange={(v) => onPatchTransform(layer.id, { alpha: Math.max(0, Math.min(1, v)) })}
+        />
+
+        <ColorField
+          label="tint"
+          value={t.tint || { r: 1, g: 1, b: 1 }}
+          recording={!!recordingClip}
+          hasChannel={!!recordingChannels?.tint}
+          onChange={(rgb) => onPatchTransform(layer.id, { tint: rgb })}
+        />
+
         {orientation === 'portrait' && hasPortraitOverride(layer) && (
           <button
             className="scene-btn scene-btn--ghost"
@@ -199,17 +233,50 @@ export function InspectorPanel({
  * the label when the selected clip has a channel for this property
  * (= editing here writes a keyframe instead of the base pose).
  */
-function TransformField({ label, prop, value, step, min, suffix, recording, hasChannel, onChange }) {
+function TransformField({ label, prop, value, step, min, max, suffix, recording, hasChannel, onChange }) {
   const indicator = hasChannel ? '◆' : (recording ? '◇' : null);
   return (
     <div className="scene-field-row-wrap">
-      <DragNumberField label={label} value={value} step={step} min={min} suffix={suffix} onChange={onChange} />
+      <DragNumberField label={label} value={value} step={step} min={min} max={max} suffix={suffix} onChange={onChange} />
       {indicator && (
         <span
           className={'scene-kf-indicator' + (hasChannel ? ' is-keyed' : '')}
           title={hasChannel
             ? `${prop} is keyframed on this clip — next edit updates a key at the playhead`
             : `${prop} is not keyframed yet — next edit creates a key on this clip at the playhead`}
+        >
+          {indicator}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Color picker variant that emits `{ r, g, b }` 0..1 floats. Reuses the
+ * keyframe diamond indicator so artists see whether tint is currently
+ * keyframed on the active clip.
+ */
+function ColorField({ label, value, recording, hasChannel, onChange }) {
+  const hex = tintToHex(value);
+  const indicator = hasChannel ? '◆' : (recording ? '◇' : null);
+  return (
+    <div className="scene-field-row-wrap">
+      <label className="scene-field scene-field--inline scene-field--color">
+        <span className="scene-field-scrub-handle" title="Pick a tint colour">{label}</span>
+        <input
+          type="color"
+          value={hex}
+          onChange={(e) => onChange(hexToTint(e.target.value))}
+        />
+        <em className="scene-field-suffix">{hex.toUpperCase()}</em>
+      </label>
+      {indicator && (
+        <span
+          className={'scene-kf-indicator' + (hasChannel ? ' is-keyed' : '')}
+          title={hasChannel
+            ? 'tint is keyframed on this clip — next colour change updates a key at the playhead'
+            : 'tint is not keyframed yet — next colour change creates a key on this clip at the playhead'}
         >
           {indicator}
         </span>
@@ -457,6 +524,7 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
   const channels = clip.channels || {};
   const enabled = useMemo(() => new Set(Object.keys(channels).filter((n) => channels[n]?.keys?.length)), [channels]);
   const [selectedKey, setSelectedKey] = useState(null); // { name, idx } | null
+  const [viewMode, setViewMode] = useState('graph');  // 'graph' | 'list'
 
   // Where the playhead currently sits, in clip-local seconds. Used as
   // the time for the second seed key and for "add key at playhead".
@@ -481,6 +549,8 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
     if (name === 'position') return { x: basePose?.x ?? 0, y: basePose?.y ?? 0 };
     if (name === 'scale')    return { x: basePose?.scaleX ?? 1, y: basePose?.scaleY ?? 1 };
     if (name === 'rotation') return basePose?.rotation ?? 0;
+    if (name === 'alpha')    return typeof basePose?.alpha === 'number' ? basePose.alpha : 1;
+    if (name === 'tint')     return basePose?.tint || { r: 1, g: 1, b: 1 };
     return 0;
   };
 
@@ -551,7 +621,38 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip }) {
         </div>
       )}
 
-      {[...enabled].map((name) => (
+      {enabled.size > 0 && (
+        <div className="scene-channels-viewtoggle">
+          <button
+            type="button"
+            className={'scene-chip scene-chip--xs' + (viewMode === 'graph' ? ' on' : '')}
+            onClick={() => setViewMode('graph')}
+            title="Show every channel's keys on one absolute-value graph"
+          >
+            graph view
+          </button>
+          <button
+            type="button"
+            className={'scene-chip scene-chip--xs' + (viewMode === 'list' ? ' on' : '')}
+            onClick={() => setViewMode('list')}
+            title="Show per-channel keys tables (good for typing exact values)"
+          >
+            list view
+          </button>
+        </div>
+      )}
+
+      {viewMode === 'graph' && enabled.size > 0 && (
+        <ClipGraphEditor
+          clip={clip}
+          flowTime={flowTime}
+          selectedKey={selectedKey}
+          onSelectKey={setSelectedKey}
+          onPatchChannel={patchChannel}
+        />
+      )}
+
+      {viewMode === 'list' && [...enabled].map((name) => (
         <ChannelBlock
           key={name}
           name={name}
@@ -595,7 +696,9 @@ function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSele
   const keys = channel?.keys || [];
   const layout = channelLayout(name);
   const isVec2 = layout === 'vec2';
+  const isRgb = layout === 'rgb';
   const isRotation = name === 'rotation';
+  const isAlpha = name === 'alpha';
   return (
     <div className="scene-channel-block">
       <div className="scene-channel-head">
@@ -619,8 +722,10 @@ function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSele
                 <th>x</th>
                 <th>y</th>
               </>
+            ) : isRgb ? (
+              <th colSpan={3}>tint</th>
             ) : (
-              <th>{isRotation ? 'deg' : 'value'}</th>
+              <th>{isRotation ? 'deg' : (isAlpha ? 'alpha' : 'value')}</th>
             )}
             <th>out →</th>
             <th aria-label="delete" />
@@ -661,6 +766,16 @@ function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSele
                       />
                     </td>
                   </>
+                ) : isRgb ? (
+                  <td colSpan={3}>
+                    <input
+                      type="color"
+                      value={tintToHex(k.v)}
+                      onChange={(e) => onPatchKeyAt(name, i, { v: hexToTint(e.target.value) })}
+                      className="scene-channel-color"
+                      title={`rgb(${Math.round((k.v?.r ?? 1) * 255)}, ${Math.round((k.v?.g ?? 1) * 255)}, ${Math.round((k.v?.b ?? 1) * 255)})`}
+                    />
+                  </td>
                 ) : (
                   <td>
                     {isRotation ? (
@@ -670,6 +785,15 @@ function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSele
                         step={1}
                         suffix="°"
                         onChange={(v) => onPatchKeyAt(name, i, { v: (v * Math.PI) / 180 })}
+                      />
+                    ) : isAlpha ? (
+                      <DragNumberField
+                        label=""
+                        value={Number(k.v.toFixed(3))}
+                        step={0.01}
+                        min={0}
+                        max={1}
+                        onChange={(v) => onPatchKeyAt(name, i, { v: Math.max(0, Math.min(1, v)) })}
                       />
                     ) : (
                       <DragNumberField

@@ -938,7 +938,7 @@ function ClipKeyframeDots({
 }) {
   if (!clip.channels) return null;
   const dots = [];
-  for (const name of ['position', 'scale', 'rotation']) {
+  for (const name of ['position', 'scale', 'rotation', 'alpha', 'tint']) {
     const ch = clip.channels[name];
     if (!ch?.keys?.length) continue;
     for (let i = 0; i < ch.keys.length; i++) {
