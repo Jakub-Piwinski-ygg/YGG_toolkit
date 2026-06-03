@@ -122,6 +122,54 @@ function evalCustomPoints(points, x) {
   return x;
 }
 
+// ── Hermite (per-key tangent) interpolation ───────────────────────────
+//
+// The P4 keyframe model stores per-key tangents (slopes in value-units per
+// second) instead of a per-segment normalised easing curve. A segment
+// between two keys is then a cubic Hermite spline determined by the two
+// endpoint values and the left key's out-slope + the right key's in-slope.
+// This matches how Unity AnimationCurve / Maya graph editor tangents work.
+
+const SLOPE_CLAMP = 1e4;
+
+/**
+ * Cubic Hermite interpolation for one scalar component.
+ * @param {number} v0  value at the left key
+ * @param {number} v1  value at the right key
+ * @param {number} m0  out-slope at the left key (value units per second)
+ * @param {number} m1  in-slope at the right key (value units per second)
+ * @param {number} dt  segment duration in seconds (t1 - t0)
+ * @param {number} s   normalised progress within the segment, 0..1
+ */
+export function hermite(v0, v1, m0, m1, dt, s) {
+  const s2 = s * s;
+  const s3 = s2 * s;
+  const h00 = 2 * s3 - 3 * s2 + 1;
+  const h10 = s3 - 2 * s2 + s;
+  const h01 = -2 * s3 + 3 * s2;
+  const h11 = s3 - s2;
+  return h00 * v0 + h10 * (m0 * dt) + h01 * v1 + h11 * (m1 * dt);
+}
+
+/**
+ * Numerically estimate the endpoint slopes (of the eased PROGRESS, i.e.
+ * d(easedProgress)/d(normalisedTime)) of any curve spec at s=0 and s=1.
+ * Works uniformly for presets, bezier specs and custom-point specs.
+ * Returns `[startSlope, endSlope]`, each clamped to ±SLOPE_CLAMP.
+ *
+ * Multiply these by `(v1 - v0) / dt` to convert into value-space slopes
+ * usable as Hermite tangents — this is how a legacy per-segment easing
+ * curve is seeded into the per-key tangent model without changing the
+ * segment's endpoint behaviour.
+ */
+export function easingEndpointSlopes(spec) {
+  const h = 1e-3;
+  const start = curveEval(spec, h) / h;          // f(0) === 0 for all eases
+  const end = (1 - curveEval(spec, 1 - h)) / h;  // f(1) === 1 for all eases
+  const clamp = (n) => Math.max(-SLOPE_CLAMP, Math.min(SLOPE_CLAMP, Number.isFinite(n) ? n : 0));
+  return [clamp(start), clamp(end)];
+}
+
 /**
  * Evaluate a curve spec at progress `p ∈ [0, 1]`. Returns the eased value
  * (typically in [0, 1] but back-eased curves may overshoot).

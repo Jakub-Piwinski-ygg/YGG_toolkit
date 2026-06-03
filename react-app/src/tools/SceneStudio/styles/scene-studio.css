@@ -139,6 +139,18 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   background: transparent;
   color: var(--text-2, #6a7288);
 }
+.scene-toolbar-select {
+  background: var(--bg-3, #21252e);
+  border: 1px solid var(--border-2, #3a4050);
+  border-radius: 4px;
+  color: var(--text-1, #c8ccd8);
+  font-size: 11px;
+  padding: 2px 4px;
+  height: 26px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.scene-toolbar-select:hover { border-color: var(--accent, #4f9eff); }
 
 /* ── Body grid: left | viewport | right ──────────────────────────────── */
 .scene-studio-body {
@@ -1662,6 +1674,100 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   stroke: #fff;
   stroke-width: 2;
   filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
+}
+
+/* ── Tangent handles on the value-space graph (P4) ───────────────────── */
+.scene-graph-tan-line {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.scene-graph-tan-knob {
+  fill: #ffd166;
+  stroke: #1a1d24;
+  stroke-width: 1;
+}
+.scene-graph-tan-knob.is-interactive {
+  cursor: grab;
+}
+.scene-graph-tan-knob.is-interactive:hover {
+  filter: brightness(1.2);
+}
+.scene-graph-tan--ghost .scene-graph-tan-line {
+  stroke: rgba(255, 255, 255, 0.22);
+  stroke-dasharray: 2 2;
+}
+.scene-graph-tan--ghost .scene-graph-tan-knob {
+  fill: rgba(255, 209, 102, 0.45);
+}
+
+/* Source-swap field: highlight when an asset is dragged over it. */
+.scene-source-field.drop-hover {
+  outline: 1px dashed var(--accent, #4f9eff);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Path mode (P5) ──────────────────────────────────────────────────── */
+.scene-path-toggle-btn {
+  display: inline-block;
+  max-width: 100%;
+  margin: 8px 0 4px;
+  padding: 5px 12px;
+  border: 1px solid var(--accent, #4f9eff);
+  border-radius: 6px;
+  background: rgba(79, 158, 255, 0.10);
+  color: var(--accent, #4f9eff);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.scene-path-toggle-btn:hover {
+  background: rgba(79, 158, 255, 0.18);
+}
+.scene-path-toggle-btn.on {
+  background: var(--accent, #4f9eff);
+  color: #fff;
+}
+.scene-path-toggle-btn.on:hover {
+  background: #6aafff;
+}
+.scene-chip--path {
+  border-color: var(--accent, #4f9eff);
+  color: var(--accent, #4f9eff);
+}
+.scene-path-editor {
+  border: 1px solid rgba(79, 158, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(13, 15, 20, 0.9);
+  padding: 8px;
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.scene-path-editor-hint {
+  font-size: 10px;
+  color: var(--text-2, #6a7288);
+  line-height: 1.4;
+}
+
+/* Per-key tangent mode chips + hints in the graph editor. */
+.scene-tangent-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0 2px;
+}
+.scene-tangent-hint {
+  font-size: 10px;
+  color: var(--text-2, #6a7288);
+  padding: 4px 0 2px;
+  font-style: italic;
 }
 
 /* Error boundary fallback for PixiViewport crashes. */

@@ -13,7 +13,15 @@ export function StudioToolbar({
   onSave,
   onLoad,
   onNewProject,
+  scenes = [],
+  currentSceneRel = null,
+  onSelectScene,
+  onNewScene,
   onToggleOrientation,
+  overlayMode = 'behind',
+  onSetOverlayMode,
+  defaultEase = 'auto',
+  onSetDefaultEase,
   livePreview = true,
   onToggleLivePreview,
   busy,
@@ -52,6 +60,25 @@ export function StudioToolbar({
       <button className="scene-btn" onClick={onToggleOrientation} title="Switch orientation">
         {scene.stage.activeOrientation === 'landscape' ? '▭ landscape' : '▯ portrait'}
       </button>
+      <select
+        className="scene-toolbar-select"
+        value={overlayMode}
+        onChange={(e) => onSetOverlayMode?.(e.target.value)}
+        title="Stage frame: behind objects (dark fill) or above objects (transparent interior)"
+      >
+        <option value="behind">□ frame behind</option>
+        <option value="above">■ frame above</option>
+      </select>
+      <select
+        className="scene-toolbar-select"
+        value={defaultEase}
+        onChange={(e) => onSetDefaultEase?.(e.target.value)}
+        title="Tangent mode applied to newly created keyframes"
+      >
+        <option value="auto">⌇ new: smooth</option>
+        <option value="flat">⎯ new: flat</option>
+        <option value="linear">╱ new: linear</option>
+      </select>
 
       <button
         className={'scene-btn' + (livePreview ? ' scene-btn--primary' : '')}
@@ -132,6 +159,30 @@ export function StudioToolbar({
         disabled={!canRedo}
         title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
       >↷</button>
+
+      {scenes.length > 0 && (
+        <select
+          className="scene-toolbar-select scene-scene-picker"
+          value={currentSceneRel && scenes.some((s) => s.relPath === currentSceneRel) ? currentSceneRel : ''}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '__new__') onNewScene?.();
+            else if (v) onSelectScene?.(v);
+          }}
+          disabled={busy}
+          title="Switch scene (scanned from project .json files)"
+        >
+          {(!currentSceneRel || !scenes.some((s) => s.relPath === currentSceneRel)) && (
+            <option value="">— scene —</option>
+          )}
+          {scenes.map((s) => (
+            <option key={s.relPath} value={s.relPath}>
+              {s.name}{s.dirPath ? ` · ${s.dirPath}` : ''}
+            </option>
+          ))}
+          <option value="__new__">＋ new scene…</option>
+        </select>
+      )}
 
       <button className="scene-btn scene-btn--ghost" onClick={onNewProject} disabled={busy} title="New project (will prompt to save)">new</button>
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>

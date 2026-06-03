@@ -20,7 +20,130 @@
 // the clip's end so the sprite holds its last keyframe value instead of
 // snapping back to base pose — see `pixiApp.applyPngChannels`.
 
-import { curveEval } from './curves.js';
+import { curveEval, easingEndpointSlopes, hermite } from './curves.js';
+import { getPathSpline } from './pathSpline.js';
+
+// ── Per-key tangent model (P4) ────────────────────────────────────────
+//
+// In addition to the legacy per-segment easing (`key.out`), a key may
+// carry tangent information:
+//   - `tm` (tangent mode): 'auto' | 'flat' | 'linear' | 'free' | 'broken'
+//   - `ti` / `to` (in / out tangent SLOPES, value-units per second) — same
+//     value shape as `v` (number | {x,y} | {r,g,b}). Only consulted for
+//     'free' (uses `to`, mirrored to in) and 'broken' (independent ti/to).
+//
+// A segment between key a and key b is interpolated with a cubic Hermite
+// spline when EITHER endpoint declares a tangent mode (`a.tm` or `b.tm`).
+// Otherwise it falls back to the legacy easing path (`curveEval(a.out)`),
+// so scenes authored before P4 animate exactly as before. When only one
+// endpoint of a tangent-driven segment is legacy, that endpoint's slope is
+// seeded from its legacy easing curve so the join stays continuous.
+
+export const TANGENT_MODES = ['auto', 'flat', 'linear', 'free', 'broken'];
+
+/** A key participates in the tangent model when it declares a mode. */
+export function keyHasTangents(k) {
+  return !!k && typeof k.tm === 'string' && TANGENT_MODES.includes(k.tm);
+}
+
+/** Extract a scalar component from a key value. comp null/'_' = scalar. */
+function compOf(v, comp) {
+  if (comp == null || comp === '_') return Number(v) || 0;
+  return Number(v?.[comp]) || 0;
+}
+
+/** Extract a scalar slope from a key tangent field (ti/to). */
+function slopeOf(field, comp) {
+  if (field == null) return null;
+  if (comp == null || comp === '_') {
+    return typeof field === 'number' && Number.isFinite(field) ? field : null;
+  }
+  const n = Number(field?.[comp]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function secant(keys, iA, iB, comp) {
+  const a = keys[iA];
+  const b = keys[iB];
+  const dt = b.t - a.t;
+  if (Math.abs(dt) < 1e-6) return 0;
+  return (compOf(b.v, comp) - compOf(a.v, comp)) / dt;
+}
+
+/** Catmull-Rom style auto slope through key i for a scalar component. */
+function autoSlope(keys, i, comp) {
+  const prev = i > 0 ? keys[i - 1] : null;
+  const next = i < keys.length - 1 ? keys[i + 1] : null;
+  if (prev && next) {
+    const dt = next.t - prev.t;
+    if (Math.abs(dt) < 1e-6) return 0;
+    return (compOf(next.v, comp) - compOf(prev.v, comp)) / dt;
+  }
+  if (next) return secant(keys, i, i + 1, comp);
+  if (prev) return secant(keys, i - 1, i, comp);
+  return 0;
+}
+
+/** Effective out-slope of key i for a scalar component, per its mode. */
+function resolveOutSlope(keys, i, comp) {
+  const k = keys[i];
+  switch (k.tm) {
+    case 'flat':   return 0;
+    case 'linear': return i < keys.length - 1 ? secant(keys, i, i + 1, comp) : 0;
+    case 'broken': return slopeOf(k.to, comp) ?? autoSlope(keys, i, comp);
+    case 'free':   return slopeOf(k.to, comp) ?? autoSlope(keys, i, comp);
+    default:       return autoSlope(keys, i, comp); // 'auto'
+  }
+}
+
+/** Effective in-slope of key i for a scalar component, per its mode. */
+function resolveInSlope(keys, i, comp) {
+  const k = keys[i];
+  switch (k.tm) {
+    case 'flat':   return 0;
+    case 'linear': return i > 0 ? secant(keys, i - 1, i, comp) : 0;
+    case 'broken': return slopeOf(k.ti, comp) ?? autoSlope(keys, i, comp);
+    case 'free':   return slopeOf(k.to, comp) ?? autoSlope(keys, i, comp); // mirror out
+    default:       return autoSlope(keys, i, comp); // 'auto'
+  }
+}
+
+/** True when the segment keys[i] → keys[i+1] should use Hermite. */
+function segmentIsTangentDriven(keys, i) {
+  return keyHasTangents(keys[i]) || keyHasTangents(keys[i + 1]);
+}
+
+/**
+ * Hermite value of one scalar component across segment keys[i] → keys[i+1].
+ * Endpoints lacking a tangent mode are seeded from the left key's legacy
+ * easing curve so a mixed (legacy ↔ tangent) join stays continuous.
+ */
+function hermiteCompValue(keys, i, comp, s) {
+  const a = keys[i];
+  const b = keys[i + 1];
+  const dt = b.t - a.t;
+  const av = compOf(a.v, comp);
+  const bv = compOf(b.v, comp);
+  if (Math.abs(dt) < 1e-6) return bv;
+  let legacy = null; // [startSlopeProgress, endSlopeProgress] lazily computed
+  const vScale = (bv - av) / dt;
+  let mOut;
+  if (keyHasTangents(a)) {
+    mOut = resolveOutSlope(keys, i, comp);
+  } else {
+    legacy = easingEndpointSlopes(a.out || 'linear');
+    mOut = legacy[0] * vScale;
+  }
+  let mIn;
+  if (keyHasTangents(b)) {
+    mIn = resolveInSlope(keys, i + 1, comp);
+  } else {
+    if (!legacy) legacy = easingEndpointSlopes(a.out || 'linear');
+    mIn = legacy[1] * vScale;
+  }
+  const span = b.t - a.t;
+  return hermite(av, bv, mOut, mIn, span, s);
+}
 
 /**
  * Pack three 0..1 RGB floats into a single 0xRRGGBB Pixi tint value.
@@ -206,6 +329,7 @@ export function evalScalarKeys(keys, t) {
   const span = b.t - a.t;
   if (span <= 1e-6) return b.v;
   const p = (t - a.t) / span;
+  if (segmentIsTangentDriven(keys, i)) return hermiteCompValue(keys, i, null, p);
   const eased = curveEval(a.out || 'linear', p);
   return a.v + (b.v - a.v) * eased;
 }
@@ -226,7 +350,94 @@ export function evalScalarKeys(keys, t) {
  * component set (x/y vs r/g/b) to expect; it falls back to detecting
  * from `perComp` keys.
  */
+function clamp01(n) {
+  return Math.max(0, Math.min(1, Number(n) || 0));
+}
+
+/** True when a (position) channel is in on-scene path mode. */
+export function isPathChannel(ch) {
+  return !!ch && ch.mode === 'path' && ch.path && Array.isArray(ch.path.points) && ch.path.points.length >= 2;
+}
+
+/**
+ * Largest clip-local key time across all of a clip's channels (linked,
+ * split, and path-mode progress keys). Used to stop a clip being resized
+ * shorter than its furthest keyframe, which would orphan keys outside it.
+ */
+export function maxChannelKeyTime(channels) {
+  if (!channels || typeof channels !== 'object') return 0;
+  let m = 0;
+  for (const name of Object.keys(channels)) {
+    const ch = channels[name];
+    if (!ch) continue;
+    if (ch.mode === 'path' && ch.path) {
+      for (const k of ch.path.progress?.keys || []) if (k.t > m) m = k.t;
+      continue;
+    }
+    if (Array.isArray(ch.keys)) for (const k of ch.keys) if (k.t > m) m = k.t;
+    if (ch.split && ch.perComp) {
+      for (const c of Object.values(ch.perComp)) {
+        for (const k of (c?.keys || [])) if (k.t > m) m = k.t;
+      }
+    }
+  }
+  return m;
+}
+
+/**
+ * Bake a path-mode channel down to plain linked vec2 x/y keys at `fps`
+ * samples per second across `duration`. The exported result reproduces the
+ * authored motion (spline + progress curve) so the game engine never needs
+ * arc-length math — it just plays ordinary position keys.
+ */
+export function bakePathToKeys(channel, duration, fps = 30) {
+  if (!isPathChannel(channel)) return channel;
+  const spline = getPathSpline(channel.path.points);
+  const prog = channel.path.progress?.keys || [];
+  const dur = Math.max(0.001, Number(duration) || 1);
+  const n = Math.max(2, Math.round(dur * Math.max(1, fps)));
+  const keys = [];
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n) * dur;
+    const p = clamp01(evalScalarKeys(prog, t) ?? 0);
+    const pt = spline.pointAtFraction(p);
+    keys.push({ t, v: { x: pt.x, y: pt.y }, out: 'linear' });
+  }
+  return { keys };
+}
+
+/**
+ * Bake a path-mode channel to an EXACT number of keys (≥2), evenly spaced in
+ * time, carrying smooth ('auto') tangents. Used when flattening path → normal
+ * curves: few keys still approximate the trajectory because the cubic-Hermite
+ * interpolation between them follows the auto tangents (so 3–4 keys look far
+ * better than 3–4 linear keys would). The artist picks the count = accuracy.
+ */
+export function bakePathToKeyCount(channel, duration, count) {
+  if (!isPathChannel(channel)) return channel;
+  const spline = getPathSpline(channel.path.points);
+  const prog = channel.path.progress?.keys || [];
+  const dur = Math.max(0.001, Number(duration) || 1);
+  const n = Math.max(2, Math.min(1000, Math.round(count) || 2));
+  const keys = [];
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1)) * dur;
+    const p = clamp01(evalScalarKeys(prog, t) ?? 0);
+    const pt = spline.pointAtFraction(p);
+    keys.push({ t, v: { x: pt.x, y: pt.y }, out: 'linear', tm: 'auto' });
+  }
+  return { keys };
+}
+
 export function evalChannel(channel, t, channelName = null) {
+  // Path mode (P5): position is driven by a spatial spline + a progress(t)
+  // curve. Evaluate live here — the rest of the system (motion path,
+  // syncTransforms, export) reads this like any other vec2 channel.
+  if (isPathChannel(channel)) {
+    const p = clamp01(evalScalarKeys(channel.path.progress?.keys, t) ?? 0);
+    const pt = getPathSpline(channel.path.points).pointAtFraction(p);
+    return { x: pt.x, y: pt.y };
+  }
   if (channel?.split && channel.perComp) {
     const layout = channelName ? channelLayout(channelName) : null;
     if (layout === 'vec2' || channel.perComp.x || channel.perComp.y) {
@@ -256,6 +467,20 @@ export function evalChannel(channel, t, channelName = null) {
   const span = b.t - a.t;
   if (span <= 1e-6) return cloneValue(b.v);
   const p = (t - a.t) / span;
+  if (segmentIsTangentDriven(keys, i)) {
+    // Hermite per component — each component carries its own slope.
+    if (isVec2(a.v) && isVec2(b.v)) {
+      return { x: hermiteCompValue(keys, i, 'x', p), y: hermiteCompValue(keys, i, 'y', p) };
+    }
+    if (isRgb(a.v) && isRgb(b.v)) {
+      return {
+        r: hermiteCompValue(keys, i, 'r', p),
+        g: hermiteCompValue(keys, i, 'g', p),
+        b: hermiteCompValue(keys, i, 'b', p)
+      };
+    }
+    return hermiteCompValue(keys, i, null, p);
+  }
   const eased = curveEval(a.out || 'linear', p);
   return lerpValue(a.v, b.v, eased);
 }
@@ -372,9 +597,12 @@ export function insertOrUpdateKey(channel, t, v, opts = {}) {
     }
   }
 
-  let insertAt = keys.findIndex((k) => k.t > t);
+  const k = { t, v: cloneValue(v), out: defaultOut };
+  // Optional per-key tangent mode for new keys (P4 global default-ease).
+  if (opts.tm && TANGENT_MODES.includes(opts.tm)) k.tm = opts.tm;
+  let insertAt = keys.findIndex((kk) => kk.t > t);
   if (insertAt === -1) insertAt = keys.length;
-  keys.splice(insertAt, 0, { t, v: cloneValue(v), out: defaultOut });
+  keys.splice(insertAt, 0, k);
   keys.sort((a, b) => a.t - b.t);
   return { keys };
 }
@@ -415,6 +643,127 @@ export function moveKeyTime(channel, idx, newT) {
   if (idx < 0 || idx >= keys.length) return { keys };
   keys[idx] = { ...keys[idx], t: Math.max(0, newT) };
   keys.sort((a, b) => a.t - b.t);
+  return { keys };
+}
+
+// ── Tangent mutation + introspection (P4) ─────────────────────────────
+
+/**
+ * Out-slope of key i for a component, honouring a LEGACY easing curve when
+ * the key has no tangent mode — so promoting a legacy key seeds a slope
+ * that matches the current on-screen curve at the join (no visual jump).
+ */
+function outSlopeContinuous(keys, i, comp) {
+  if (keyHasTangents(keys[i])) return resolveOutSlope(keys, i, comp);
+  if (i >= keys.length - 1) return autoSlope(keys, i, comp);
+  const a = keys[i];
+  const b = keys[i + 1];
+  const dt = b.t - a.t;
+  if (Math.abs(dt) < 1e-6) return 0;
+  const [s0] = easingEndpointSlopes(a.out || 'linear');
+  return s0 * (compOf(b.v, comp) - compOf(a.v, comp)) / dt;
+}
+
+function inSlopeContinuous(keys, i, comp) {
+  if (keyHasTangents(keys[i])) return resolveInSlope(keys, i, comp);
+  if (i <= 0) return autoSlope(keys, i, comp);
+  const a = keys[i - 1];
+  const b = keys[i];
+  const dt = b.t - a.t;
+  if (Math.abs(dt) < 1e-6) return 0;
+  const [, s1] = easingEndpointSlopes(a.out || 'linear');
+  return s1 * (compOf(b.v, comp) - compOf(a.v, comp)) / dt;
+}
+
+function shapeLike(vShape) {
+  if (isVec2(vShape)) return 'vec2';
+  if (isRgb(vShape)) return 'rgb';
+  return 'scalar';
+}
+
+/** Coerce an arbitrary slope source into the value-shape of `vShape`. */
+function toSlopeShape(src, vShape) {
+  const shape = shapeLike(vShape);
+  if (shape === 'scalar') return Number.isFinite(Number(src)) ? Number(src) : 0;
+  if (shape === 'vec2') return { x: Number(src?.x) || 0, y: Number(src?.y) || 0 };
+  return { r: Number(src?.r) || 0, g: Number(src?.g) || 0, b: Number(src?.b) || 0 };
+}
+
+function mapSlopeShape(vShape, fn) {
+  const shape = shapeLike(vShape);
+  if (shape === 'scalar') return fn(null);
+  if (shape === 'vec2') return { x: fn('x'), y: fn('y') };
+  return { r: fn('r'), g: fn('g'), b: fn('b') };
+}
+
+/**
+ * Current effective in/out tangent slopes of key `idx`, as value-shaped
+ * objects (number / {x,y} / {r,g,b}). Honours legacy easing for keys with
+ * no tangent mode. Used by the editor to draw handles and to seed slopes
+ * when a key is promoted into the tangent model.
+ */
+export function effectiveSlopes(keys, idx) {
+  const v = keys?.[idx]?.v;
+  if (idx == null || !keys?.[idx]) return { in: 0, out: 0 };
+  return {
+    in: mapSlopeShape(v, (c) => inSlopeContinuous(keys, idx, c)),
+    out: mapSlopeShape(v, (c) => outSlopeContinuous(keys, idx, c))
+  };
+}
+
+/**
+ * Set a key's tangent mode. Switching into 'free'/'broken' seeds the stored
+ * slopes from the current effective slopes so the curve doesn't jump.
+ * Switching into 'auto'/'flat'/'linear' drops stored slopes (computed).
+ */
+export function setKeyTangentMode(channel, idx, mode) {
+  const keys = (channel?.keys || []).slice();
+  if (idx < 0 || idx >= keys.length || !TANGENT_MODES.includes(mode)) return { keys };
+  const k = keys[idx];
+  const nk = { ...k, tm: mode };
+  if (mode === 'free' || mode === 'broken') {
+    const eff = effectiveSlopes(keys, idx);
+    nk.to = toSlopeShape(k.to ?? eff.out, k.v);
+    if (mode === 'broken') nk.ti = toSlopeShape(k.ti ?? eff.in, k.v);
+    else delete nk.ti;
+  } else {
+    delete nk.ti;
+    delete nk.to;
+  }
+  keys[idx] = nk;
+  return { keys };
+}
+
+/**
+ * Set one side's tangent slope for a component (drag handler). Ensures the
+ * key is in an explicit mode: 'free' mirrors both sides from `to`; any other
+ * drag promotes to 'broken' with both sides seeded so the untouched side
+ * keeps its shape. `comp` is null for scalar channels.
+ */
+export function setKeyTangentSlope(channel, idx, side, comp, slopeValue, opts = {}) {
+  const keys = (channel?.keys || []).slice();
+  if (idx < 0 || idx >= keys.length) return { keys };
+  const k = keys[idx];
+  const wantFree = opts.free === true || k.tm === 'free';
+  const eff = effectiveSlopes(keys, idx);
+  const setComp = (base, value) => {
+    if (comp == null) return value;
+    const obj = (base && typeof base === 'object') ? { ...base } : {};
+    obj[comp] = value;
+    return obj;
+  };
+  if (wantFree) {
+    let to = toSlopeShape(k.to ?? eff.out, k.v);
+    to = setComp(to, slopeValue);
+    keys[idx] = { ...k, tm: 'free', to, ti: undefined };
+    delete keys[idx].ti;
+  } else {
+    let to = toSlopeShape(k.to ?? eff.out, k.v);
+    let ti = toSlopeShape(k.ti ?? eff.in, k.v);
+    if (side === 'out') to = setComp(to, slopeValue);
+    else ti = setComp(ti, slopeValue);
+    keys[idx] = { ...k, tm: 'broken', to, ti };
+  }
   return { keys };
 }
 

@@ -20,11 +20,15 @@ import { curveEval } from '../engine/animation/curves.js';
 import {
   CHANNEL_NAMES,
   channelLayout,
+  effectiveSlopes,
   evalChannel,
   insertOrUpdateKey,
+  keyHasTangents,
   linkChannel,
   moveKeyTime,
   setKeyComponent,
+  setKeyTangentMode,
+  setKeyTangentSlope,
   setKeyValue,
   splitChannel
 } from '../engine/animation/keyframes.js';
@@ -37,6 +41,24 @@ const PAD_TOP = 8;
 const PAD_BOTTOM = 18;
 const KEY_RADIUS = 5;
 const SAMPLES_PER_PIXEL = 1 / 4;
+const TAN_HANDLE_LEN = 30;    // px length of a tangent handle stem
+const TAN_HANDLE_R = 4;       // px radius of a tangent handle knob
+const TAN_MIN_DX = 4;         // px — clamp so slope stays finite while dragging
+
+// Tangent-mode chips shown for the selected key. 'auto' is labelled
+// "smooth" to match the artist-facing Maya/AE vocabulary.
+const TANGENT_MODE_CHIPS = [
+  { mode: 'auto',   label: 'smooth' },
+  { mode: 'flat',   label: 'flat' },
+  { mode: 'linear', label: 'linear' },
+  { mode: 'broken', label: 'broken' }
+];
+
+// Rotation is plotted in degrees but stored in radians; tangent slopes must
+// convert across that boundary. All other channels are 1:1.
+function displaySlopeFactor(name) {
+  return name === 'rotation' ? 180 / Math.PI : 1;
+}
 
 const COMPONENT_COLORS = {
   position: { x: '#ff6b6b', y: '#4f9eff' },
@@ -122,20 +144,7 @@ function fitYRange(name, keys, layoutOverride = null) {
   return [lo, hi];
 }
 
-// Patch a single key's `out` curve inside a channel object without mutating.
-function patchKeyOut(channel, idx, spec, comp) {
-  if (comp && channel.split) {
-    const sub = channel.perComp?.[comp];
-    if (!sub?.keys) return channel;
-    const keys = sub.keys.map((k, i) => (i === idx ? { ...k, out: spec } : k));
-    return { ...channel, perComp: { ...channel.perComp, [comp]: { keys } } };
-  }
-  if (!channel.keys) return channel;
-  const keys = channel.keys.map((k, i) => (i === idx ? { ...k, out: spec } : k));
-  return { ...channel, keys };
-}
-
-export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPatchChannel, curveRef }) {
+export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPatchChannel, curveRef, defaultTangentMode = 'auto' }) {
   const channels = clip.channels || {};
   const duration = Math.max(0.001, clip.duration || 1);
   const visibleNames = useMemo(
@@ -213,7 +222,7 @@ export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPa
               ? renderSplitSubplots({
                   channel: ch, name, layout,
                   duration, flowTime, clipStart: clip.start, plotW,
-                  selectedKey, onSelectKey, onPatchChannel
+                  selectedKey, onSelectKey, onPatchChannel, defaultTangentMode
                 })
               : (
                 <ChannelSubplot
@@ -228,33 +237,23 @@ export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPa
                   selectedKey={selectedKey}
                   onSelectKey={onSelectKey}
                   onPatchChannel={onPatchChannel}
+                  defaultTangentMode={defaultTangentMode}
                 />
               )}
 
-            {/* Inline CurveEditor — appears only for the selected key in this channel */}
-            {selIsHere && selKeyObj && hasNextKey && (
-              <div ref={curveRef} className="scene-channel-curve scene-channel-curve--graph">
-                <div className="scene-channel-curve-head">
-                  <span>
-                    {name}{selComp ? '.' + selComp : ''} · curve key {selectedKey.idx + 1} → {selectedKey.idx + 2}
-                  </span>
-                  <button
-                    type="button"
-                    className="scene-icon-btn"
-                    onClick={() => onSelectKey?.(null)}
-                    title="Close curve editor"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <CurveEditor
-                  value={selKeyObj.out || 'linear'}
-                  onChange={(spec) => {
-                    const updated = patchKeyOut(ch, selectedKey.idx, spec, selComp);
-                    onPatchChannel?.(name, updated);
-                  }}
-                />
-              </div>
+            {/* Per-key tangent controls + (for legacy keys) the bezier editor */}
+            {selIsHere && selKeyObj && (
+              <TangentControls
+                channel={ch}
+                name={name}
+                selComp={selComp}
+                selectedKey={selectedKey}
+                selKeyObj={selKeyObj}
+                hasNextKey={hasNextKey}
+                onPatchChannel={onPatchChannel}
+                onSelectKey={onSelectKey}
+                curveRef={curveRef}
+              />
             )}
           </div>
         );
@@ -263,7 +262,100 @@ export function ClipGraphEditor({ clip, flowTime, selectedKey, onSelectKey, onPa
   );
 }
 
-function renderSplitSubplots({ channel, name, layout, duration, flowTime, clipStart, plotW, selectedKey, onSelectKey, onPatchChannel }) {
+// Route a keys-channel transform to the right list: a split channel's
+// per-component sub-list (when selComp is set) or the linked key list.
+function applyToSelectedKeyList(channel, selComp, transform) {
+  if (channel?.split && selComp) {
+    const sub = { keys: channel.perComp?.[selComp]?.keys || [] };
+    const next = transform(sub);
+    return {
+      ...channel,
+      split: true,
+      perComp: { ...(channel.perComp || {}), [selComp]: { keys: next.keys || [] } }
+    };
+  }
+  return transform(channel);
+}
+
+/**
+ * Per-key tangent toolbar shown below the channel's subplots when a key is
+ * selected. Mode chips (smooth/flat/linear/broken) switch the key's tangent
+ * mode; for keys still on the legacy easing model the bezier CurveEditor is
+ * offered so old clips remain fully editable until the artist opts in.
+ */
+function TangentControls({ channel, name, selComp, selectedKey, selKeyObj, hasNextKey, onPatchChannel, onSelectKey, curveRef }) {
+  const idx = selectedKey.idx;
+  const isTangent = keyHasTangents(selKeyObj);
+  const mode = isTangent ? selKeyObj.tm : null;
+
+  const setMode = (m) => {
+    const updated = applyToSelectedKeyList(channel, selComp, (ch) => setKeyTangentMode(ch, idx, m));
+    onPatchChannel?.(name, updated);
+  };
+
+  return (
+    <div ref={curveRef} className="scene-channel-curve scene-channel-curve--graph">
+      <div className="scene-channel-curve-head">
+        <span>
+          {name}{selComp ? '.' + selComp : ''} · key {idx + 1}
+          {isTangent ? ` · tangent: ${mode}` : ' · easing (legacy)'}
+        </span>
+        <button
+          type="button"
+          className="scene-icon-btn"
+          onClick={() => onSelectKey?.(null)}
+          title="Deselect key"
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="scene-tangent-modes">
+        {TANGENT_MODE_CHIPS.map(({ mode: m, label }) => (
+          <button
+            key={m}
+            type="button"
+            className={'scene-chip scene-chip--xs' + (mode === m ? ' on' : '')}
+            onClick={() => setMode(m)}
+            title={m === 'broken'
+              ? 'Independent in/out tangents — drag each handle separately'
+              : m === 'auto'
+                ? 'Smooth — tangents auto-computed from neighbours (Catmull-Rom)'
+                : m === 'flat'
+                  ? 'Flat — horizontal tangents (ease in/out)'
+                  : 'Linear — straight segments toward the neighbouring keys'}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {isTangent ? (
+        <div className="scene-tangent-hint">
+          drag the in/out handles on the graph to shape this key
+        </div>
+      ) : hasNextKey ? (
+        <CurveEditor
+          value={selKeyObj.out || 'linear'}
+          onChange={(spec) => {
+            const updated = applyToSelectedKeyList(channel, selComp, (ch) => {
+              if (!ch.keys) return ch;
+              const keys = ch.keys.map((k, i) => (i === idx ? { ...k, out: spec } : k));
+              return { ...ch, keys };
+            });
+            onPatchChannel?.(name, updated);
+          }}
+        />
+      ) : (
+        <div className="scene-tangent-hint">
+          last key — pick a tangent mode above to shape the incoming curve
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderSplitSubplots({ channel, name, layout, duration, flowTime, clipStart, plotW, selectedKey, onSelectKey, onPatchChannel, defaultTangentMode = 'auto' }) {
   const comps = layout === 'vec2' ? ['x', 'y'] : ['r', 'g', 'b'];
   return comps.map((comp) => {
     const sub = channel.perComp?.[comp] || { keys: [] };
@@ -282,6 +374,7 @@ function renderSplitSubplots({ channel, name, layout, duration, flowTime, clipSt
         plotW={plotW}
         selectedKey={selectedKey}
         onSelectKey={onSelectKey}
+        defaultTangentMode={defaultTangentMode}
         onPatchChannel={(_chName, newSubChannel) => {
           // Write the per-comp scalar list back into the parent channel
           // via onPatchChannel(name, mergedChannel).
@@ -294,7 +387,7 @@ function renderSplitSubplots({ channel, name, layout, duration, flowTime, clipSt
   });
 }
 
-function ChannelSubplot({
+export function ChannelSubplot({
   name, channel, clipDuration, flowTime, clipStart, plotW,
   selectedKey, onSelectKey, onPatchChannel,
   // For split-mode sub-rows: parent's comp ('x'/'y'/'r'/'g'/'b') so
@@ -303,10 +396,12 @@ function ChannelSubplot({
   // is a scalar view of a parent vec2 / rgb channel.
   comp: parentComp = null,
   layout: layoutProp = null,
-  labelOverride = null
+  labelOverride = null,
+  defaultTangentMode = 'auto'
 }) {
   const svgRef = useRef(null);
   const dragRef = useRef(null);
+  const tanDragRef = useRef(null);
   const layout = layoutProp || channelLayout(name);
   const keys = channel?.keys || [];
   const [yLo, yHi] = useMemo(() => fitYRange(name, keys, layout), [name, keys, layout]);
@@ -370,6 +465,87 @@ function ChannelSubplot({
     return { x: Math.min(x1, x2), width: Math.abs(x2 - x1) };
   })();
 
+  // Tangent-handle geometry for the selected key in this subplot. Computes
+  // the selected key's in/out handle knob positions plus faint read-only
+  // handles on the immediate neighbours (the "3-point" context). Returns
+  // null when no key of this subplot/component is selected.
+  const pxPerSec = innerW / Math.max(1e-6, clipDuration);
+  const pxPerValue = innerH / Math.max(1e-6, yHi - yLo);
+  const dispFactor = displaySlopeFactor(name);
+  const tangentUI = (() => {
+    if (!selectedKey || selectedKey.name !== name) return null;
+    if (parentComp && selectedKey.comp !== parentComp) return null;
+    const selIdx = selectedKey.idx;
+    if (selIdx < 0 || selIdx >= keys.length) return null;
+    // Which component this subplot's handles act on.
+    const activeComp = parentComp || selectedKey.comp || '_';
+    // How to read a shaped slope from effectiveSlopes(), and the comp passed
+    // to setKeyTangentSlope. Split sub-rows + scalar channels are scalar.
+    const extractComp = (!parentComp && (layout === 'vec2' || layout === 'rgb'))
+      ? activeComp : null;
+    const writeComp = extractComp;
+
+    const dispValOf = (k) => componentsOfKey(name, k.v, layout)
+      .find((c) => c.comp === activeComp || c.comp === '_')?.value ?? 0;
+    const slopeFrom = (shaped) => (extractComp == null ? shaped : (shaped?.[extractComp] ?? 0));
+
+    const handlePoint = (kx, ky, dispSlope, dir) => {
+      const vx = dir * pxPerSec;
+      const vy = dir * (-pxPerValue * dispSlope);
+      const len = Math.hypot(vx, vy) || 1;
+      return { x: kx + (vx / len) * TAN_HANDLE_LEN, y: ky + (vy / len) * TAN_HANDLE_LEN };
+    };
+
+    const k = keys[selIdx];
+    const kx = xToPx(k.t);
+    const ky = yToPx(dispValOf(k));
+    const eff = effectiveSlopes(keys, selIdx);
+    const out = { kx, ky, ...handlePoint(kx, ky, slopeFrom(eff.out) * dispFactor, +1) };
+    const inn = { kx, ky, ...handlePoint(kx, ky, slopeFrom(eff.in) * dispFactor, -1) };
+
+    // Faint neighbour handles (read-only) for context.
+    const neighbours = [];
+    if (selIdx > 0) {
+      const p = keys[selIdx - 1];
+      const px = xToPx(p.t);
+      const py = yToPx(dispValOf(p));
+      const ps = slopeFrom(effectiveSlopes(keys, selIdx - 1).out) * dispFactor;
+      neighbours.push({ key: 'prev', px, py, ...handlePoint(px, py, ps, +1) });
+    }
+    if (selIdx < keys.length - 1) {
+      const nx = keys[selIdx + 1];
+      const px = xToPx(nx.t);
+      const py = yToPx(dispValOf(nx));
+      const ns = slopeFrom(effectiveSlopes(keys, selIdx + 1).in) * dispFactor;
+      neighbours.push({ key: 'next', px, py, ...handlePoint(px, py, ns, -1) });
+    }
+    return { selIdx, writeComp, currentMode: k.tm ?? null, out, inn, neighbours };
+  })();
+
+  // Begin dragging a tangent handle. `side` is 'in' | 'out'.
+  const beginTanDrag = (side) => (e) => {
+    if (e.button !== 0 || !tangentUI) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const svg = svgRef.current;
+    const rect = svg?.getBoundingClientRect();
+    if (!rect) return;
+    tanDragRef.current = {
+      side,
+      idx: tangentUI.selIdx,
+      writeComp: tangentUI.writeComp,
+      currentMode: tangentUI.currentMode,
+      kx: tangentUI.out.kx,
+      ky: tangentUI.out.ky,
+      scaleX: plotW / rect.width,
+      scaleY: totalH / rect.height,
+      rectLeft: rect.left,
+      rectTop: rect.top,
+      pointerId: e.pointerId
+    };
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* ignore */ }
+  };
+
   // Begin dragging a key. We carry comp so vec2 / rgb drags only touch
   // that component (drag y-axis updates only `x` of position, etc.).
   const beginKeyDrag = (idx, comp) => (e) => {
@@ -396,6 +572,24 @@ function ChannelSubplot({
   };
 
   const onPointerMove = (e) => {
+    // Tangent-handle drag takes priority when active.
+    const tan = tanDragRef.current;
+    if (tan) {
+      const px = (e.clientX - tan.rectLeft) * tan.scaleX;
+      const py = (e.clientY - tan.rectTop) * tan.scaleY;
+      let dx = px - tan.kx;
+      const dy = py - tan.ky;
+      if (tan.side === 'out') dx = Math.max(TAN_MIN_DX, dx);
+      else dx = Math.min(-TAN_MIN_DX, dx);
+      const dispSlope = -(dy / dx) * (pxPerSec / Math.max(1e-6, pxPerValue));
+      const storeSlope = dispSlope / dispFactor;
+      // Plain drag keeps a smooth key unified ('free'); flat/linear/broken
+      // keys break into independent ('broken') handles.
+      const free = tan.currentMode == null || tan.currentMode === 'auto' || tan.currentMode === 'free';
+      const next = setKeyTangentSlope(channel, tan.idx, tan.side, tan.writeComp, storeSlope, { free });
+      onPatchChannel?.(name, next);
+      return;
+    }
     const st = dragRef.current;
     if (!st) return;
     const localPx = (e.clientX - st.rectLeft) * st.scaleX;
@@ -431,6 +625,11 @@ function ChannelSubplot({
   };
 
   const onPointerUp = (e) => {
+    if (tanDragRef.current) {
+      try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* ignore */ }
+      tanDragRef.current = null;
+      return;
+    }
     if (!dragRef.current) return;
     try { e.currentTarget.releasePointerCapture?.(e.pointerId); } catch { /* ignore */ }
     dragRef.current = null;
@@ -449,7 +648,7 @@ function ChannelSubplot({
     const t = pxToX(localPx);
     const currentV = keys.length ? evalChannel(channel, t) : null;
     if (currentV == null) return;
-    const next = insertOrUpdateKey(channel, t, currentV, { out: 'linear' });
+    const next = insertOrUpdateKey(channel, t, currentV, { out: 'linear', tm: defaultTangentMode });
     onPatchChannel?.(name, next);
   };
 
@@ -536,6 +735,38 @@ function ChannelSubplot({
             );
           });
         })}
+        {/* Tangent handles for the selected key (+ faint neighbour context) */}
+        {tangentUI && (
+          <g className="scene-graph-tangents">
+            {tangentUI.neighbours.map((nb) => (
+              <g key={nb.key} className="scene-graph-tan scene-graph-tan--ghost">
+                <line x1={nb.px} y1={nb.py} x2={nb.x} y2={nb.y} className="scene-graph-tan-line" />
+                <circle cx={nb.x} cy={nb.y} r={TAN_HANDLE_R - 1} className="scene-graph-tan-knob" />
+              </g>
+            ))}
+            <g className="scene-graph-tan">
+              <line x1={tangentUI.inn.kx} y1={tangentUI.inn.ky} x2={tangentUI.inn.x} y2={tangentUI.inn.y} className="scene-graph-tan-line" />
+              <circle
+                cx={tangentUI.inn.x}
+                cy={tangentUI.inn.y}
+                r={TAN_HANDLE_R}
+                className="scene-graph-tan-knob is-interactive"
+                onPointerDown={beginTanDrag('in')}
+              />
+            </g>
+            <g className="scene-graph-tan">
+              <line x1={tangentUI.out.kx} y1={tangentUI.out.ky} x2={tangentUI.out.x} y2={tangentUI.out.y} className="scene-graph-tan-line" />
+              <circle
+                cx={tangentUI.out.x}
+                cy={tangentUI.out.y}
+                r={TAN_HANDLE_R}
+                className="scene-graph-tan-knob is-interactive"
+                onPointerDown={beginTanDrag('out')}
+              />
+            </g>
+          </g>
+        )}
+
         {/* Playhead line — only visible while playhead is inside the clip range */}
         {localT >= 0 && localT <= clipDuration && (
           <line

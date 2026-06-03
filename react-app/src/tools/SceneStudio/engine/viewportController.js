@@ -62,7 +62,9 @@ export function attachViewportController(opts) {
     setInteractionGuides,
     requestRender,
     getMotionKeyDots,
-    onSeekToKey
+    onSeekToKey,
+    getPathHandles,
+    onPathEdit
   } = opts;
 
   let panning = false;
@@ -73,6 +75,9 @@ export function attachViewportController(opts) {
   let dragLayerId = null;
   let dragOffset = { x: 0, y: 0 }; // parent-local offset
   let dragSnapTargets = null;
+
+  let pathDragging = false;
+  let pathDrag = null;              // { kind:'point'|'in'|'out', index }
 
   let resizing = false;
   let resizeHandle = null;          // 'nw' | 'n' | ... | 'w'
@@ -232,7 +237,7 @@ export function attachViewportController(opts) {
   const startRaf = () => {
     if (rafId) return;
     const tick = () => {
-      if (!(panning || dragging || resizing)) {
+      if (!(panning || dragging || resizing || pathDragging)) {
         rafId = 0;
         return;
       }
@@ -286,6 +291,26 @@ export function attachViewportController(opts) {
       return;
     }
 
+    // Path-mode dials: grab a control point or tangent handle to drag.
+    if (getPathHandles && onPathEdit) {
+      const r = 10 * worldDistPerScreenPx();
+      let best = null;
+      let bestD = Infinity;
+      for (const h of (getPathHandles() || [])) {
+        const d = Math.hypot(world.x - h.x, world.y - h.y);
+        // Bias toward tangent handles slightly so they win ties over the point.
+        const score = d - (h.kind === 'point' ? 0 : 2 * worldDistPerScreenPx());
+        if (d <= r && score < bestD) { best = h; bestD = score; }
+      }
+      if (best) {
+        pathDragging = true;
+        pathDrag = { kind: best.kind, index: best.index };
+        canvas.style.cursor = 'grabbing';
+        startRaf();
+        return;
+      }
+    }
+
     // Click on a motion-path key dot → seek playhead to that key's time.
     if (getMotionKeyDots && onSeekToKey) {
       const r = 10 * worldDistPerScreenPx();
@@ -323,6 +348,17 @@ export function attachViewportController(opts) {
       viewport.y = viewportStart.y + dy;
       return;
     }
+    if (pathDragging && pathDrag) {
+      const world = screenToWorld(e.clientX, e.clientY);
+      // Path points live in the selected layer's parent-local space; convert
+      // so nested layers (rotated/scaled parents) edit correctly.
+      const id = getSelectedLayerId();
+      const obj = getHandles().get(id);
+      const parent = obj?.parent || content;
+      const local = contentToParentLocal(parent, world.x, world.y, content);
+      onPathEdit?.({ kind: pathDrag.kind, index: pathDrag.index, x: local.x, y: local.y, alt: e.altKey });
+      return;
+    }
     if (resizing && resizeLayerId) {
       const world = screenToWorld(e.clientX, e.clientY);
       const obj = getHandles().get(resizeLayerId);
@@ -358,6 +394,12 @@ export function attachViewportController(opts) {
   const onMouseUp = (e) => {
     if (panning && e.button === 1) {
       panning = false;
+      canvas.style.cursor = '';
+      stopRaf();
+    }
+    if (pathDragging && e.button === 0) {
+      pathDragging = false;
+      pathDrag = null;
       canvas.style.cursor = '';
       stopRaf();
     }

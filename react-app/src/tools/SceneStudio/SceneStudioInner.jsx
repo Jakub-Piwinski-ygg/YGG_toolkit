@@ -35,10 +35,12 @@ import {
   fileToDataUrl,
   getDroppedDirectoryHandle,
   isDropDirectorySupported,
+  loadSceneByRelPath,
   loadSceneFromFile,
   loadSceneFromHandle,
   pickProjectRoot,
-  saveScene
+  saveScene,
+  scanProjectScenes
 } from './engine/persist.js';
 import { makeVirtualRootHandle, readFolderDropAsFiles } from './engine/virtualHandle.js';
 import { patchTransform, resetPortrait } from './engine/orientationManager.js';
@@ -49,13 +51,56 @@ import {
   composeRgbValue,
   composeVec2Value,
   evalChannel,
+  evalScalarKeys,
   insertOrUpdateKey,
+  isPathChannel,
   splitChannel,
   SPRITE_PROP_TO_CHANNEL
 } from './engine/animation/keyframes.js';
+import { insertOrUpdatePathPoint, resolvePointHandles } from './engine/animation/pathSpline.js';
 import './styles/scene-studio.css';
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
+
+/** Build a scene asset from an asset-browser item (mirrors addAssetItemFromBrowser). */
+function assetFromBrowserItem(item) {
+  if (item.type === 'spine') {
+    return { id: uid('a'), type: 'spine', src: item.jsonPath, atlas: item.atlasPath, texture: item.texturePath, meta: { originalName: item.name } };
+  }
+  if (item.type === 'video') {
+    return { id: uid('a'), type: 'video', src: item.path, meta: { originalName: item.name } };
+  }
+  return { id: uid('a'), type: 'png', src: item.path, meta: { originalName: item.name } };
+}
+
+/** Find an existing scene asset matching a browser item's source (dedupe). */
+function findAssetForItem(assets, item) {
+  const src = item.type === 'spine' ? item.jsonPath : item.path;
+  return (assets || []).find((a) => a.src === src) || null;
+}
+
+/**
+ * Reassign a layer to a different asset (object swap), keeping the animation
+ * (clips/channels live on the track, not the layer) and the layer's pose, but
+ * resetting scale to 1:1 so the new object isn't distorted by the previous
+ * object's scaling. Spine/video sub-config is reset to sensible defaults.
+ */
+function applyAssetSwapToLayer(layer, asset) {
+  const scaleOne = (t) => (t ? { ...t, scaleX: 1, scaleY: 1 } : t);
+  const next = {
+    ...layer,
+    assetId: asset.id,
+    transforms: {
+      landscape: scaleOne(layer.transforms?.landscape),
+      portrait: scaleOne(layer.transforms?.portrait)
+    }
+  };
+  if (asset.type === 'spine') next.spine = { defaultAnimation: null, loop: true, skin: null };
+  else delete next.spine;
+  if (asset.type === 'video') next.video = layer.video || { loop: true, muted: true };
+  else delete next.video;
+  return next;
+}
 
 /**
  * Shift all clip-local key times by `delta` seconds to preserve absolute
@@ -97,6 +142,22 @@ export default function SceneStudioInner() {
   const [rootDropHover, setRootDropHover] = useState(false);
   const [pickError, setPickError] = useState(null);
   const [livePreview, setLivePreview] = useState(true);
+  const [overlayMode, setOverlayMode] = useState('behind');
+  // Default tangent mode stamped onto NEWLY created keyframes (P4). Existing
+  // keys keep their own mode. Read through a ref by the imperative auto-key
+  // path so it never goes stale.
+  const [defaultEase, setDefaultEase] = useState('auto');
+  const defaultEaseRef = useRef(defaultEase);
+  defaultEaseRef.current = defaultEase;
+  // Scenes discovered in the linked project root (all valid *.json scenes),
+  // the relPath of the one currently open, and a pending scene-switch target
+  // ('__new__' = create a new scene) awaiting the save/discard prompt.
+  const [availableScenes, setAvailableScenes] = useState([]);
+  const [currentSceneRel, setCurrentSceneRel] = useState(null);
+  const [sceneSwitchPending, setSceneSwitchPending] = useState(null);
+  // handleSave is defined far below; reference it through a ref so the
+  // scene-switch handlers (defined earlier) can call it.
+  const handleSaveRef = useRef(null);
   // Auto-key: when ON, editing a transform while a clip is selected and
   // the playhead is inside it records a keyframe. When OFF, edits always
   // go to the base pose. Read through a ref by handlePatchTransform.
@@ -449,6 +510,39 @@ export default function SceneStudioInner() {
     }));
   }, []);
 
+  // Swap a layer's animated object to an existing scene asset (keeps clips).
+  const handleSwapLayerAsset = useCallback((layerId, assetId) => {
+    setScene((prev) => {
+      const asset = prev.assets.find((a) => a.id === assetId);
+      if (!asset) return prev;
+      return {
+        ...prev,
+        layers: prev.layers.map((l) => (l.id === layerId ? applyAssetSwapToLayer(l, asset) : l))
+      };
+    });
+  }, []);
+
+  // Swap a layer's object to an asset dragged from the Assets panel (by item
+  // id). Creates the scene asset if it isn't already present. Scale → 1:1.
+  const handleSwapLayerAssetFromBrowserId = useCallback((layerId, browserItemId) => {
+    const item = assetItemsRef.current.find((x) => x.id === browserItemId);
+    if (!item) return;
+    setScene((prev) => {
+      let asset = findAssetForItem(prev.assets, item);
+      let assets = prev.assets;
+      if (!asset) {
+        asset = assetFromBrowserItem(item);
+        assets = [...prev.assets, asset];
+      }
+      return {
+        ...prev,
+        assets,
+        layers: prev.layers.map((l) => (l.id === layerId ? applyAssetSwapToLayer(l, asset) : l))
+      };
+    });
+    log(`Scene Studio: swapped layer source → ${item.name}`, 'ok');
+  }, [log]);
+
   /**
    * Decide between auto-keyframe write and base-pose patch.
    *
@@ -587,6 +681,21 @@ export default function SceneStudioInner() {
       const existing = nextClipChannels[channelName];
       const layout = channelLayout(channelName);
 
+      // Path-mode position: auto-key inserts (or refines) a smooth control
+      // point at the object's current progress along the path, so dragging
+      // the sprite mid-clip bends the path through the new spot.
+      if (channelName === 'position' && isPathChannel(existing)) {
+        const prog = existing.path.progress?.keys || [];
+        const p = Math.max(0, Math.min(1, evalScalarKeys(prog, localT) ?? 0));
+        const cur = evalChannel(existing, localT, 'position') || { x: 0, y: 0 };
+        const nx = typeof bag.x === 'number' ? bag.x : cur.x;
+        const ny = typeof bag.y === 'number' ? bag.y : cur.y;
+        const nextPoints = insertOrUpdatePathPoint(existing.path.points, p, nx, ny);
+        nextClipChannels.position = { ...existing, path: { ...existing.path, points: nextPoints } };
+        touched = true;
+        continue;
+      }
+
       // Split path: write each patch component into its own scalar
       // key list. Lets x and y (or r/g/b) animate on independent
       // timelines and curves.
@@ -596,7 +705,7 @@ export default function SceneStudioInner() {
         for (const c of comps) {
           if (typeof bag[c] !== 'number' || !Number.isFinite(bag[c])) continue;
           const compKeys = nextPerComp[c]?.keys || [];
-          nextPerComp[c] = insertOrUpdateKey({ keys: compKeys }, localT, bag[c]);
+          nextPerComp[c] = insertOrUpdateKey({ keys: compKeys }, localT, bag[c], { tm: defaultEaseRef.current });
         }
         nextClipChannels[channelName] = { ...existing, perComp: nextPerComp };
         touched = true;
@@ -620,7 +729,7 @@ export default function SceneStudioInner() {
       } else {
         v = typeof bag.scalar === 'number' ? bag.scalar : (existing?.keys?.length ? evalChannel(existing, localT, channelName) : 0);
       }
-      nextClipChannels[channelName] = insertOrUpdateKey(existing || { keys: [] }, localT, v);
+      nextClipChannels[channelName] = insertOrUpdateKey(existing || { keys: [] }, localT, v, { tm: defaultEaseRef.current });
       touched = true;
     }
     if (!touched) {
@@ -661,6 +770,47 @@ export default function SceneStudioInner() {
   const handleTransformLayer = useCallback((layerId, patch) => {
     handlePatchTransform(layerId, patch);
   }, [handlePatchTransform]);
+
+  // P5: edit the selected clip's position path from on-scene dials. `x,y` are
+  // in the layer's parent-local space (the controller already converted from
+  // world). 'point' moves a control point; 'in'/'out' set tangent handles.
+  const handlePathEdit = useCallback(({ kind, index, x, y }) => {
+    const clipId = selectedClipIdRef.current;
+    if (!clipId) return;
+    setScene((prev) => {
+      const tracks = (prev.flow?.tracks || []).map((tr) => {
+        if (!tr.clips?.some((c) => c.id === clipId)) return tr;
+        return {
+          ...tr,
+          clips: tr.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const pos = c.channels?.position;
+            if (!isPathChannel(pos)) return c;
+            const points = pos.path.points.slice();
+            const p = points[index];
+            if (!p) return c;
+            let np;
+            if (kind === 'point') {
+              np = { ...p, x, y };
+            } else if (kind === 'out') {
+              const off = { x: x - p.x, y: y - p.y };
+              // Auto/linear → unify ('free', mirrors in). Broken stays broken.
+              np = p.tm === 'broken' ? { ...p, to: off } : { ...p, tm: 'free', to: off, ti: undefined };
+            } else { // 'in' → independent (broken); seed out from current shape.
+              const off = { x: x - p.x, y: y - p.y };
+              const H = resolvePointHandles(points);
+              const seedTo = p.to || { x: H[index].outX - p.x, y: H[index].outY - p.y };
+              np = { ...p, tm: 'broken', ti: off, to: seedTo };
+            }
+            points[index] = np;
+            const nextPos = { ...pos, path: { ...pos.path, points } };
+            return { ...c, channels: { ...c.channels, position: nextPos } };
+          })
+        };
+      });
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks }) };
+    });
+  }, [setScene]);
 
   const handleReorder = useCallback((draggedId, targetId, mode, canvasIdArg) => {
     setScene((prev) => {
@@ -816,12 +966,81 @@ export default function SceneStudioInner() {
         setSelectedLayerId(null);
         setFlowState(createInitialFlowState());
         const rel = existing.projectRoot ? `${existing.projectRoot}/scene.json` : 'scene.json';
+        setCurrentSceneRel(rel);
         log(`Scene Studio: loaded ${rel}`, 'ok');
       }
     } catch (e) {
       log(`Scene Studio: ${e.message || e}`, 'err');
     }
+    // Discover all scenes in the project for the switch dropdown.
+    try {
+      const scenes = await scanProjectScenes(handle);
+      setAvailableScenes(scenes);
+    } catch (e) {
+      log(`Scene Studio: scene scan failed: ${e.message || e}`, 'err');
+    }
   }, [log, refreshAssetBrowser]);
+
+  const rescanScenes = useCallback(async () => {
+    if (!rootHandle) return;
+    try { setAvailableScenes(await scanProjectScenes(rootHandle)); } catch { /* ignore */ }
+  }, [rootHandle]);
+
+  // Load a discovered scene by relPath (keeps the project root linked).
+  const doSwitchScene = useCallback(async (relPath) => {
+    if (!rootHandle) return;
+    setBusy(true);
+    try {
+      const scene = await loadSceneByRelPath(rootHandle, relPath);
+      if (!scene) { log(`Scene Studio: could not load ${relPath}`, 'err'); return; }
+      replaceSceneNoHistory(scene);
+      setSelectedLayerId(null);
+      setSelectedClipId(null);
+      setSelectedKey(null);
+      setAssetDescriptors({});
+      setFlowState(createInitialFlowState());
+      setCurrentSceneRel(relPath);
+      log(`Scene Studio: switched to ${relPath}`, 'ok');
+    } catch (e) {
+      log(`Scene Studio: switch failed: ${e.message || e}`, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }, [rootHandle, replaceSceneNoHistory, log]);
+
+  // New empty scene WITHIN the current project (keeps the root + asset list).
+  const doNewSceneInProject = useCallback(() => {
+    replaceSceneNoHistory(createEmptyScene('Untitled scene'));
+    setSelectedLayerId(null);
+    setSelectedClipId(null);
+    setSelectedKey(null);
+    setAssetDescriptors({});
+    setFlowState(createInitialFlowState());
+    setCurrentSceneRel(null);
+    log('Scene Studio: new scene', 'info');
+  }, [replaceSceneNoHistory, log]);
+
+  // Requested a scene switch from the dropdown — prompt to save if dirty.
+  const handleSelectScene = useCallback((relPath) => {
+    if (relPath === currentSceneRel) return;
+    if (sceneRef.current.layers.length > 0) setSceneSwitchPending(relPath);
+    else doSwitchScene(relPath);
+  }, [currentSceneRel, doSwitchScene]);
+
+  const handleNewSceneRequest = useCallback(() => {
+    if (sceneRef.current.layers.length > 0) setSceneSwitchPending('__new__');
+    else doNewSceneInProject();
+  }, [doNewSceneInProject]);
+
+  // Resolve the pending switch (after the save/discard prompt).
+  const resolveSceneSwitch = useCallback(async (save) => {
+    const target = sceneSwitchPending;
+    setSceneSwitchPending(null);
+    if (!target) return;
+    if (save) { await handleSaveRef.current?.(); await rescanScenes(); }
+    if (target === '__new__') doNewSceneInProject();
+    else await doSwitchScene(target);
+  }, [sceneSwitchPending, doNewSceneInProject, doSwitchScene, rescanScenes]);
 
   const handlePickRoot = useCallback(async () => {
     setPickError(null);
@@ -1142,7 +1361,7 @@ export default function SceneStudioInner() {
                 const full = currentValue(name, ch);
                 const compVal = (full && typeof full === 'object') ? Number(full[comp] ?? 0) : 0;
                 const sub = ch.perComp?.[comp] || { keys: [] };
-                const nextSub = insertOrUpdateKey(sub, localT, compVal);
+                const nextSub = insertOrUpdateKey(sub, localT, compVal, { tm: defaultEaseRef.current });
                 ch = { ...ch, split: true, perComp: { ...(ch.perComp || {}), [comp]: nextSub } };
               } else if (ch?.split) {
                 // Whole-channel key on an already-split channel: key every comp.
@@ -1151,13 +1370,13 @@ export default function SceneStudioInner() {
                 const nextPerComp = { ...(ch.perComp || {}) };
                 for (const cc of comps) {
                   const sub = nextPerComp[cc] || { keys: [] };
-                  nextPerComp[cc] = insertOrUpdateKey(sub, localT, Number(full?.[cc] ?? 0));
+                  nextPerComp[cc] = insertOrUpdateKey(sub, localT, Number(full?.[cc] ?? 0), { tm: defaultEaseRef.current });
                 }
                 ch = { ...ch, perComp: nextPerComp };
               } else {
                 // Linked write.
                 const v = currentValue(name, ch);
-                ch = insertOrUpdateKey(ch || { keys: [] }, localT, v);
+                ch = insertOrUpdateKey(ch || { keys: [] }, localT, v, { tm: defaultEaseRef.current });
               }
               channels[name] = ch;
             }
@@ -1308,7 +1527,7 @@ export default function SceneStudioInner() {
           clips: tr.clips.map((c) => {
             if (c.id !== clipId) return c;
             const existing = c.channels?.[cb.name] || { keys: [] };
-            const nextCh = insertOrUpdateKey(existing, localT, cb.v, { out: cb.out });
+            const nextCh = insertOrUpdateKey(existing, localT, cb.v, { out: cb.out, tm: defaultEaseRef.current });
             return { ...c, channels: { ...(c.channels || {}), [cb.name]: nextCh } };
           })
         };
@@ -1450,6 +1669,7 @@ export default function SceneStudioInner() {
       setBusy(false);
     }
   }, [scene, rootHandle, log]);
+  handleSaveRef.current = handleSave;
 
   const handleLoad = useCallback(async () => {
     setBusy(true);
@@ -1616,6 +1836,32 @@ export default function SceneStudioInner() {
         </div>
       )}
 
+      {sceneSwitchPending && (
+        <div className="scene-confirm-overlay">
+          <div className="scene-confirm-card">
+            <div className="scene-confirm-title">
+              {sceneSwitchPending === '__new__' ? 'Nowa scena' : 'Zmiana sceny'}
+            </div>
+            <div className="scene-confirm-body">Zapisać obecną scenę przed przełączeniem?</div>
+            <div className="scene-confirm-actions">
+              <button
+                className="scene-btn scene-btn--primary"
+                onClick={() => resolveSceneSwitch(true)}
+                disabled={busy}
+              >
+                Zapisz i przełącz
+              </button>
+              <button className="scene-btn" onClick={() => resolveSceneSwitch(false)} disabled={busy}>
+                Odrzuć zmiany
+              </button>
+              <button className="scene-btn scene-btn--ghost" onClick={() => setSceneSwitchPending(null)} disabled={busy}>
+                Anuluj
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <StudioToolbar
         scene={scene}
         onRename={handleRename}
@@ -1626,7 +1872,15 @@ export default function SceneStudioInner() {
         onSave={handleSave}
         onLoad={handleLoad}
         onNewProject={handleNewProject}
+        scenes={availableScenes}
+        currentSceneRel={currentSceneRel}
+        onSelectScene={handleSelectScene}
+        onNewScene={handleNewSceneRequest}
         onToggleOrientation={handleToggleOrientation}
+        overlayMode={overlayMode}
+        onSetOverlayMode={setOverlayMode}
+        defaultEase={defaultEase}
+        onSetDefaultEase={setDefaultEase}
         livePreview={livePreview}
         onToggleLivePreview={() => setLivePreview((v) => !v)}
         busy={busy}
@@ -1682,8 +1936,10 @@ export default function SceneStudioInner() {
                 onAssetReady={handleAssetReady}
                 flowTime={flowState.time}
                 livePreview={livePreview}
+                overlayMode={overlayMode}
                 onViewportClick={() => handleFlowAction('clickResume')}
                 onSeekToKey={(t) => handleFlowAction('seek', t)}
+                onPathEdit={handlePathEdit}
               />
             </PixiErrorBoundary>
             {scene.layers.length === 0 && (
@@ -1732,6 +1988,9 @@ export default function SceneStudioInner() {
           onResetPortrait={handleResetPortrait}
           onPatchFlow={patchFlow}
           onFlowAction={handleFlowAction}
+          defaultTangentMode={defaultEase}
+          onSwapAsset={handleSwapLayerAsset}
+          onSwapAssetFromBrowserId={handleSwapLayerAssetFromBrowserId}
         />
       </div>
       {rootDropHover && (

@@ -9,6 +9,7 @@
 // only feature backed by IndexedDB and is deferred to a later phase.
 
 import { validateScene } from './sceneModel.js';
+import { bakePathToKeys, isPathChannel } from './animation/keyframes.js';
 
 const PRETTY_JSON_INDENT = 2;
 const SCENE_SCAN_MAX_DEPTH = 12;
@@ -55,9 +56,34 @@ export async function fileToDataUrl(file, mime) {
  * @param {FileSystemDirectoryHandle|null} rootHandle
  * @returns {Promise<{mode:'scaffold'|'download', path?:string}>}
  */
+/**
+ * Bake path-mode position channels down to plain x/y keys for the saved
+ * scene.json. The baked `keys` are written ALONGSIDE the `path` source: the
+ * game engine reads the plain `keys` (no arc-length math needed), while the
+ * toolkit re-opens the editable `path` (normalizeChannels prefers path mode
+ * and ignores the redundant keys on load).
+ */
+export function bakePathsForExport(scene) {
+  if (!scene?.flow?.tracks) return scene;
+  let changed = false;
+  const tracks = scene.flow.tracks.map((tr) => {
+    if (!tr.clips?.length) return tr;
+    const clips = tr.clips.map((c) => {
+      const pos = c.channels?.position;
+      if (!isPathChannel(pos)) return c;
+      const baked = bakePathToKeys(pos, c.duration, pos.path?.bakeFps || 30);
+      if (!baked?.keys?.length) return c;
+      changed = true;
+      return { ...c, channels: { ...c.channels, position: { ...pos, keys: baked.keys } } };
+    });
+    return { ...tr, clips };
+  });
+  return changed ? { ...scene, flow: { ...scene.flow, tracks } } : scene;
+}
+
 export async function saveScene(scene, rootHandle) {
   const rel = normalizeRelPath(scene?.projectRoot || '');
-  const sceneForSave = { ...scene, projectRoot: rel || null };
+  const sceneForSave = { ...bakePathsForExport(scene), projectRoot: rel || null };
   const text = JSON.stringify(sceneForSave, null, PRETTY_JSON_INDENT);
   // Writable scaffold-mode save needs both a real (writable) handle AND a
   // browser that supports the FS Access API. Virtual handles from the
@@ -154,6 +180,75 @@ export async function loadSceneFromHandle(rootHandle) {
   // so selecting parent folders (e.g. Art) and child folders (_Game) can
   // load the same scene + assets.
   scene.projectRoot = picked.dirPath || null;
+  return scene;
+}
+
+/**
+ * Scan a project root for ALL scene files: every `*.json` that parses and
+ * looks like a YGG scene. Returns `[{ relPath, dirPath, name, file }]` sorted
+ * by path. Used to populate the scene-switch dropdown.
+ */
+export async function scanProjectScenes(rootHandle, opts = {}) {
+  if (!rootHandle) return [];
+  const out = [];
+  await collectJsonScenes(rootHandle, '', 0, out, opts);
+  out.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return out;
+}
+
+async function collectJsonScenes(dirHandle, relDir, depth, out, opts) {
+  if (!dirHandle || depth > SCENE_SCAN_MAX_DEPTH) return;
+  if (opts.signal?.aborted) return;
+  let iter;
+  try { iter = dirHandle.entries(); } catch { return; }
+  try {
+    for await (const [name, h] of iter) {
+      if (opts.signal?.aborted) return;
+      if (name.startsWith('.')) continue;
+      if (h.kind === 'file') {
+        if (!name.toLowerCase().endsWith('.json')) continue;
+        try {
+          const file = await h.getFile();
+          const parsed = JSON.parse(await file.text());
+          const looksScene = parsed && typeof parsed === 'object' && (
+            (typeof parsed.$schema === 'string' && parsed.$schema.startsWith('ygg-scene/'))
+            || (parsed.stage && typeof parsed.stage === 'object' && Array.isArray(parsed.layers))
+          );
+          if (!looksScene) continue;
+          const scene = validateScene(parsed); // throws on bad schema
+          const fileRel = relDir ? `${relDir}/${name}` : name;
+          out.push({
+            relPath: normalizeRelPath(fileRel),
+            dirPath: normalizeRelPath(relDir),
+            name: scene.name || name.replace(/\.json$/i, ''),
+            file: name
+          });
+        } catch { /* not a scene / unreadable — skip */ }
+        continue;
+      }
+      if (h.kind === 'directory') {
+        if (SCENE_SCAN_SKIP_DIRS.has(name)) continue;
+        const child = relDir ? `${relDir}/${name}` : name;
+        await collectJsonScenes(h, child, depth + 1, out, opts);
+      }
+    }
+  } catch { /* ignore transient read failures */ }
+}
+
+/**
+ * Load a specific scene by its relative path from the project root. Anchors
+ * `scene.projectRoot` to the file's directory so assets resolve correctly.
+ */
+export async function loadSceneByRelPath(rootHandle, relPath) {
+  if (!rootHandle || !relPath) return null;
+  const parts = splitRelPath(relPath);
+  const fileName = parts.pop();
+  let dir = rootHandle;
+  for (const seg of parts) dir = await dir.getDirectoryHandle(seg);
+  const fh = await dir.getFileHandle(fileName);
+  const f = await fh.getFile();
+  const scene = validateScene(JSON.parse(await f.text()));
+  scene.projectRoot = normalizeRelPath(parts.join('/')) || null;
   return scene;
 }
 

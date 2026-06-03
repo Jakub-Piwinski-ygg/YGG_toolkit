@@ -1,6 +1,6 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0react-app"
 
 if not exist node_modules (
   echo Installing dependencies. This only happens once...

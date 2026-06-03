@@ -24,7 +24,8 @@
       "Bash(xargs grep -l \"folder\\\\|dir\\\\|tree\")",
       "Bash(git commit -m ' *)",
       "Bash(xargs wc -l)",
-      "Bash(cd /c/Users/jakub.pi/YGG_toolkit/react-app && wc -l SCENE_STUDIO.md src/tools/SceneStudio/SceneStudioInner.jsx src/tools/SceneStudio/components/*.jsx src/tools/SceneStudio/engine/*.js src/tools/SceneStudio/engine/animation/*.js 2>/dev/null | sort -n)"
+      "Bash(cd /c/Users/jakub.pi/YGG_toolkit/react-app && wc -l SCENE_STUDIO.md src/tools/SceneStudio/SceneStudioInner.jsx src/tools/SceneStudio/components/*.jsx src/tools/SceneStudio/engine/*.js src/tools/SceneStudio/engine/animation/*.js 2>/dev/null | sort -n)",
+      "Bash(cd /C/Users/jakub.pi/YGG_toolkit && find . -name \"*.jsx\" -o -name \"*.js\" | grep -i \"PixiViewport\\\\|StudioToolbar\" | head -5)"
     ]
   }
 }

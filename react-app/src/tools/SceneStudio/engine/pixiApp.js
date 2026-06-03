@@ -17,7 +17,8 @@ import { resolveTransform } from './orientationManager.js';
 import { resolveAssetUrl } from './persist.js';
 import { buildLayerTree, tracksForLayer } from './sceneModel.js';
 import { clipAt, lastClipAt, remapClipTime } from './flowInterpreter.js';
-import { CHANNEL_DEFS, CHANNEL_NAMES, clipLocalSeconds, evalChannel } from './animation/keyframes.js';
+import { CHANNEL_DEFS, CHANNEL_NAMES, clipLocalSeconds, evalChannel, isPathChannel } from './animation/keyframes.js';
+import { resolvePointHandles } from './animation/pathSpline.js';
 import { buildSpineFromUrls, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
 
 async function loadTextureFromUrl(url) {
@@ -123,10 +124,16 @@ function clearContainer(c) {
  * The stroke width is divided by `viewportScale` so the outline stays
  * visually constant regardless of zoom level.
  */
-export function drawStageFrame(frame, stageW, stageH, viewportScale = 1) {
+/**
+ * @param {'behind'|'above'} overlayMode  When 'above', skip the dark fill so
+ *   the interior is transparent (the frame floats on top of content).
+ */
+export function drawStageFrame(frame, stageW, stageH, viewportScale = 1, overlayMode = 'behind') {
   frame.clear();
-  // Stage background — slightly darker than the surrounding checker
-  frame.rect(0, 0, stageW, stageH).fill({ color: 0x0d0e11, alpha: 0.85 });
+  if (overlayMode !== 'above') {
+    // Stage background — slightly darker than the surrounding checker
+    frame.rect(0, 0, stageW, stageH).fill({ color: 0x0d0e11, alpha: 0.85 });
+  }
   // Outer border — 2px constant on screen
   frame.rect(0, 0, stageW, stageH).stroke({ color: 0x4f9eff, width: 2 / viewportScale, alpha: 0.95 });
   // Center crosshair
@@ -134,6 +141,28 @@ export function drawStageFrame(frame, stageW, stageH, viewportScale = 1) {
   const r = 20 / viewportScale;
   frame.moveTo(cx - r, cy).lineTo(cx + r, cy).stroke({ color: 0x4f9eff, width: 1 / viewportScale, alpha: 0.45 });
   frame.moveTo(cx, cy - r).lineTo(cx, cy + r).stroke({ color: 0x4f9eff, width: 1 / viewportScale, alpha: 0.45 });
+}
+
+/**
+ * Reorder the stageFrame within the viewport container so it renders either
+ * behind content ('behind') or in front of it ('above').  The selectionOverlay
+ * always stays topmost — we only swap stageFrame relative to content.
+ */
+export function setStageFrameZOrder(viewport, stageFrame, content, overlayMode) {
+  if (!viewport || !stageFrame || !content) return;
+  const children = viewport.children;
+  const frameIdx = children.indexOf(stageFrame);
+  const contentIdx = children.indexOf(content);
+  if (frameIdx === -1 || contentIdx === -1) return;
+  if (overlayMode === 'above' && frameIdx < contentIdx) {
+    viewport.removeChild(stageFrame);
+    // content index shifts down by 1 after removal; insert right after it
+    viewport.addChildAt(stageFrame, children.indexOf(content) + 1);
+  } else if (overlayMode !== 'above' && frameIdx > contentIdx) {
+    viewport.removeChild(stageFrame);
+    // Insert before content
+    viewport.addChildAt(stageFrame, children.indexOf(content));
+  }
 }
 
 /**
@@ -439,30 +468,42 @@ function channelKeyTimes(ch) {
   return (ch.keys || []).map((k) => k.t);
 }
 
-function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
+function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null, obj = null, contentRoot = null) {
   const posCh = clip?.channels?.position;
-  if (!posCh) return { drawn: false, keyDots: [] };
-  // Position is animated when it has ≥2 linked keys OR any split sub-list
-  // pushes the union of key times to ≥2 distinct moments.
-  const keyTimes = channelKeyTimes(posCh);
-  if (keyTimes.length < 2) return { drawn: false, keyDots: [] };
+  if (!posCh) return { drawn: false, keyDots: [], pathHandles: [] };
+  // Path mode draws unconditionally (it's a spatial spline, not key-timed).
+  // Otherwise position is animated when it has ≥2 linked keys OR any split
+  // sub-list pushes the union of key times to ≥2 distinct moments.
+  const pathMode = isPathChannel(posCh);
+  const keyTimes = pathMode ? [] : channelKeyTimes(posCh);
+  if (!pathMode && keyTimes.length < 2) return { drawn: false, keyDots: [], pathHandles: [] };
   const scaleCh = clip.channels.scale;
   const alphaCh = clip.channels.alpha;
   const tintCh = clip.channels.tint;
+
+  // Position channel values are in obj's parent-local space (= content space
+  // for top-level layers). For nested layers the parent may have its own
+  // scale/rotation, so we transform each sample through the parent chain to
+  // get content/world-space coordinates that line up with the sprite on screen.
+  const hasParent = obj?.parent && contentRoot && obj.parent !== contentRoot;
+  const toWorld = hasParent
+    ? (p) => localToContent(obj.parent, p.x, p.y, contentRoot)
+    : (p) => p;
 
   const duration = Math.max(0.001, Number(clip.duration) || 1);
   // ~80 samples — enough for smooth visualisation, cheap to draw.
   const samples = Math.max(40, Math.min(160, Math.round(duration * 80)));
   const baseStrokeBase = 2 / viewportScale;
 
-  // Collect sample positions for the direction-arrow pass below.
+  // Collect sample positions (world-space) for the direction-arrow pass below.
   const posSamples = [];
   let prev = null;
   for (let i = 0; i <= samples; i++) {
     const t = (i / samples) * duration;
     const pos = evalChannel(posCh, t, 'position');
     if (!pos) { posSamples.push(null); continue; }
-    posSamples.push(pos);
+    const wp = toWorld(pos);
+    posSamples.push(wp);
     const alpha = alphaCh ? Math.max(0.1, Math.min(1, evalChannel(alphaCh, t, 'alpha'))) : 0.85;
     const tint = tintCh ? evalChannel(tintCh, t, 'tint') : (baseT?.tint || { r: 1, g: 0.82, b: 0.4 });
     const scaleV = scaleCh ? evalChannel(scaleCh, t, 'scale') : { x: 1, y: 1 };
@@ -477,10 +518,10 @@ function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
     if (prev) {
       overlay
         .moveTo(prev.x, prev.y)
-        .lineTo(pos.x, pos.y)
+        .lineTo(wp.x, wp.y)
         .stroke({ color, width, alpha });
     }
-    prev = pos;
+    prev = wp;
   }
 
   // Direction arrows — small filled triangles every ~12% of samples.
@@ -507,30 +548,63 @@ function drawMotionPath(overlay, clip, viewportScale = 1, baseT = null) {
       .fill({ color: 0xffffff, alpha: 0.7 });
   }
 
+  // Path mode: draw control-point dials + tangent handles and return their
+  // world positions so the viewport controller can hit-test + drag them.
+  if (pathMode) {
+    const points = posCh.path.points || [];
+    const H = resolvePointHandles(points);
+    const pathHandles = [];
+    const dotR = 6 / viewportScale;
+    const hR = 4.5 / viewportScale;
+    const lineW = 1.5 / viewportScale;
+    for (let i = 0; i < points.length; i++) {
+      const wp = toWorld(points[i]);
+      const wo = toWorld({ x: H[i].outX, y: H[i].outY });
+      const wi = toWorld({ x: H[i].inX, y: H[i].inY });
+      overlay
+        .moveTo(wi.x, wi.y).lineTo(wp.x, wp.y).lineTo(wo.x, wo.y)
+        .stroke({ color: 0x4f9eff, width: lineW, alpha: 0.55 });
+      overlay.circle(wi.x, wi.y, hR).fill({ color: 0x4f9eff, alpha: 0.9 });
+      overlay.circle(wo.x, wo.y, hR).fill({ color: 0x4f9eff, alpha: 0.9 });
+      pathHandles.push({ kind: 'in', index: i, x: wi.x, y: wi.y });
+      pathHandles.push({ kind: 'out', index: i, x: wo.x, y: wo.y });
+      overlay
+        .circle(wp.x, wp.y, dotR)
+        .fill({ color: 0xffd166, alpha: 0.95 })
+        .stroke({ color: 0x1a1d24, width: lineW, alpha: 1 });
+      pathHandles.push({ kind: 'point', index: i, x: wp.x, y: wp.y });
+    }
+    return { drawn: true, keyDots: [], pathHandles };
+  }
+
   // Dots at each keyframe time — also returned for viewport hit-testing.
   const dotR = 5 / viewportScale;
   const keyDots = [];
   for (const t of keyTimes) {
     const p = evalChannel(posCh, t, 'position');
     if (!p) continue;
+    const wp = toWorld(p);
     overlay
-      .circle(p.x, p.y, dotR)
+      .circle(wp.x, wp.y, dotR)
       .fill({ color: 0xffffff, alpha: 0.95 })
       .stroke({ color: 0x1a1d24, width: 1.5 / viewportScale, alpha: 1 });
-    keyDots.push({ t, x: p.x, y: p.y, absT: (clip.start || 0) + t });
+    keyDots.push({ t, x: wp.x, y: wp.y, absT: (clip.start || 0) + t });
   }
-  return { drawn: true, keyDots };
+  return { drawn: true, keyDots, pathHandles: [] };
 }
 
 /** Draw selection rectangle + 8 resize handles in world space.
- *  Returns an array of motion-path key dot world positions so the
- *  viewport controller can hit-test them for click-to-seek. */
+ *  Returns `{ keyDots, pathHandles }` in world space so the viewport
+ *  controller can hit-test motion-path key dots (click-to-seek) and
+ *  path-mode control dials (drag-to-edit). */
 export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = null, guides = null, selectedClip = null, baseT = null) {
   overlay.clear();
   let keyDots = [];
+  let pathHandles = [];
   if (selectedClip) {
-    const mp = drawMotionPath(overlay, selectedClip, viewportScale, baseT);
+    const mp = drawMotionPath(overlay, selectedClip, viewportScale, baseT, obj, contentRoot);
     keyDots = mp.keyDots || [];
+    pathHandles = mp.pathHandles || [];
   }
   if (Array.isArray(guides) && guides.length) {
     const gw = 1 / viewportScale;
@@ -539,7 +613,7 @@ export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = nul
     }
   }
   const handles = getHandlePositions(obj, contentRoot);
-  if (!handles) return keyDots;
+  if (!handles) return { keyDots, pathHandles };
   const strokeW = 2 / viewportScale;
   const [nw, ne, se, sw] = handles.corners;
   overlay
@@ -556,7 +630,7 @@ export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = nul
     overlay.rect(p.x - m / 2, p.y - m / 2, m, m).fill({ color: 0xffd166, alpha: 1 });
     overlay.rect(p.x - m / 2, p.y - m / 2, m, m).stroke({ color: 0x1a1d24, width: 1 / viewportScale, alpha: 1 });
   }
-  return keyDots;
+  return { keyDots, pathHandles };
 }
 
 /** Resize the renderer canvas to match its DOM container. */
@@ -857,10 +931,11 @@ function applyPngChannels(obj, layer, tracks, t, orientation, opts = {}) {
       const ch = clip.channels[name];
       if (!ch) continue;
       // A channel is "live" when it has linked keys OR any split sub-list
-      // has keys. Skip empty channels so they don't override base pose.
+      // has keys OR it's a path-mode position. Skip empty channels so they
+      // don't override base pose.
       const hasLinked = ch.keys?.length;
       const hasSplit = ch.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length);
-      if (!hasLinked && !hasSplit) continue;
+      if (!hasLinked && !hasSplit && !isPathChannel(ch)) continue;
       const val = evalChannel(ch, localT, name);
       if (val == null) continue;
       CHANNEL_DEFS[name]?.apply?.(obj, val);

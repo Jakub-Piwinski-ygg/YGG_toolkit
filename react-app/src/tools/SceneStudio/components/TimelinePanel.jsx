@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CURVE_PRESETS, TWEEN_PROPS, uid } from '../engine/sceneModel.js';
-import { channelKeyDots } from '../engine/animation/keyframes.js';
+import { channelKeyDots, CHANNEL_NAMES, evalChannel, isPathChannel, maxChannelKeyTime } from '../engine/animation/keyframes.js';
 
 const LABEL_COL_W = 140;
 const DEFAULT_PX_PER_SEC = 120;
@@ -351,18 +351,45 @@ export function TimelinePanel({
     onSelectLayer?.(layerId);
   };
 
-  const addClipToTrack = (trackId, slot) => {
+  const addClipToTrack = (trackId, slot, extraChannels = null) => {
     const track = tracks.find((t) => t.id === trackId);
     if (!track) return;
     const wantedDuration = defaultClipDurationForLayer(track.layerId);
     const resolved = findFreeSlot(track, slot.start, wantedDuration) || slot;
     const clip = { ...defaultClipForLayer(track.layerId, resolved) };
+    if (extraChannels && Object.keys(extraChannels).length) clip.channels = extraChannels;
     const nextTracks = tracks.map((t) =>
       t.id === trackId
         ? { ...t, clips: [...t.clips, clip].sort((a, b) => a.start - b.start) }
         : t
     );
     setFlow({ ...(scene.flow || {}), tracks: nextTracks });
+  };
+
+  /**
+   * Build static (single-key) channels capturing the bordering state of a
+   * clip, so an adjacent clip "holds" that pose. Left side = the clip's START
+   * value (so the object waits at point A before the clip); right side = the
+   * clip's END value (waits at point B after). Covers every animated channel
+   * (position incl. path mode, scale, rotation, alpha, tint).
+   */
+  const seedChannelsFromClipEdge = (clip, side) => {
+    const src = clip?.channels;
+    if (!src) return null;
+    const localT = side === 'left' ? 0 : Math.max(0, Number(clip.duration) || 0);
+    const out = {};
+    for (const name of CHANNEL_NAMES) {
+      const ch = src[name];
+      if (!ch) continue;
+      const animated = ch.keys?.length
+        || (ch.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length))
+        || isPathChannel(ch);
+      if (!animated) continue;
+      const v = evalChannel(ch, localT, name);
+      if (v == null) continue;
+      out[name] = { keys: [{ t: 0, v, out: 'linear' }] };
+    }
+    return Object.keys(out).length ? out : null;
   };
 
   /** Add an empty track to a layer. Used by the "+" button on label cells. */
@@ -387,6 +414,18 @@ export function TimelinePanel({
           const nc = { ...c, ...patch };
           nc.start = clampFinite(nc.start, 0, duration, c.start);
           nc.duration = clampFinite(nc.duration, 0.05, 300, c.duration);
+          // Keyframe-bounds guard: a clip can't be shrunk past its furthest
+          // key. For a left-edge resize (start + duration both change, right
+          // edge fixed) we re-derive start so the right edge stays put.
+          const maxKeyT = maxChannelKeyTime(c.channels);
+          if (maxKeyT > 0 && nc.duration < maxKeyT) {
+            const rightEdgePreserved =
+              Object.prototype.hasOwnProperty.call(patch, 'start') &&
+              Object.prototype.hasOwnProperty.call(patch, 'duration') &&
+              Math.abs((c.start + c.duration) - (patch.start + patch.duration)) < 1e-3;
+            nc.duration = maxKeyT;
+            if (rightEdgePreserved) nc.start = Math.max(0, (c.start + c.duration) - nc.duration);
+          }
           nc.loop = !!nc.loop;
           if (Object.prototype.hasOwnProperty.call(patch, 'duration')) nc.autoFitDuration = false;
           nc.speed = clampFinite(Number(nc.speed), 0.01, 100, c.speed ?? 1);
@@ -444,18 +483,19 @@ export function TimelinePanel({
     const leftBound = idx > 0 ? siblings[idx - 1].start + siblings[idx - 1].duration : 0;
     const rightBound = idx < siblings.length - 1 ? siblings[idx + 1].start : duration;
     const wantedDuration = defaultClipDurationForLayer(track.layerId);
+    const seeded = seedChannelsFromClipEdge(clip, side);
     if (side === 'left') {
       const gap = clip.start - leftBound;
       if (gap < ADJACENT_ADD_MIN_GAP) return;
       const d = Math.min(wantedDuration, gap);
-      addClipToTrack(track.id, { start: clip.start - d, duration: d });
+      addClipToTrack(track.id, { start: clip.start - d, duration: d }, seeded);
       return;
     }
     const clipEnd = clip.start + clip.duration;
     const gap = rightBound - clipEnd;
     if (gap < ADJACENT_ADD_MIN_GAP) return;
     const d = Math.min(wantedDuration, gap);
-    addClipToTrack(track.id, { start: clipEnd, duration: d });
+    addClipToTrack(track.id, { start: clipEnd, duration: d }, seeded);
   };
 
   /**
@@ -580,27 +620,10 @@ export function TimelinePanel({
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   }, []);
 
-  // ── Keyboard: Delete / Backspace on the selected clip ─────────────
-  //
-  // We listen at window level but only act when the active element is
-  // NOT a text input (else the user can never type into the marker /
-  // start / duration fields). Selection must be present.
-  useEffect(() => {
-    if (!selectedClipId) return undefined;
-    const onKey = (e) => {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      const tag = (document.activeElement?.tagName || '').toUpperCase();
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      // Find and remove the selected clip across all tracks.
-      const containing = tracks.find((tr) => tr.clips.some((c) => c.id === selectedClipId));
-      if (!containing) return;
-      e.preventDefault();
-      removeClip(containing.id, selectedClipId);
-      onSelectClip?.(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedClipId, tracks, onSelectClip]);
+  // Note: Delete / Backspace no longer removes the selected CLIP — that was
+  // too destructive and collided with keyframe deletion. Clips are removed
+  // only via the explicit ✕ button on the clip. Delete now only targets the
+  // selected keyframe (handled in SceneStudioInner / the progress editor).
 
   useEffect(() => {
     const onEnd = () => clearDragPreview();

@@ -496,6 +496,30 @@ function normalizeKeyCurve(out, fallbackOut = 'linear') {
  * Normalize one keyframe-channel key. `layout` is `'vec2'` or `'scalar'`.
  * Returns null when t or v can't be parsed.
  */
+const TANGENT_MODES = ['auto', 'flat', 'linear', 'free', 'broken'];
+
+/** Validate a tangent slope to the channel layout's value shape, or null. */
+function normalizeTangentSlope(s, layout) {
+  if (s == null) return null;
+  if (layout === 'vec2') {
+    if (!s || typeof s !== 'object') return null;
+    const x = Number(s.x);
+    const y = Number(s.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return { x, y };
+  }
+  if (layout === 'rgb') {
+    if (!s || typeof s !== 'object') return null;
+    const r = Number(s.r);
+    const g = Number(s.g);
+    const b = Number(s.b);
+    if (!Number.isFinite(r) || !Number.isFinite(g) || !Number.isFinite(b)) return null;
+    return { r, g, b };
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : null;
+}
+
 function normalizeChannelKey(k, layout = 'scalar', fallbackOut = 'linear') {
   if (!k || typeof k !== 'object') return null;
   const t = Number(k.t);
@@ -519,7 +543,22 @@ function normalizeChannelKey(k, layout = 'scalar', fallbackOut = 'linear') {
     if (!Number.isFinite(num)) return null;
     v = num;
   }
-  return { t: Math.max(0, t), v, out: normalizeKeyCurve(k.out, fallbackOut) };
+  const out = { t: Math.max(0, t), v, out: normalizeKeyCurve(k.out, fallbackOut) };
+  // Per-key tangents (P4) — preserved alongside legacy `out` for backward
+  // compat. Only kept when the mode is recognised. 'free'/'broken' carry
+  // explicit slopes; 'auto'/'flat'/'linear' compute them on the fly.
+  if (typeof k.tm === 'string' && TANGENT_MODES.includes(k.tm)) {
+    out.tm = k.tm;
+    if (k.tm === 'free' || k.tm === 'broken') {
+      const to = normalizeTangentSlope(k.to, layout);
+      if (to != null) out.to = to;
+      if (k.tm === 'broken') {
+        const ti = normalizeTangentSlope(k.ti, layout);
+        if (ti != null) out.ti = ti;
+      }
+    }
+  }
+  return out;
 }
 
 /** Normalize a scalar key list — sorted, deduped on near-identical `t`. */
@@ -582,6 +621,51 @@ export function normalizeChannel(ch, layout = 'scalar') {
   return { keys: deduped };
 }
 
+const PATH_POINT_MODES = ['auto', 'linear', 'broken', 'free'];
+
+/** Normalize one spatial path control point. */
+function normalizePathPoint(p) {
+  if (!p || typeof p !== 'object') return null;
+  const x = Number(p.x);
+  const y = Number(p.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const tm = typeof p.tm === 'string' && PATH_POINT_MODES.includes(p.tm) ? p.tm : 'auto';
+  const out = { x, y, tm };
+  if (tm === 'broken' || tm === 'free') {
+    const to = normalizeTangentSlope(p.to, 'vec2');
+    if (to) out.to = to;
+    if (tm === 'broken') {
+      const ti = normalizeTangentSlope(p.ti, 'vec2');
+      if (ti) out.ti = ti;
+    }
+  }
+  return out;
+}
+
+/**
+ * Normalize a path-mode position channel (P5):
+ *   { mode:'path', path:{ points:[{x,y,tm,ti,to}], progress:{keys}, bakeFps } }
+ * Returns null when fewer than 2 valid points (not a usable path).
+ */
+function normalizePathChannel(ch) {
+  if (!ch || ch.mode !== 'path' || !ch.path || typeof ch.path !== 'object') return null;
+  const points = (Array.isArray(ch.path.points) ? ch.path.points : [])
+    .map(normalizePathPoint)
+    .filter(Boolean);
+  if (points.length < 2) return null;
+  let progress = normalizeChannel(ch.path.progress, 'scalar');
+  if (progress?.keys?.length) {
+    progress = { keys: progress.keys.map((k) => ({ ...k, v: Math.max(0, Math.min(1, k.v)) })) };
+  } else {
+    progress = { keys: [{ t: 0, v: 0, out: 'linear' }, { t: 1, v: 1, out: 'linear' }] };
+  }
+  const fps = Number(ch.path.bakeFps);
+  return {
+    mode: 'path',
+    path: { points, progress, bakeFps: Number.isFinite(fps) && fps > 0 ? fps : 30 }
+  };
+}
+
 /**
  * Normalize the per-clip `channels` map. Accepts both the new vec2 shape
  * (channels.position / channels.scale / channels.rotation) and the legacy
@@ -592,8 +676,17 @@ export function normalizeChannels(channels) {
   if (!channels || typeof channels !== 'object') return null;
   const out = {};
 
-  // New vec2 shape: pass through with layout-aware key validation.
+  // Path-mode position (P5) takes precedence over key-based / legacy shapes.
+  if (channels.position?.mode === 'path') {
+    const pth = normalizePathChannel(channels.position);
+    if (pth) out.position = pth;
+  }
+
+  // New vec2 shape: pass through with layout-aware key validation. Skip a
+  // channel already claimed above (path-mode position carries redundant baked
+  // `keys` for the engine that must NOT override its path source on reload).
   for (const name of Object.keys(CHANNEL_LAYOUTS)) {
+    if (out[name]) continue;
     const norm = normalizeChannel(channels[name], CHANNEL_LAYOUTS[name]);
     if (norm) out[name] = norm;
   }

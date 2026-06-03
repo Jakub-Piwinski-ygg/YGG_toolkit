@@ -10,11 +10,12 @@ import {
   rebuildScene,
   resizeRenderer,
   sceneStructuralHash,
+  setStageFrameZOrder,
   syncTransforms
 } from '../engine/pixiApp.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 
-export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onViewportClick, onSeekToKey, flowTime = 0, livePreview = true }, ref) {
+export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind' }, ref) {
   const hostRef = useRef(null);
   const appRef = useRef(null);
   const viewportRef = useRef(null);
@@ -47,7 +48,12 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   selectedClipRef.current = selectedClip;
   const onSeekToKeyRef = useRef(onSeekToKey);
   onSeekToKeyRef.current = onSeekToKey;
+  const onPathEditRef = useRef(onPathEdit);
+  onPathEditRef.current = onPathEdit;
+  const overlayModeRef = useRef(overlayMode);
+  overlayModeRef.current = overlayMode;
   const motionKeyDotsRef = useRef([]);
+  const pathHandlesRef = useRef([]);
 
   const requestRender = () => {
     const app = appRef.current;
@@ -69,11 +75,13 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
             ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
             : selLayer.transforms?.landscape)
         : null;
-      motionKeyDotsRef.current = drawSelection(sel, handlesRef.current.get(selLayerId), vScale, content, interactionGuidesRef.current, selClip, baseT) || [];
+      const selResult = drawSelection(sel, handlesRef.current.get(selLayerId), vScale, content, interactionGuidesRef.current, selClip, baseT) || {};
+      motionKeyDotsRef.current = selResult.keyDots || [];
+      pathHandlesRef.current = selResult.pathHandles || [];
     }
     if (frame) {
       const stage = s.stage.orientations[s.stage.activeOrientation];
-      drawStageFrame(frame, stage.w, stage.h, vScale);
+      drawStageFrame(frame, stage.w, stage.h, vScale, overlayModeRef.current);
     }
     if (app?.renderer) app.render();
   };
@@ -99,7 +107,7 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         // Initial fit + stage frame at the resulting zoom
         const stage = sceneRef.current.stage.orientations[sceneRef.current.stage.activeOrientation];
         fitViewportToStage(built.viewport, initialSize.w, initialSize.h, stage.w, stage.h);
-        drawStageFrame(built.stageFrame, stage.w, stage.h, built.viewport.scale.x);
+        drawStageFrame(built.stageFrame, stage.w, stage.h, built.viewport.scale.x, overlayModeRef.current);
         fittedOnceRef.current = true;
         built.app.render();
 
@@ -120,7 +128,9 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
           setInteractionGuides: (guides) => { interactionGuidesRef.current = guides || []; },
           requestRender,
           getMotionKeyDots: () => motionKeyDotsRef.current,
-          onSeekToKey: (t) => onSeekToKeyRef.current?.(t)
+          onSeekToKey: (t) => onSeekToKeyRef.current?.(t),
+          getPathHandles: () => pathHandlesRef.current,
+          onPathEdit: (edit) => onPathEditRef.current?.(edit)
         });
         // Reference is already passed above; keep this stub so HMR replacements
         // re-attach cleanly when the controller file changes.
@@ -266,7 +276,7 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
             ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
             : selLayer.transforms?.landscape)
         : null;
-      motionKeyDotsRef.current = drawSelection(
+      const selResult = drawSelection(
         selectionOverlayRef.current,
         handlesRef.current.get(selectedLayerId),
         viewportRef.current?.scale?.x ?? 1,
@@ -274,10 +284,18 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         interactionGuidesRef.current,
         selClip,
         baseT
-      ) || [];
+      ) || {};
+      motionKeyDotsRef.current = selResult.keyDots || [];
+      pathHandlesRef.current = selResult.pathHandles || [];
       appRef.current?.render();
     }
   }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime]);
+
+  // Reorder stageFrame and redraw it when overlay mode changes.
+  useEffect(() => {
+    setStageFrameZOrder(viewportRef.current, stageFrameRef.current, contentRef.current, overlayMode);
+    requestRender();
+  }, [overlayMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
     screenToWorld(clientX, clientY) {

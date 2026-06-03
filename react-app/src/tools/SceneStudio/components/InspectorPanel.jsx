@@ -5,18 +5,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasPortraitOverride } from '../engine/orientationManager.js';
 import { CURVE_PRESETS } from '../engine/sceneModel.js';
 import {
+  bakePathToKeyCount,
   CHANNEL_DEFS,
   CHANNEL_NAMES,
   channelLayout,
+  clipLocalSeconds,
   evalChannel,
   insertOrUpdateKey,
+  isPathChannel,
+  maxChannelKeyTime,
   moveKeyTime,
   removeKey as removeChannelKey,
   setKeyComponent,
   setKeyOut,
   setKeyValue
 } from '../engine/animation/keyframes.js';
-import { ClipGraphEditor } from './ClipGraphEditor.jsx';
+import { ChannelSubplot, ClipGraphEditor } from './ClipGraphEditor.jsx';
 import { CurveEditor, CurveThumbnail } from './CurveEditor.jsx';
 import { DragNumberField } from './DragNumberField.jsx';
 
@@ -50,6 +54,13 @@ const PROP_TO_CHANNEL = {
   tint: 'tint'
 };
 
+/** Human label for an asset in the source-swap dropdown. */
+function assetLabel(a) {
+  const name = a?.meta?.originalName || String(a?.src || '').split(/[\\/]/).pop() || a?.id || '?';
+  const tag = a?.type === 'spine' ? '◆ ' : a?.type === 'video' ? '▶ ' : '';
+  return `${tag}${name}`;
+}
+
 function tintToHex(tint) {
   const r = Math.max(0, Math.min(255, Math.round((tint?.r ?? 1) * 255)));
   const g = Math.max(0, Math.min(255, Math.round((tint?.g ?? 1) * 255)));
@@ -77,7 +88,10 @@ export function InspectorPanel({
   onPatchTransform,
   onResetPortrait,
   onPatchFlow,
-  onFlowAction
+  onFlowAction,
+  defaultTangentMode = 'auto',
+  onSwapAsset,
+  onSwapAssetFromBrowserId
 }) {
   const layer = scene.layers.find((l) => l.id === selectedLayerId);
   const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
@@ -113,6 +127,36 @@ export function InspectorPanel({
   })();
   const recordingChannels = recordingClip?.channels || null;
 
+  // While recording, the transform fields show the LIVE evaluated value at
+  // the playhead (not the base pose) for any channel that's animated — so the
+  // field follows your edit instead of snapping back to base, and "what you
+  // set is the key". Channels not animated fall back to the base pose.
+  const liveLocalT = recordingClip ? clipLocalSeconds(recordingClip, flowTime, { clampPastEnd: true }) : 0;
+  const animValue = (name) => {
+    if (!recordingClip) return null;
+    const ch = recordingChannels?.[name];
+    if (!ch) return null;
+    const animated = ch.keys?.length
+      || (ch.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length))
+      || isPathChannel(ch);
+    if (!animated) return null;
+    return evalChannel(ch, liveLocalT, name);
+  };
+  const posLive = animValue('position');
+  const scaleLive = animValue('scale');
+  const rotLive = animValue('rotation');
+  const alphaLive = animValue('alpha');
+  const tintLive = animValue('tint');
+  const disp = {
+    x: posLive?.x ?? t.x,
+    y: posLive?.y ?? t.y,
+    scaleX: scaleLive?.x ?? (t.scaleX ?? 1),
+    scaleY: scaleLive?.y ?? (t.scaleY ?? 1),
+    rotation: typeof rotLive === 'number' ? rotLive : t.rotation,
+    alpha: typeof alphaLive === 'number' ? alphaLive : (typeof t.alpha === 'number' ? t.alpha : 1),
+    tint: tintLive || t.tint || { r: 1, g: 1, b: 1 }
+  };
+
   return (
     <div className="scene-panel scene-panel--right">
       <div className="scene-panel-head">inspector</div>
@@ -138,6 +182,33 @@ export function InspectorPanel({
         </select>
       </label>
 
+      <div
+        className="scene-field scene-source-field"
+        title="Swap the animated object's source. Pick an existing asset, or drag one from the Assets panel here. Keeps the animation; scale resets to 1:1."
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('application/x-ygg-asset-id')) {
+            e.preventDefault();
+            e.currentTarget.classList.add('drop-hover');
+          }
+        }}
+        onDragLeave={(e) => e.currentTarget.classList.remove('drop-hover')}
+        onDrop={(e) => {
+          e.currentTarget.classList.remove('drop-hover');
+          const id = e.dataTransfer.getData('application/x-ygg-asset-id');
+          if (id) { e.preventDefault(); onSwapAssetFromBrowserId?.(layer.id, id); }
+        }}
+      >
+        <span>source</span>
+        <select
+          value={layer.assetId}
+          onChange={(e) => onSwapAsset?.(layer.id, e.target.value)}
+        >
+          {scene.assets.map((a) => (
+            <option key={a.id} value={a.id}>{assetLabel(a)}</option>
+          ))}
+        </select>
+      </div>
+
       <div className="scene-field-group">
         <div className="scene-field-group-head">
           transform · {orientation}
@@ -152,35 +223,35 @@ export function InspectorPanel({
         </div>
 
         <TransformField
-          label="x" prop="x" value={t.x} step={1}
+          label="x" prop="x" value={disp.x} step={1}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
           onChange={(v) => onPatchTransform(layer.id, { x: v })}
         />
         <TransformField
-          label="y" prop="y" value={t.y} step={1}
+          label="y" prop="y" value={disp.y} step={1}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
           onChange={(v) => onPatchTransform(layer.id, { y: v })}
         />
         <TransformField
-          label="scale x" prop="scaleX" value={t.scaleX ?? 1} step={0.01} min={0.01}
+          label="scale x" prop="scaleX" value={disp.scaleX} step={0.01} min={0.01}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.scale}
           onChange={(v) => onPatchTransform(layer.id, { scaleX: v })}
         />
         <TransformField
-          label="scale y" prop="scaleY" value={t.scaleY ?? 1} step={0.01} min={0.01}
+          label="scale y" prop="scaleY" value={disp.scaleY} step={0.01} min={0.01}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.scale}
           onChange={(v) => onPatchTransform(layer.id, { scaleY: v })}
         />
         <TransformField
           label="rotation" prop="rotation"
-          value={(t.rotation * 180) / Math.PI} step={1} suffix="°"
+          value={(disp.rotation * 180) / Math.PI} step={1} suffix="°"
           recording={!!recordingClip} hasChannel={!!recordingChannels?.rotation}
           onChange={(v) => onPatchTransform(layer.id, { rotation: (v * Math.PI) / 180 })}
         />
 
         <TransformField
           label="alpha" prop="alpha"
-          value={typeof t.alpha === 'number' ? t.alpha : 1}
+          value={disp.alpha}
           step={0.01} min={0} max={1}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.alpha}
           onChange={(v) => onPatchTransform(layer.id, { alpha: Math.max(0, Math.min(1, v)) })}
@@ -188,7 +259,7 @@ export function InspectorPanel({
 
         <ColorField
           label="tint"
-          value={t.tint || { r: 1, g: 1, b: 1 }}
+          value={disp.tint}
           recording={!!recordingClip}
           hasChannel={!!recordingChannels?.tint}
           onChange={(rgb) => onPatchTransform(layer.id, { tint: rgb })}
@@ -230,6 +301,7 @@ export function InspectorPanel({
           descriptor={asset?.type === 'spine' ? assetDescriptors[asset.id] : null}
           onPatchFlow={onPatchFlow}
           onFlowAction={onFlowAction}
+          defaultTangentMode={defaultTangentMode}
         />
       )}
     </div>
@@ -369,13 +441,27 @@ function VideoSection({ layer, onPatchLayer }) {
  * All mutations go through `onPatchFlow(newFlow)` because clips live on
  * `scene.flow.tracks[].clips[]`.
  */
-function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction }) {
+function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction, defaultTangentMode = 'auto' }) {
   const patchClip = (patch) => {
     const nextTracks = (scene.flow?.tracks || []).map((tr) =>
       tr.id === track.id
         ? {
             ...tr,
-            clips: tr.clips.map((c) => (c.id === clip.id ? { ...c, ...patch } : c))
+            clips: tr.clips.map((c) => {
+              if (c.id !== clip.id) return c;
+              const nc = { ...c, ...patch };
+              // Don't let a duration/start edit shrink the clip past its keys.
+              const maxKeyT = maxChannelKeyTime(c.channels);
+              if (maxKeyT > 0 && Number(nc.duration) < maxKeyT) {
+                const rightEdgePreserved =
+                  Object.prototype.hasOwnProperty.call(patch, 'start') &&
+                  Object.prototype.hasOwnProperty.call(patch, 'duration') &&
+                  Math.abs((c.start + c.duration) - (patch.start + patch.duration)) < 1e-3;
+                nc.duration = maxKeyT;
+                if (rightEdgePreserved) nc.start = Math.max(0, (c.start + c.duration) - nc.duration);
+              }
+              return nc;
+            })
           }
         : tr
     );
@@ -408,7 +494,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
   // What to render in the clip header — gives users a fast hint at what
   // the clip does without opening the channels block.
   const animatedChannels = supportsChannels
-    ? CHANNEL_NAMES.filter((n) => clip.channels?.[n]?.keys?.length)
+    ? CHANNEL_NAMES.filter((n) => clip.channels?.[n]?.keys?.length || isPathChannel(clip.channels?.[n]))
     : [];
   const headerLabel = isSpine
     ? (clip.anim || '(setup pose)')
@@ -489,6 +575,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           selectedKey={selectedKey}
           onSelectKey={onSelectKey}
           onFlowAction={onFlowAction}
+          defaultTangentMode={defaultTangentMode}
         />
       )}
 
@@ -541,7 +628,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
  * - Auto-key writes (from viewport drags or transform-field edits)
  *   land here via SceneStudioInner's `onPatchTransform` decision logic.
  */
-function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: externalKey = null, onSelectKey: externalOnSelectKey = null, onFlowAction = null }) {
+function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: externalKey = null, onSelectKey: externalOnSelectKey = null, onFlowAction = null, defaultTangentMode = 'auto' }) {
   const channels = clip.channels || {};
   // A channel counts as "enabled" if it has linked keys OR any split
   // sub-list has keys. Split channels store `perComp.x.keys` etc., not
@@ -550,15 +637,20 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
     const ch = channels[n];
     if (ch?.keys?.length) return true;
     if (ch?.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length)) return true;
+    if (isPathChannel(ch)) return true;
     return false;
   })), [channels]);
 
   // Derive local key selection from external global state (filtered to this clip).
   // Falls back to local state when external is not provided (standalone use).
   const [localKey, setLocalKey] = useState(null);
+  // In controlled mode (the real app passes externalOnSelectKey) the global
+  // selection is the single source of truth — don't fall back to a stale
+  // localKey, or a key stays "selected" after the global one is cleared
+  // (e.g. right after a Delete), which then mis-targets the next Delete.
   const selectedKey = externalKey?.clipId === clip.id
     ? { name: externalKey.name, idx: externalKey.idx, comp: externalKey.comp ?? null }
-    : localKey;
+    : (externalOnSelectKey ? null : localKey);
 
   const setSelectedKey = (keyOrNull) => {
     setLocalKey(keyOrNull);
@@ -596,7 +688,8 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
     const linkedAlive = channel?.keys?.length;
     const splitAlive = channel?.split && channel.perComp
       && Object.values(channel.perComp).some((c) => c?.keys?.length);
-    if (linkedAlive || splitAlive) next[name] = channel;
+    const pathAlive = isPathChannel(channel);
+    if (linkedAlive || splitAlive || pathAlive) next[name] = channel;
     else delete next[name];
     writeChannels(next);
     if (selectedKey?.name === name) {
@@ -622,11 +715,12 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
       return;
     }
     const seed = seedValueForChannel(name);
-    const keys = [{ t: 0, v: seed, out: 'linear' }];
+    const tm = defaultTangentMode;
+    const keys = [{ t: 0, v: seed, out: 'linear', tm }];
     if (localT > 0.001 && localT < clip.duration - 0.001) {
-      keys.push({ t: localT, v: seed, out: 'linear' });
+      keys.push({ t: localT, v: seed, out: 'linear', tm });
     } else {
-      keys.push({ t: clip.duration, v: seed, out: 'linear' });
+      keys.push({ t: clip.duration, v: seed, out: 'linear', tm });
     }
     patchChannel(name, { keys });
   };
@@ -666,30 +760,145 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
   const addKeyAtPlayhead = (name) => {
     const ch = channels[name] || { keys: [] };
     const currentV = ch.keys.length ? evalChannel(ch, localT) : seedValueForChannel(name);
-    const next = insertOrUpdateKey(ch, localT, currentV, { out: 'linear' });
+    const next = insertOrUpdateKey(ch, localT, currentV, { out: 'linear', tm: defaultTangentMode });
     patchChannel(name, next);
   };
+
+  // ── Path mode (P5): position as an on-scene spline + progress(t) curve ──
+  const positionIsPath = isPathChannel(channels.position);
+
+  // Seed the spline from the current position keys (sampled) or, lacking any,
+  // a short horizontal segment around the base pose so there's something to drag.
+  const seedPathPoints = () => {
+    const pc = channels.position;
+    const pts = [];
+    if (pc) {
+      const times = [];
+      if (pc.keys?.length) {
+        for (const k of pc.keys) times.push(k.t);
+      } else if (pc.split && pc.perComp) {
+        const set = new Set();
+        for (const c of Object.values(pc.perComp)) for (const k of (c?.keys || [])) set.add(Number(k.t.toFixed(5)));
+        times.push(...[...set].sort((a, b) => a - b));
+      }
+      for (const t of times) {
+        const v = evalChannel(pc, t, 'position');
+        if (v) pts.push({ x: v.x, y: v.y, tm: 'auto' });
+      }
+    }
+    if (pts.length < 2) {
+      const bx = basePose?.x ?? 0;
+      const by = basePose?.y ?? 0;
+      return [{ x: bx - 150, y: by, tm: 'auto' }, { x: bx + 150, y: by, tm: 'auto' }];
+    }
+    return pts;
+  };
+
+  const togglePathMode = () => {
+    const pc = channels.position;
+    if (isPathChannel(pc)) {
+      // Let the artist choose the keyframe count = accuracy. Keys are smooth
+      // (auto tangents) so a small count still tracks the path nicely.
+      const def = String(Math.min(20, Math.max(3, Math.round((clip.duration || 1) * 4))));
+      const input = typeof window === 'undefined'
+        ? def
+        : window.prompt(
+          'Flatten path → x/y keyframes.\n'
+          + 'How many keyframes? (more = more accurate, fewer = simpler)\n'
+          + 'Keys are smooth, so even 3–4 follow the path.',
+          def
+        );
+      if (input === null) return; // cancelled
+      const count = Math.max(2, Math.min(400, Math.round(Number(input)) || Number(def)));
+      const baked = bakePathToKeyCount(pc, clip.duration, count);
+      if (selectedKey?.name === 'position') setSelectedKey(null);
+      patchChannel('position', baked.keys?.length ? baked : null);
+    } else {
+      const hadKeys = pc?.keys?.length || (pc?.split && pc.perComp);
+      const ok = typeof window === 'undefined' || window.confirm(
+        `Edit position as an on-scene path?\n\n`
+        + (hadKeys
+          ? `Your current x/y position keys become path control points. `
+          : `A starter path is created around the current pose. `)
+        + `You shape the trajectory with dials on the scene and a progress(t) curve.\n\n`
+        + `Note: switching back later bakes the path into many x/y keyframes.`
+      );
+      if (!ok) return;
+      const points = seedPathPoints();
+      const progress = { keys: [
+        { t: 0, v: 0, out: 'linear' },
+        { t: Math.max(0.05, clip.duration), v: 1, out: 'linear' }
+      ] };
+      patchChannel('position', { mode: 'path', path: { points, progress, bakeFps: 30 } });
+    }
+  };
+
+  const setProgressChannel = (nextProg) => {
+    const pc = channels.position;
+    if (!isPathChannel(pc)) return;
+    const keys = (nextProg.keys || []).map((k) => ({ ...k, v: Math.max(0, Math.min(1, k.v)) }));
+    patchChannel('position', { ...pc, path: { ...pc.path, progress: { keys } } });
+  };
+
+  const setBakeFps = (fps) => {
+    const pc = channels.position;
+    if (!isPathChannel(pc)) return;
+    const f = Math.max(1, Math.min(120, Math.round(Number(fps) || 30)));
+    patchChannel('position', { ...pc, path: { ...pc.path, bakeFps: f } });
+  };
+
+  // Channels shown in the normal graph/list views — path-mode position is
+  // edited via the path UI + on-scene dials instead, so exclude it here.
+  const nonPathEnabled = [...enabled].filter((n) => !(n === 'position' && positionIsPath));
 
   return (
     <div className="scene-channels-editor">
       <div className="scene-tween-chips">
         <span className="scene-field-group-sub">animate:</span>
-        {CHANNEL_NAMES.map((name) => (
-          <button
-            key={name}
-            type="button"
-            className={'scene-chip' + (enabled.has(name) ? ' on' : '')}
-            onClick={() => toggleChannel(name)}
-            title={enabled.has(name)
-              ? `Stop animating ${name} (deletes all of its keys)`
-              : `Animate ${name}. Once enabled, scrub the timeline + drag the sprite (or edit transform fields) and the keyframe records automatically.`}
-          >
-            {CHANNEL_LABEL[name] || name}
-          </button>
-        ))}
+        {CHANNEL_NAMES.map((name) => {
+          const isPosPath = name === 'position' && positionIsPath;
+          return (
+            <button
+              key={name}
+              type="button"
+              className={'scene-chip' + (enabled.has(name) ? ' on' : '') + (isPosPath ? ' scene-chip--path' : '')}
+              onClick={() => (isPosPath ? togglePathMode() : toggleChannel(name))}
+              title={isPosPath
+                ? 'Position is in path mode — click to flatten back to x/y keys'
+                : enabled.has(name)
+                  ? `Stop animating ${name} (deletes all of its keys)`
+                  : `Animate ${name}. Once enabled, scrub the timeline + drag the sprite (or edit transform fields) and the keyframe records automatically.`}
+            >
+              {isPosPath ? '◈ position (path)' : (CHANNEL_LABEL[name] || name)}
+            </button>
+          );
+        })}
       </div>
 
-      {!enabled.size && (
+      <button
+        type="button"
+        className={'scene-path-toggle-btn' + (positionIsPath ? ' on' : '')}
+        onClick={togglePathMode}
+        title={positionIsPath
+          ? 'Disable path mode — bake the spline + progress down to plain x/y position keys.'
+          : 'Edit position as an on-scene spline (dials on the canvas) driven by a progress(t) curve. Bakes to x/y on export.'}
+      >
+        {positionIsPath ? '◈ path mode — flatten to x/y' : '◈ edit position as path'}
+      </button>
+
+      {positionIsPath && (
+        <PathProgressEditor
+          pathChannel={channels.position}
+          clipDuration={clip.duration}
+          flowTime={flowTime}
+          clipStart={clip.start}
+          defaultTangentMode={defaultTangentMode}
+          onChangeProgress={setProgressChannel}
+          onChangeBakeFps={setBakeFps}
+        />
+      )}
+
+      {!nonPathEnabled.length && !positionIsPath && (
         <div className="scene-empty" style={{ padding: '8px 0', fontSize: 10 }}>
           enable a channel above. once enabled, scrub the timeline and
           drag the sprite (or edit transform fields) — keyframes record
@@ -697,7 +906,7 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
         </div>
       )}
 
-      {enabled.size > 0 && (
+      {nonPathEnabled.length > 0 && (
         <div className="scene-channels-viewtoggle">
           <button
             type="button"
@@ -718,7 +927,7 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
         </div>
       )}
 
-      {viewMode === 'graph' && enabled.size > 0 && (
+      {viewMode === 'graph' && nonPathEnabled.length > 0 && (
         <ClipGraphEditor
           clip={clip}
           flowTime={flowTime}
@@ -726,10 +935,11 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
           onSelectKey={setSelectedKey}
           onPatchChannel={patchChannel}
           curveRef={curveRef}
+          defaultTangentMode={defaultTangentMode}
         />
       )}
 
-      {viewMode === 'list' && [...enabled].map((name) => (
+      {viewMode === 'list' && nonPathEnabled.map((name) => (
         <ChannelBlock
           key={name}
           name={name}
@@ -745,6 +955,96 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
         />
       ))}
 
+    </div>
+  );
+}
+
+/**
+ * Path-mode editor: a progress(t) graph (reusing the channel subplot, so it
+ * gets draggable dots + tangent handles) plus a bake-density slider. The
+ * spatial spline itself is laid out with the on-scene dials.
+ */
+function PathProgressEditor({ pathChannel, clipDuration, flowTime, clipStart, defaultTangentMode, onChangeProgress, onChangeBakeFps }) {
+  const [progSel, setProgSel] = useState(null);
+  const progress = pathChannel?.path?.progress || { keys: [] };
+  const bakeFps = pathChannel?.path?.bakeFps ?? 30;
+  const pointCount = pathChannel?.path?.points?.length ?? 0;
+
+  const deleteSelectedProgressKey = () => {
+    if (!progSel || typeof progSel.idx !== 'number') return false;
+    const next = removeChannelKey(progress, progSel.idx);
+    onChangeProgress(next);
+    setProgSel(null);
+    return true;
+  };
+
+  // The progress curve uses LOCAL selection (not the global keyframe system),
+  // so wire Delete here. Skip when typing in a field.
+  const progSelRef = useRef(progSel);
+  progSelRef.current = progSel;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      if (!progSelRef.current) return;
+      const tag = (document.activeElement?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const sel = progSelRef.current;
+      const next = removeChannelKey(progress, sel.idx);
+      onChangeProgress(next);
+      setProgSel(null);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener('keydown', onKey, true); // capture: run before global
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [progress, onChangeProgress]);
+
+  return (
+    <div className="scene-path-editor">
+      <div className="scene-path-editor-hint">
+        {pointCount} point{pointCount === 1 ? '' : 's'} · drag the dials on the scene to shape the path.
+        The graph below controls progress along the path over time.
+      </div>
+      {progSel && (
+        <button
+          type="button"
+          className="scene-btn scene-btn--ghost scene-btn--sm"
+          onClick={deleteSelectedProgressKey}
+          title="Delete the selected progress key (Del)"
+        >
+          ✕ delete progress key {progSel.idx + 1}
+        </button>
+      )}
+      <div className="scene-channels-graph">
+        <div className="scene-channels-graph-channel">
+          <ChannelSubplot
+            name="progress"
+            channel={progress}
+            layout="scalar"
+            labelOverride="progress (0→1)"
+            clipDuration={clipDuration}
+            flowTime={flowTime}
+            clipStart={clipStart}
+            plotW={280}
+            selectedKey={progSel}
+            onSelectKey={setProgSel}
+            onPatchChannel={(_n, next) => onChangeProgress(next)}
+            defaultTangentMode={defaultTangentMode}
+          />
+        </div>
+      </div>
+      <label className="scene-field scene-field--inline">
+        <span>bake fps</span>
+        <input
+          type="number"
+          min={1}
+          max={120}
+          step={1}
+          value={bakeFps}
+          onChange={(e) => onChangeBakeFps(e.target.value)}
+          title="Samples per second when baking this path to x/y position keys on export"
+        />
+      </label>
     </div>
   );
 }
