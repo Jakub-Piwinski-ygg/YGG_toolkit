@@ -822,6 +822,11 @@
   letter-spacing: 0.3px;
   margin-top: 8px;
 }
+.ct-root .ct-detail-copy-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
 .ct-root .ct-method-sql pre, .ct-root .ct-detail pre {
   margin-top: 6px;
   padding: 8px 10px;

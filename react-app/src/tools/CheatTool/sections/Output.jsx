@@ -231,6 +231,8 @@ function PlayCheatBox({ cheatString, onPlay, getPlayStake, setPlayStake }) {
 
 function PlayTab() {
   const { playResponse } = useCheatTool();
+  const [copyFullOk, setCopyFullOk] = useState(null);
+  const [copyActionsOk, setCopyActionsOk] = useState(null);
   if (!playResponse) return null;
   if (playResponse.loading) return <div className="ct-loading">◌ Sending play request...</div>;
   if (playResponse.error) {
@@ -260,6 +262,11 @@ function PlayTab() {
     ?? data?.nextCommands?.[0]?.modeName;
   const steps = findSpinSteps(data);
 
+  const fullResponseText = typeof data === 'string' ? data : JSON.stringify(data);
+  const isFinished = data?.isFinished ?? data?.IsFinished ?? firstResult?.isFinished ?? firstResult?.IsFinished ?? true;
+  const clientDataObj = firstActions.length > 0 ? { actions: firstActions, isFinished } : null;
+  const clientDataText = clientDataObj ? JSON.stringify(clientDataObj) : null;
+
   return (
     <div className="ct-response-body">
       <div className="ct-info-box info">
@@ -284,9 +291,37 @@ function PlayTab() {
         <div className="dim small"><strong>POST</strong> {url}</div>
         <pre>{JSON.stringify(body, null, 2)}</pre>
       </details>
-      <details className="ct-detail" open>
+      {clientDataText ? (
+        <details className="ct-detail" open>
+          <summary>
+            ▶ Client Actions (actions + isFinished)
+          </summary>
+          <div className="ct-detail-copy-row">
+            <button
+              className="ct-copy-btn"
+              onClick={async () => {
+                const ok = await copyToClipboard(clientDataText);
+                setCopyActionsOk(ok);
+                setTimeout(() => setCopyActionsOk(null), 1500);
+              }}
+            >{copyActionsOk === null ? '📋 Copy' : copyActionsOk ? '✓ Copied' : '✗ Error'}</button>
+          </div>
+          <pre className="minified">{clientDataText}</pre>
+        </details>
+      ) : null}
+      <details className="ct-detail">
         <summary>▶ Full response (JSON)</summary>
-        <pre>{typeof data === 'string' ? data : JSON.stringify(data, null, 2)}</pre>
+        <div className="ct-detail-copy-row">
+          <button
+            className="ct-copy-btn"
+            onClick={async () => {
+              const ok = await copyToClipboard(fullResponseText);
+              setCopyFullOk(ok);
+              setTimeout(() => setCopyFullOk(null), 1500);
+            }}
+          >{copyFullOk === null ? '📋 Copy' : copyFullOk ? '✓ Copied' : '✗ Error'}</button>
+        </div>
+        <pre dangerouslySetInnerHTML={{ __html: syntaxHL(typeof data === 'string' ? data : JSON.stringify(data, null, 2)) }} />
       </details>
     </div>
   );
