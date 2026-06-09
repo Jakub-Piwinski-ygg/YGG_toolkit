@@ -30,6 +30,8 @@ export function buildJSON(state) {
     gameModeName,
     jsonIndexEnabled,
     jsonIndexValue,
+    jsonGuidEnabled,
+    jsonGuidValue,
     multiplierEnabled,
     multFrom,
     multTo,
@@ -120,6 +122,7 @@ export function buildJSON(state) {
   const rootMode = {
     gameModeName,
     ...(jsonIndexEnabled && { jsonIndex: jsonIndexValue }),
+    ...(jsonGuidEnabled && jsonGuidValue && { jsonGuid: jsonGuidValue }),
     multiplierConditions: multiplierEnabled
       ? {
           fromValue: isNaN(multFrom) ? 0 : multFrom,

@@ -8,7 +8,9 @@ export function GameModeSection() {
   const {
     gameModeName, setGameModeName, gameModes,
     jsonIndexEnabled, setJsonIndexEnabled,
-    jsonIndexValue, setJsonIndexValue
+    jsonIndexValue, setJsonIndexValue,
+    jsonGuidEnabled, setJsonGuidEnabled,
+    jsonGuidValue, setJsonGuidValue
   } = useCheatTool();
   return (
     <Section icon="◈" iconKind="purple" title="Game Mode" subtitle="ROOT">
@@ -31,6 +33,19 @@ export function GameModeSection() {
             onChange={(e) => setJsonIndexValue(parseInt(e.target.value) || 1)}
             className="ct-num-narrow"
             title="Przypina cheat do konkretnego deterministycznego wyniku"
+          />
+        </div>
+      </FieldRow>
+      <FieldRow label="Json Guid">
+        <div className="ct-inline-row">
+          <Toggle checked={jsonGuidEnabled} onChange={setJsonGuidEnabled} />
+          <input
+            type="text"
+            value={jsonGuidValue}
+            onChange={(e) => setJsonGuidValue(e.target.value)}
+            style={{ flex: 1 }}
+            placeholder="e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            disabled={!jsonGuidEnabled}
           />
         </div>
       </FieldRow>
