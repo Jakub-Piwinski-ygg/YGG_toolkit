@@ -193,7 +193,9 @@ using UnityEngine;
 namespace Ygg.SceneStudio
 {
     [CustomEditor(typeof(YggScenePlayer))]
-    public class YggScenePlayerEditor : Editor
+    // Fully qualified base class: projects with a DLL exposing a root-level
+    // "Editor" namespace would otherwise shadow UnityEditor.Editor (CS0118).
+    public class YggScenePlayerEditor : UnityEditor.Editor
     {
         public override void OnInspectorGUI()
         {
