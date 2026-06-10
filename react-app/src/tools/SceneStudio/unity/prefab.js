@@ -188,7 +188,81 @@ function spriteRendererYaml(id, goId, spriteGuid, alpha, tint) {
   m_SpriteSortPoint: 0`;
 }
 
-function spineComponentYaml(id, goId, scriptGuid, spine) {
+// spine-unity UPM package material assets — stable GUIDs shipped with the
+// package (verified against spine-runtimes 4.2).
+const SPINE_GRAPHIC_MATERIALS = {
+  base: '841cfbaa0261b0042b3a039c52637bb7',      // SkeletonGraphicDefault
+  additive: '2e8245019faeb8c43b75f9ca3ac8ee34',
+  multiply: 'e74a1f8978a7da348a721508d0d58834',
+  screen: 'bab24c479f34eec45be6ea8595891569'
+};
+
+/** SkeletonGraphic (UI variant) — field layout matches spine-unity 4.2. */
+function skeletonGraphicYaml(id, goId, scriptGuid, spine, size) {
+  const ref = size || { w: 100, h: 100 };
+  return `${commonHeader(114, id, 'MonoBehaviour')}
+  m_GameObject: {fileID: ${goId}}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ${scriptGuid}, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  m_Material: {fileID: 2100000, guid: ${SPINE_GRAPHIC_MATERIALS.base}, type: 2}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 0
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  skeletonDataAsset: {fileID: 0}
+  additiveMaterial: {fileID: 2100000, guid: ${SPINE_GRAPHIC_MATERIALS.additive}, type: 2}
+  multiplyMaterial: {fileID: 2100000, guid: ${SPINE_GRAPHIC_MATERIALS.multiply}, type: 2}
+  screenMaterial: {fileID: 2100000, guid: ${SPINE_GRAPHIC_MATERIALS.screen}, type: 2}
+  forceAdditiveMaterial: 0
+  m_SkeletonColor: {r: 1, g: 1, b: 1, a: 1}
+  initialSkinName: ${spine?.skin || 'default'}
+  initialFlipX: 0
+  initialFlipY: 0
+  startingAnimation: ${spine?.defaultAnimation || ''}
+  startingLoop: ${spine?.loop === false ? 0 : 1}
+  timeScale: 1
+  freeze: 0
+  layoutScaleMode: 0
+  referenceSize: {x: ${f(ref.w)}, y: ${f(ref.h)}}
+  pivotOffset: {x: 0, y: 0}
+  referenceScale: 1
+  layoutScale: 1
+  rectTransformSize: {x: ${f(ref.w)}, y: ${f(ref.h)}}
+  editReferenceRect: 0
+  updateWhenInvisible: 3
+  allowMultipleCanvasRenderers: 0
+  canvasRenderers: []
+  separatorSlotNames: []
+  enableSeparatorSlots: 0
+  separatorParts: []
+  updateSeparatorPartLocation: 1
+  updateSeparatorPartScale: 0
+  disableMeshAssignmentOnOverride: 1
+  physicsPositionInheritanceFactor: {x: 1, y: 1}
+  physicsRotationInheritanceFactor: 1
+  physicsMovementRelativeTo: {fileID: 0}
+  meshGenerator:
+    settings:
+      useClipping: 1
+      zSpacing: 0
+      tintBlack: 0
+      canvasGroupCompatible: 1
+      pmaVertexColors: 0
+      addNormals: 0
+      calculateTangents: 0
+      immutableTriangles: 0
+  updateTiming: 1
+  unscaledTime: 0`;
+}
+
+/** SkeletonAnimation (world variant) — spine-unity 4.2 layout. */
+function skeletonAnimationYaml(id, goId, scriptGuid, spine) {
   return `${commonHeader(114, id, 'MonoBehaviour')}
   m_GameObject: {fileID: ${goId}}
   m_Enabled: 1
@@ -198,13 +272,18 @@ function spineComponentYaml(id, goId, scriptGuid, spine) {
   m_EditorClassIdentifier:
   skeletonDataAsset: {fileID: 0}
   initialSkinName: ${spine?.skin || 'default'}
+  fixPrefabOverrideViaMeshFilter: 2
   initialFlipX: 0
   initialFlipY: 0
-  startingAnimation: ${spine?.defaultAnimation || ''}
-  startingLoop: ${spine?.loop === false ? 0 : 1}
-  timeScale: 1
-  freeze: 0
-  unscaledTime: 0`;
+  updateTiming: 1
+  updateWhenInvisible: 3
+  unscaledTime: 0
+  physicsPositionInheritanceFactor: {x: 1, y: 1}
+  physicsRotationInheritanceFactor: 1
+  physicsMovementRelativeTo: {fileID: 0}
+  _animationName: ${spine?.defaultAnimation || ''}
+  loop: ${spine?.loop === false ? 0 : 1}
+  timeScale: 1`;
 }
 
 function animatorYaml(id, goId) {
@@ -324,8 +403,10 @@ export async function buildPrefab(spec) {
         const crId = await id(`${node.key}:spinecr`);
         comps.splice(1, 0, crId);
         extraDocs.push(canvasRendererYaml(crId, goId));
+        extraDocs.push(skeletonGraphicYaml(spId, goId, spineScriptGuid, node.spine, node.size));
+      } else {
+        extraDocs.push(skeletonAnimationYaml(spId, goId, spineScriptGuid, node.spine));
       }
-      extraDocs.push(spineComponentYaml(spId, goId, spineScriptGuid, node.spine));
     }
     if (ui) {
       comps.push(cgId);

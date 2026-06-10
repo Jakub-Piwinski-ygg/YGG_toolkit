@@ -24,7 +24,14 @@ const scene = {
   canvases: [{ id: 'c1', name: 'Main', visible: true }],
   activeCanvasId: 'c1',
   assets: [
-    { id: 'a1', type: 'png', src: PNG_1x1, meta: { originalName: 'hero.png' } }
+    { id: 'a1', type: 'png', src: PNG_1x1, meta: { originalName: 'hero.png' } },
+    {
+      id: 'a2', type: 'spine',
+      src: 'data:application/json,{"skeleton":{"spine":"4.2"}}',
+      atlas: 'data:text/plain,wins.png%0Asize:1,1',
+      texture: PNG_1x1,
+      meta: { originalName: 'wins' }
+    }
   ],
   layers: [
     {
@@ -40,6 +47,15 @@ const scene = {
       visible: true, blend: 'normal',
       transforms: {
         landscape: { x: 100, y: 50, scaleX: 0.5, scaleY: 0.5, rotation: 0.5, anchor: [0.5, 0.5], alpha: 0.8, tint: { r: 1, g: 1, b: 1 } },
+        portrait: null
+      }
+    },
+    {
+      id: 'L3', name: 'wins', canvasId: 'c1', parentId: null, assetId: 'a2',
+      visible: true, blend: 'normal',
+      spine: { skin: 'default', defaultAnimation: 'big_win_idle', loop: true },
+      transforms: {
+        landscape: { x: 960, y: 540, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5], alpha: 1, tint: { r: 1, g: 1, b: 1 } },
         portrait: null
       }
     }
@@ -61,6 +77,12 @@ const scene = {
             { t: 1, v: 0.2, out: 'linear' }
           ] }
         }
+      }]
+    }, {
+      id: 'T2', layerId: 'L3', name: null,
+      clips: [{
+        id: 'C2', start: 0.5, duration: 1.2, loop: true, curve: 'linear', anim: 'big_win_start',
+        speed: 1, mixDuration: 0.2, autoFitDuration: false, channels: null
       }]
     }],
     markers: [], nodes: [], edges: []
@@ -115,7 +137,8 @@ const expect = [
   'Assets/YggSceneStudio/Editor/YggSceneTimelineBuilder.cs',
   'Assets/YggSceneStudio/Editor/YggScenePlayerEditor.cs',
   'Assets/YggSceneStudio/Runtime/Ygg.SceneStudio.Runtime.asmdef',
-  'Assets/YggSceneStudio/Editor/Ygg.SceneStudio.Editor.asmdef'
+  'Assets/YggSceneStudio/Editor/Ygg.SceneStudio.Editor.asmdef',
+  'Assets/YggSceneStudio/Editor/YggPackageBootstrap.cs'
 ];
 let fail = 0;
 for (const p of expect) {
@@ -140,8 +163,15 @@ const get = (p) => {
 const prefab = get('Assets/SmokeTest/Scenes/SmokeTest/SmokeTest_Main.prefab');
 const anim = get('Assets/SmokeTest/Scenes/SmokeTest/Main_Bake.anim');
 const builder = get('Assets/YggSceneStudio/Editor/YggSceneTimelineBuilder.cs');
+const descriptor = get('Assets/SmokeTest/Scenes/SmokeTest/Main_timeline.json');
 const checks = [
   [builder.includes('#if !YGG_HAS_TIMELINE'), 'timeline builder guarded for missing package'],
+  [byPathname.has('Assets/SmokeTest/Art/Animations/wins/wins.json'), 'spine json placed (data-url named)'],
+  [byPathname.has('Assets/SmokeTest/Art/Animations/wins/wins.atlas.txt'), 'spine atlas renamed .atlas.txt'],
+  [prefab.includes('d85b887af7e6c3f45a2e2d2920d641bc'), 'prefab has SkeletonGraphic (default spine guid)'],
+  [prefab.includes('startingAnimation: big_win_idle'), 'SkeletonGraphic starting animation set'],
+  [prefab.includes('animationName: big_win_start'), 'spine cue serialized on player'],
+  [descriptor.includes('"spineData": "wins"'), 'descriptor carries spineData for auto-assign'],
   [prefab.includes('m_Name: Hero'), 'prefab has Hero GO'],
   [prefab.includes('m_Name: Child'), 'prefab has Child GO'],
   [prefab.includes('PlayableDirector'), 'prefab has director'],

@@ -13,6 +13,7 @@ import {
   scenePlayerSource,
   scenePlayerEditorSource,
   timelineBuilderSource,
+  packageBootstrapSource,
   runtimeAsmdefSource,
   editorAsmdefSource
 } from '../src/tools/SceneStudio/unity/csharp.js';
@@ -27,6 +28,7 @@ const FILES = [
   [SCRIPT_PATHS.player, scenePlayerSource(), monoMeta],
   [SCRIPT_PATHS.playerEditor, scenePlayerEditorSource(), monoMeta],
   [SCRIPT_PATHS.timelineBuilder, timelineBuilderSource(), monoMeta],
+  [SCRIPT_PATHS.packageBootstrap, packageBootstrapSource(), monoMeta],
   [SCRIPT_PATHS.runtimeAsmdef, runtimeAsmdefSource(), asmdefMeta],
   [SCRIPT_PATHS.editorAsmdef, editorAsmdefSource(), asmdefMeta]
 ];

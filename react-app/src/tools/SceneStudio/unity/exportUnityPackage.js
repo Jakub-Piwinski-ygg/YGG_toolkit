@@ -20,6 +20,7 @@ import {
   scenePlayerSource,
   scenePlayerEditorSource,
   timelineBuilderSource,
+  packageBootstrapSource,
   runtimeAsmdefSource,
   editorAsmdefSource
 } from './csharp.js';
@@ -33,8 +34,11 @@ export const DEFAULT_UNITY_SETTINGS = {
   spineCompression: 'none',
   alphaIsTransparency: true,
   includeVideos: false,
-  spineGraphicGuid: '',          // SkeletonGraphic.cs.meta guid from the target project
-  spineAnimationGuid: '',        // SkeletonAnimation.cs.meta guid
+  // Stable script GUIDs from the official spine-unity UPM/unitypackage
+  // distribution (verified against spine-runtimes 4.2; unchanged across
+  // 4.x). Editable in the dialog for exotic installs.
+  spineGraphicGuid: 'd85b887af7e6c3f45a2e2d2920d641bc',    // SkeletonGraphic.cs
+  spineAnimationGuid: 'd247ba06193faa74d9335f5481b2b56c',  // SkeletonAnimation.cs
   perAssetCompression: {}        // assetId → compression override
 };
 
@@ -132,18 +136,23 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
       if (!json || !atlas || !tex) {
         warnings.push(`Spine "${name}": missing ${[!json && 'json', !atlas && 'atlas', !tex && 'texture'].filter(Boolean).join('+')} — exported partially.`);
       }
-      const jsonName = lastSegment(asset.src).replace(/\.json$/i, '');
+      // Embedded (data:) assets have no usable path segment — fall back to the
+      // display name for every file of the triplet.
+      const jsonName = asset.src.startsWith('data:') ? name : lastSegment(asset.src).replace(/\.json$/i, '');
       if (json) await pushItem(`${folder}/${jsonName}.json`, json, textMeta);
       if (atlas) {
         // spine-unity requires ".atlas.txt"
-        const atlasName = lastSegment(asset.atlas).replace(/\.txt$/i, '').replace(/\.atlas$/i, '');
+        const atlasName = asset.atlas.startsWith('data:')
+          ? jsonName
+          : lastSegment(asset.atlas).replace(/\.txt$/i, '').replace(/\.atlas$/i, '');
         await pushItem(`${folder}/${atlasName}.atlas.txt`, atlas, textMeta);
       }
       let texSize = null;
       if (tex) {
         texSize = pngSize(tex);
         const comp = settings.perAssetCompression[asset.id] || settings.spineCompression;
-        await pushItem(`${folder}/${lastSegment(asset.texture)}`, tex, (g) => textureMeta(g, {
+        const texName = asset.texture.startsWith('data:') ? `${jsonName}.png` : lastSegment(asset.texture);
+        await pushItem(`${folder}/${texName}`, tex, (g) => textureMeta(g, {
           compression: comp,
           alphaIsTransparency: settings.alphaIsTransparency,
           // spine-unity material samples the texture directly; sprite mode off
@@ -151,7 +160,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           pixelsPerUnit: settings.pixelsPerUnit
         }));
       }
-      assetInfo.set(asset.id, { kind: 'spine', size: texSize, spineName: name });
+      assetInfo.set(asset.id, { kind: 'spine', size: texSize, spineName: name, jsonBase: jsonName });
     } else if (asset.type === 'video') {
       if (!settings.includeVideos) { assetInfo.set(asset.id, { kind: 'skipped' }); continue; }
       const bytes = await bytesForSrc(asset.src, rootHandle, sceneBasePath);
@@ -168,6 +177,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
   await pushShared(SCRIPT_PATHS.player, scenePlayerSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.playerEditor, scenePlayerEditorSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.timelineBuilder, timelineBuilderSource(), monoMeta);
+  await pushShared(SCRIPT_PATHS.packageBootstrap, packageBootstrapSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.runtimeAsmdef, runtimeAsmdefSource(), asmdefMeta);
   await pushShared(SCRIPT_PATHS.editorAsmdef, editorAsmdefSource(), asmdefMeta);
   const playerScriptGuid = itemsByPath.get(SCRIPT_PATHS.player).guid;
@@ -243,7 +253,13 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
         }
 
         const size = info.size ? { w: info.size.width, h: info.size.height } : null;
-        descriptorNodes.push({ path, kind: info.kind, layerId: layer.id, visible: layer.visible !== false });
+        descriptorNodes.push({
+          path,
+          kind: info.kind,
+          layerId: layer.id,
+          visible: layer.visible !== false,
+          spineData: info.jsonBase || ''
+        });
 
         out.push({
           key: layer.id,
@@ -308,14 +324,10 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
 
   if (!exportedCanvases) throw new Error('Nothing to export — the scene has no layers.');
   const hasSpine = [...assetInfo.values()].some((i) => i.kind === 'spine');
-  if (hasSpine && ui && !settings.spineGraphicGuid) {
-    warnings.push('No SkeletonGraphic GUID set — spine layers export as placeholders. Find it in your project: spine-unity → SkeletonGraphic.cs.meta → guid.');
-  }
-  if (hasSpine && !ui && !settings.spineAnimationGuid) {
-    warnings.push('No SkeletonAnimation GUID set — spine layers export as placeholders.');
-  }
-  if (hasSpine) {
-    warnings.push('Assign each spine layer\'s SkeletonDataAsset after import (auto-generated by spine-unity next to the .json).');
+  if (hasSpine && ((ui && !settings.spineGraphicGuid) || (!ui && !settings.spineAnimationGuid))) {
+    warnings.push('Spine script GUID cleared in settings — spine layers export as placeholders.');
+  } else if (hasSpine) {
+    warnings.push('After import, click "Auto-assign Spine Data" on the prefab to wire SkeletonDataAssets (generated by spine-unity).');
   }
 
   // ── 4. Folder entries for every directory in the package ──────────────

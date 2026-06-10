@@ -175,8 +175,9 @@ export function UnityExportDialog({ scene, rootHandle, sceneBasePath, onClose, l
         {hasSpine && (
           <>
             <div style={{ borderTop: '1px solid var(--line, #2a313b)', margin: '12px 0 6px', paddingTop: 8, fontSize: 12, color: 'var(--muted, #8a93a3)' }}>
-              Spine runtime script GUIDs (from your Unity project's spine-unity install — open the
-              .cs.meta file and copy <code>guid:</code>; leave empty to export spine layers as placeholders)
+              Spine runtime script GUID — prefilled with the official spine-unity (4.x) value, which
+              matches UPM and unitypackage installs. Only change it for a custom/forked runtime
+              (copy <code>guid:</code> from the .cs.meta).
             </div>
             {ui ? (
               <Row label="SkeletonGraphic.cs guid">
