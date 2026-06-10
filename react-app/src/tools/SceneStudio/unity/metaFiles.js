@@ -160,6 +160,15 @@ MonoImporter:
 ${COMMON_TAIL}`;
 }
 
+/** Assembly definition (.asmdef) files. */
+export function asmdefMeta(guid) {
+  return `fileFormatVersion: 2
+guid: ${guid}
+AssemblyDefinitionImporter:
+  externalObjects: {}
+${COMMON_TAIL}`;
+}
+
 /** Plain default importer — videos and anything else. */
 export function defaultMeta(guid) {
   return `fileFormatVersion: 2

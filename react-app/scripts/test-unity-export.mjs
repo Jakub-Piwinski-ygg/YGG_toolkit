@@ -113,7 +113,9 @@ const expect = [
   'Assets/SmokeTest/Scenes/SmokeTest/Main_timeline.json',
   'Assets/YggSceneStudio/Runtime/YggScenePlayer.cs',
   'Assets/YggSceneStudio/Editor/YggSceneTimelineBuilder.cs',
-  'Assets/YggSceneStudio/Editor/YggScenePlayerEditor.cs'
+  'Assets/YggSceneStudio/Editor/YggScenePlayerEditor.cs',
+  'Assets/YggSceneStudio/Runtime/Ygg.SceneStudio.Runtime.asmdef',
+  'Assets/YggSceneStudio/Editor/Ygg.SceneStudio.Editor.asmdef'
 ];
 let fail = 0;
 for (const p of expect) {
@@ -137,7 +139,9 @@ const get = (p) => {
 };
 const prefab = get('Assets/SmokeTest/Scenes/SmokeTest/SmokeTest_Main.prefab');
 const anim = get('Assets/SmokeTest/Scenes/SmokeTest/Main_Bake.anim');
+const builder = get('Assets/YggSceneStudio/Editor/YggSceneTimelineBuilder.cs');
 const checks = [
+  [builder.includes('#if !YGG_HAS_TIMELINE'), 'timeline builder guarded for missing package'],
   [prefab.includes('m_Name: Hero'), 'prefab has Hero GO'],
   [prefab.includes('m_Name: Child'), 'prefab has Child GO'],
   [prefab.includes('PlayableDirector'), 'prefab has director'],

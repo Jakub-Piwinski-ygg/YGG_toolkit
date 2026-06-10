@@ -11,11 +11,18 @@ import { buildLayerTree } from '../engine/sceneModel.js';
 import { resolveAssetFile } from '../engine/persist.js';
 import { guidFor, pngSize, dataUrlToBytes, safeName } from './guid.js';
 import { buildUnityPackage } from './tar.js';
-import { folderMeta, textureMeta, textMeta, nativeMeta, monoMeta, defaultMeta } from './metaFiles.js';
+import { folderMeta, textureMeta, textMeta, nativeMeta, monoMeta, defaultMeta, asmdefMeta } from './metaFiles.js';
 import { bakeLayer, spineCuesForLayer } from './bake.js';
 import { buildAnimationClip } from './animClip.js';
 import { buildPrefab } from './prefab.js';
-import { SCRIPT_PATHS, scenePlayerSource, scenePlayerEditorSource, timelineBuilderSource } from './csharp.js';
+import {
+  SCRIPT_PATHS,
+  scenePlayerSource,
+  scenePlayerEditorSource,
+  timelineBuilderSource,
+  runtimeAsmdefSource,
+  editorAsmdefSource
+} from './csharp.js';
 
 export const DEFAULT_UNITY_SETTINGS = {
   packageName: '',
@@ -82,14 +89,18 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
 
   const items = [];        // { guid, path, data?, meta }
   const itemsByPath = new Map();
-  const pushItem = async (path, data, meta) => {
+  const pushItem = async (path, data, meta, seed = null) => {
     if (itemsByPath.has(path)) return itemsByPath.get(path);
-    const guid = await guidFor(`${pkg}:${path}`);
+    const guid = await guidFor(seed || `${pkg}:${path}`);
     const item = { guid, path, data, meta: meta(guid) };
     items.push(item);
     itemsByPath.set(path, item);
     return item;
   };
+  // Constant-path items (shared runtime scripts) get package-independent
+  // GUIDs so two exported scenes can be imported into one project without
+  // path/GUID collisions.
+  const pushShared = (path, data, meta) => pushItem(path, data, meta, `shared:${path}`);
 
   // ── 1. Resolve + place assets ─────────────────────────────────────────
   progress('resolving assets…');
@@ -153,10 +164,12 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
     }
   }
 
-  // ── 2. Generated C# (constant paths → shared across packages) ─────────
-  await pushItem(SCRIPT_PATHS.player, scenePlayerSource(), monoMeta);
-  await pushItem(SCRIPT_PATHS.playerEditor, scenePlayerEditorSource(), monoMeta);
-  await pushItem(SCRIPT_PATHS.timelineBuilder, timelineBuilderSource(), monoMeta);
+  // ── 2. Generated C# (constant paths + package-independent GUIDs) ──────
+  await pushShared(SCRIPT_PATHS.player, scenePlayerSource(), monoMeta);
+  await pushShared(SCRIPT_PATHS.playerEditor, scenePlayerEditorSource(), monoMeta);
+  await pushShared(SCRIPT_PATHS.timelineBuilder, timelineBuilderSource(), monoMeta);
+  await pushShared(SCRIPT_PATHS.runtimeAsmdef, runtimeAsmdefSource(), asmdefMeta);
+  await pushShared(SCRIPT_PATHS.editorAsmdef, editorAsmdefSource(), asmdefMeta);
   const playerScriptGuid = itemsByPath.get(SCRIPT_PATHS.player).guid;
 
   // ── 3. Per-canvas: bake → anim, descriptor, prefab ────────────────────
@@ -311,8 +324,11 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
     const segs = it.path.split('/');
     for (let i = 1; i < segs.length; i++) folders.add(segs.slice(0, i).join('/'));
   }
+  folders.delete('Assets'); // Unity never packages the Assets root itself
   for (const dir of [...folders].sort()) {
-    if (!itemsByPath.has(dir)) await pushItem(dir, null, folderMeta);
+    // Folder GUIDs are path-seeded (package-independent) so shared folders
+    // like Assets/YggSceneStudio merge across packages instead of colliding.
+    if (!itemsByPath.has(dir)) await pushShared(dir, null, folderMeta);
   }
 
   // ── 5. Pack ────────────────────────────────────────────────────────────
