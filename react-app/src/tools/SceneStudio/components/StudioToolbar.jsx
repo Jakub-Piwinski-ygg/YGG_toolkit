@@ -33,7 +33,8 @@ export function StudioToolbar({
   onUndo,
   onRedo,
   canUndo = false,
-  canRedo = false
+  canRedo = false,
+  onUnityExport
 }) {
   const supported = isFsAccessSupported();
   const handleFallbackInput = (e) => {
@@ -187,6 +188,12 @@ export function StudioToolbar({
       <button className="scene-btn scene-btn--ghost" onClick={onNewProject} disabled={busy} title="New project (will prompt to save)">new</button>
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>
       <button className="scene-btn scene-btn--primary" onClick={onSave} disabled={busy}>save</button>
+      <button
+        className="scene-btn"
+        onClick={onUnityExport}
+        disabled={busy || !scene.layers.length}
+        title="Export the scene as a .unitypackage: assets + import settings, prefab per canvas, baked animation, Timeline builder"
+      >⇪ unity</button>
     </div>
   );
 }

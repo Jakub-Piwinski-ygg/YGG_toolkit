@@ -9,6 +9,7 @@ import { PixiErrorBoundary } from './components/PixiErrorBoundary.jsx';
 import { PixiViewport } from './components/PixiViewport.jsx';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
+import { UnityExportDialog } from './components/UnityExportDialog.jsx';
 import { scanProjectAssets } from './engine/assetBrowser.js';
 import {
   createEmptyScene,
@@ -131,6 +132,7 @@ export default function SceneStudioInner() {
   const { log } = useApp();
   const [scene, setSceneInternal] = useState(() => createEmptyScene('Untitled scene'));
   const [rootHandle, setRootHandle] = useState(null);
+  const [showUnityExport, setShowUnityExport] = useState(false);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const [selectedClipId, setSelectedClipId] = useState(null);
   const [selectedKey, setSelectedKey] = useState(null);   // { clipId, name, idx } | null
@@ -1893,7 +1895,18 @@ export default function SceneStudioInner() {
         onRedo={redo}
         canUndo={historyDepth.undo > 0}
         canRedo={historyDepth.redo > 0}
+        onUnityExport={() => setShowUnityExport(true)}
       />
+
+      {showUnityExport && (
+        <UnityExportDialog
+          scene={scene}
+          rootHandle={rootHandle}
+          sceneBasePath={currentSceneRel ? currentSceneRel.split('/').slice(0, -1).join('/') : null}
+          onClose={() => setShowUnityExport(false)}
+          log={log}
+        />
+      )}
 
       <div className="scene-studio-body">
         <div className="scene-left-stack">
