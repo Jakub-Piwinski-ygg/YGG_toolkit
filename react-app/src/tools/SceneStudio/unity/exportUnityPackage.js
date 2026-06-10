@@ -14,7 +14,7 @@ import { buildUnityPackage } from './tar.js';
 import { folderMeta, textureMeta, textMeta, nativeMeta, monoMeta, defaultMeta, asmdefMeta } from './metaFiles.js';
 import { bakeLayer, spineCuesForLayer } from './bake.js';
 import { buildAnimationClip } from './animClip.js';
-import { buildPrefab } from './prefab.js';
+import { buildPrefab, UI_IMAGE_GUID } from './prefab.js';
 import {
   SCRIPT_PATHS,
   scenePlayerSource,
@@ -80,6 +80,10 @@ function convertTransform(t, { isRoot, stage, ui, ppu }) {
  */
 export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, settings: userSettings, onProgress }) {
   const settings = { ...DEFAULT_UNITY_SETTINGS, ...(userSettings || {}) };
+  // Persisted settings from older versions may carry empty spine GUIDs that
+  // would shadow the baked-in defaults — empty always means "use default".
+  if (!settings.spineGraphicGuid) settings.spineGraphicGuid = DEFAULT_UNITY_SETTINGS.spineGraphicGuid;
+  if (!settings.spineAnimationGuid) settings.spineAnimationGuid = DEFAULT_UNITY_SETTINGS.spineAnimationGuid;
   const warnings = [];
   const progress = (msg) => { if (onProgress) onProgress(msg); };
 
@@ -244,6 +248,24 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
               ? { attribute: 'm_Alpha', classID: 225, keys: bake.props.alpha }
               : { attribute: 'm_Color.a', classID: 212, keys: bake.props.alpha });
           }
+          // Tint (vertex color) — Image.m_Color / SkeletonGraphic.m_Color in
+          // the UI variant, SpriteRenderer.m_Color in world. All three RGB
+          // components are emitted together so the color stays consistent.
+          const tintAnimated = bake.props.tintR.length || bake.props.tintG.length || bake.props.tintB.length;
+          if (tintAnimated) {
+            if (!ui && info.kind === 'spine') {
+              warnings.push(`"${name}": tint animation on a spine layer is not supported in the world variant — skipped.`);
+            } else {
+              const colorClassId = ui ? 114 : 212;
+              const scriptGuid = ui
+                ? (info.kind === 'spine' ? settings.spineGraphicGuid : UI_IMAGE_GUID)
+                : null;
+              for (const [prop, comp] of [['tintR', 'r'], ['tintG', 'g'], ['tintB', 'b']]) {
+                const keys = bake.props[prop].length ? bake.props[prop] : [{ t: 0, v: bake.base[prop] }];
+                track.floats.push({ attribute: `m_Color.${comp}`, classID: colorClassId, scriptGuid, keys });
+              }
+            }
+          }
           if (track.position || track.scale || track.euler || track.floats.length) animTracks.push(track);
         }
 
@@ -258,7 +280,10 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           kind: info.kind,
           layerId: layer.id,
           visible: layer.visible !== false,
-          spineData: info.jsonBase || ''
+          spineData: info.jsonBase || '',
+          spineSkin: layer.spine?.skin || '',
+          spineAnim: layer.spine?.defaultAnimation || '',
+          spineLoop: layer.spine?.loop !== false
         });
 
         out.push({

@@ -121,7 +121,12 @@ export function buildAnimationClip(spec) {
     }
     for (const fl of tr.floats || []) {
       if (!fl.keys?.length) continue;
-      const yaml = floatCurveYaml(fl.keys, { attribute: fl.attribute, path: tr.path, classID: fl.classID });
+      const yaml = floatCurveYaml(fl.keys, {
+        attribute: fl.attribute,
+        path: tr.path,
+        classID: fl.classID,
+        scriptRef: fl.scriptGuid ? `{fileID: 11500000, guid: ${fl.scriptGuid}, type: 3}` : '{fileID: 0}'
+      });
       floatCurves.push(yaml);
       editorCurves.push(yaml);
     }

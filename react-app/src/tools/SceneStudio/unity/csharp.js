@@ -248,8 +248,16 @@ namespace Ygg.SceneStudio
     // "Editor" namespace would otherwise shadow UnityEditor.Editor (CS0118).
     public class YggScenePlayerEditor : UnityEditor.Editor
     {
-        [Serializable] class DescriptorNode { public string path; public string kind; public string spineData; }
-        [Serializable] class Descriptor { public List<DescriptorNode> nodes; }
+        [Serializable] class DescriptorNode
+        {
+            public string path;
+            public string kind;
+            public string spineData;
+            public string spineSkin;
+            public string spineAnim;
+            public bool spineLoop = true;
+        }
+        [Serializable] class Descriptor { public string variant; public List<DescriptorNode> nodes; }
 
         public override void OnInspectorGUI()
         {
@@ -306,17 +314,37 @@ namespace Ygg.SceneStudio
                 var child = string.IsNullOrEmpty(node.path) ? player.transform : player.transform.Find(node.path);
                 if (child == null) { Debug.LogWarning($"[Ygg] spine node not found: {node.path}"); missing++; continue; }
 
+                // Find an existing spine component — or create one, which runs
+                // spine-unity's own editor defaults (auto-detected materials).
+                MonoBehaviour spineComp = null;
                 foreach (var comp in child.GetComponents<MonoBehaviour>())
                 {
                     if (comp == null) continue;
                     var fn = comp.GetType().FullName;
-                    if (fn != "Spine.Unity.SkeletonGraphic" && fn != "Spine.Unity.SkeletonAnimation") continue;
+                    if (fn == "Spine.Unity.SkeletonGraphic" || fn == "Spine.Unity.SkeletonAnimation") { spineComp = comp; break; }
+                }
+                if (spineComp == null)
+                {
+                    string wantedType = desc.variant == "world"
+                        ? "Spine.Unity.SkeletonAnimation, spine-unity"
+                        : "Spine.Unity.SkeletonGraphic, spine-unity";
+                    var t = Type.GetType(wantedType);
+                    if (t == null)
+                    {
+                        Debug.LogWarning($"[Ygg] spine-unity runtime not found ({wantedType}) — cannot create component for {node.path}.");
+                        missing++;
+                        continue;
+                    }
+                    spineComp = (MonoBehaviour)Undo.AddComponent(child.gameObject, t);
+                    Debug.Log($"[Ygg] {node.path}: added {t.Name}", spineComp);
+                }
 
-                    var so = new SerializedObject(comp);
-                    var prop = so.FindProperty("skeletonDataAsset");
-                    if (prop == null) continue;
-                    if (prop.objectReferenceValue != null) { assigned++; break; }
+                var so = new SerializedObject(spineComp);
+                var dataProp = so.FindProperty("skeletonDataAsset");
+                if (dataProp == null) { missing++; continue; }
 
+                if (dataProp.objectReferenceValue == null)
+                {
                     string want = node.spineData + "_SkeletonData";
                     string found = null;
                     foreach (var (name, p) in dataAssets)
@@ -328,17 +356,34 @@ namespace Ygg.SceneStudio
                     {
                         Debug.LogWarning($"[Ygg] No SkeletonDataAsset found for '{node.spineData}' — has spine-unity imported the skeleton yet?");
                         missing++;
-                        break;
+                        continue;
                     }
-                    prop.objectReferenceValue = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(found);
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(comp);
-                    Debug.Log($"[Ygg] {node.path} ← {found}", comp);
-                    assigned++;
-                    break;
+                    dataProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(found);
+                    Debug.Log($"[Ygg] {node.path} ← {found}", spineComp);
                 }
+
+                SetString(so, "initialSkinName", string.IsNullOrEmpty(node.spineSkin) ? "default" : node.spineSkin);
+                SetString(so, "startingAnimation", node.spineAnim);   // SkeletonGraphic
+                SetString(so, "_animationName", node.spineAnim);      // SkeletonAnimation
+                SetBool(so, "startingLoop", node.spineLoop);
+                SetBool(so, "loop", node.spineLoop);
+                so.ApplyModifiedProperties();
+                EditorUtility.SetDirty(spineComp);
+                assigned++;
             }
             Debug.Log($"[Ygg] Spine auto-assign done: {assigned} wired, {missing} unresolved.");
+        }
+
+        static void SetString(SerializedObject so, string prop, string value)
+        {
+            var p = so.FindProperty(prop);
+            if (p != null && value != null) p.stringValue = value;
+        }
+
+        static void SetBool(SerializedObject so, string prop, bool value)
+        {
+            var p = so.FindProperty(prop);
+            if (p != null) p.boolValue = value;
         }
     }
 }

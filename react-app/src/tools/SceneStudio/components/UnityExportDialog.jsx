@@ -12,7 +12,12 @@ function loadSettings() {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return { ...DEFAULT_UNITY_SETTINGS };
-    return { ...DEFAULT_UNITY_SETTINGS, ...JSON.parse(raw) };
+    const merged = { ...DEFAULT_UNITY_SETTINGS, ...JSON.parse(raw) };
+    // Settings saved by older versions may hold empty spine GUIDs that would
+    // shadow the baked-in spine-unity defaults — empty means "use default".
+    if (!merged.spineGraphicGuid) merged.spineGraphicGuid = DEFAULT_UNITY_SETTINGS.spineGraphicGuid;
+    if (!merged.spineAnimationGuid) merged.spineAnimationGuid = DEFAULT_UNITY_SETTINGS.spineAnimationGuid;
+    return merged;
   } catch {
     return { ...DEFAULT_UNITY_SETTINGS };
   }

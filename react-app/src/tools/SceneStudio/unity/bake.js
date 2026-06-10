@@ -12,7 +12,7 @@
 import { evalChannel, clipLocalSeconds } from '../engine/animation/keyframes.js';
 import { tracksForLayer } from '../engine/sceneModel.js';
 
-const PROPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'alpha'];
+const PROPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'alpha', 'tintR', 'tintG', 'tintB'];
 
 function baseValues(transform) {
   return {
@@ -21,7 +21,10 @@ function baseValues(transform) {
     scaleX: transform?.scaleX ?? 1,
     scaleY: transform?.scaleY ?? 1,
     rotation: transform?.rotation ?? 0,
-    alpha: typeof transform?.alpha === 'number' ? transform.alpha : 1
+    alpha: typeof transform?.alpha === 'number' ? transform.alpha : 1,
+    tintR: transform?.tint?.r ?? 1,
+    tintG: transform?.tint?.g ?? 1,
+    tintB: transform?.tint?.b ?? 1
   };
 }
 
@@ -46,6 +49,8 @@ function sampleClip(clip, sceneTime, base, prev) {
   if (rot != null) out.rotation = rot;
   const alpha = ch.alpha ? evalChannel(ch.alpha, local, 'alpha') : null;
   if (alpha != null) out.alpha = alpha;
+  const tint = ch.tint ? evalChannel(ch.tint, local, 'tint') : null;
+  if (tint) { out.tintR = tint.r; out.tintG = tint.g; out.tintB = tint.b; }
   return out;
 }
 
@@ -113,7 +118,7 @@ export function bakeLayer(scene, layer, orientation, fps = 30) {
   let animated = false;
   for (const p of PROPS) {
     const keys = pruneLinear(samples.map((s) => ({ t: s.t, v: s.v[p] })),
-      p === 'alpha' ? 1e-4 : (p.startsWith('scale') ? 1e-4 : 5e-3));
+      (p === 'alpha' || p.startsWith('tint') || p.startsWith('scale')) ? 1e-4 : 5e-3);
     const constant = keys.every((k) => Math.abs(k.v - keys[0].v) < 1e-6);
     props[p] = constant ? [] : keys;
     if (!constant) animated = true;

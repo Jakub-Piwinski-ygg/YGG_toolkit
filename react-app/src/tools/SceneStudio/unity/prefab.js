@@ -19,7 +19,7 @@
 import { fileIdFor } from './guid.js';
 
 // UnityEngine.UI.Image — stable GUID shipped with UnityEngine.UI since 4.6.
-const UI_IMAGE_GUID = 'fe87c0e1cc204ed48ad3b37840f39efc';
+export const UI_IMAGE_GUID = 'fe87c0e1cc204ed48ad3b37840f39efc';
 
 function f(n) {
   if (!Number.isFinite(n)) return '0';

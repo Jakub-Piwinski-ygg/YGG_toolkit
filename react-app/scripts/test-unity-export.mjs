@@ -75,6 +75,10 @@ const scene = {
           alpha: { keys: [
             { t: 0, v: 1, out: 'linear' },
             { t: 1, v: 0.2, out: 'linear' }
+          ] },
+          tint: { keys: [
+            { t: 0, v: { r: 1, g: 1, b: 1 }, out: 'linear' },
+            { t: 1, v: { r: 1, g: 0.25, b: 0 }, out: 'linear' }
           ] }
         }
       }]
@@ -179,6 +183,8 @@ const checks = [
   [prefab.includes('m_AnchoredPosition: {x: 0, y: 0}'), 'Hero centered → anchored 0,0'],
   [anim.includes('m_AnchoredPosition.x'), 'anim has anchored x curve'],
   [anim.includes('attribute: m_Alpha'), 'anim has CanvasGroup alpha curve'],
+  [anim.includes('attribute: m_Color.g'), 'anim has tint color curve'],
+  [anim.includes('script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}'), 'tint curve bound to UI.Image script'],
   [anim.includes('path: Hero'), 'anim targets Hero path'],
   [/m_StopTime: 2\b/.test(anim), 'anim stop time = scene duration']
 ];
