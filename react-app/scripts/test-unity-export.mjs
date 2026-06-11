@@ -142,7 +142,8 @@ const expect = [
   'Assets/YggSceneStudio/Editor/YggScenePlayerEditor.cs',
   'Assets/YggSceneStudio/Runtime/Ygg.SceneStudio.Runtime.asmdef',
   'Assets/YggSceneStudio/Editor/Ygg.SceneStudio.Editor.asmdef',
-  'Assets/YggSceneStudio/Editor/YggPackageBootstrap.cs'
+  'Assets/YggSceneStudio/Editor/YggPackageBootstrap.cs',
+  'Assets/YggSceneStudio/Editor/YggSpineAutoWire.cs'
 ];
 let fail = 0;
 for (const p of expect) {
