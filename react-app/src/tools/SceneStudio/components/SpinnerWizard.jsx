@@ -21,8 +21,9 @@
 //
 // onCreate({ name, spinnerConfig, newAssets })
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DragNumberField } from './DragNumberField.jsx';
+import { resolveAssetFile } from '../engine/persist.js';
 import {
   generateNonWinningBoard,
   generateStrip,
@@ -34,6 +35,7 @@ import {
   defaultSpinnerEvents,
 } from '../engine/spinner/spinnerModel.js';
 import { makeBlurredSymbol } from '../engine/spinner/spinnerBlur.js';
+import { spineMatchScore, pickAnimName } from '../engine/spinner/symbolMatch.js';
 import { BoardGridEditor } from './SpinnerInspectorSections.jsx';
 
 const STEPS = ['grid', 'symbols', 'timing', 'review'];
@@ -130,16 +132,99 @@ function findBlurPair(staticAsset, pool) {
   );
 }
 
-/** Find a Spine asset whose name contains the symbol name (or vice-versa). */
+/** Find the best-matching Spine asset for a symbol name (or null). */
 function findSpineForSymbol(symName, spinePool) {
   if (!symName || !spinePool.length) return null;
-  const n = symName.toLowerCase();
-  return (
-    spinePool.find((a) => {
-      const sn = assetBaseName(a).toLowerCase();
-      return sn.includes(n) || n.includes(sn);
-    }) || null
-  );
+  let best = null;
+  let bestScore = 0;
+  for (const a of spinePool) {
+    const score = spineMatchScore(symName, assetBaseName(a));
+    if (score > bestScore) { bestScore = score; best = a; }
+  }
+  return best;
+}
+
+// ── Structure-driven detection ───────────────────────────────────────────────
+//
+// The canonical Yggdrasil layout the wizard targets:
+//
+//   <...>/08_Symbols/            any "NN_Symbols" / "Symbols" folder
+//     ├── StaticArt/             ← one PNG per symbol — the source of truth
+//     ├── Animations/            ← Spine land/win anims (optional)
+//     └── Blurred/               ← pre-made blur PNG per symbol (optional)
+//
+// Statics define the symbol set; Animations and Blurred only ever *match
+// against* static names. This replaces scoring every PNG in the project,
+// which over-matched badly on real projects.
+
+const isSymbolsSegment = (s) => /^(\d+[_ -])?symbols?$/i.test(s);
+const isStaticSegment  = (s) => /^static/i.test(s);
+const isBlurSegment    = (s) => /^blur/i.test(s);
+const isAnimSegment    = (s) => /^anim/i.test(s);
+
+/**
+ * Detect the symbols folder structure from asset paths.
+ * Returns null when no *Symbols folder exists in the pool, otherwise
+ * { rootLabel, statics, blurred, anims } where statics/blurred are PNG
+ * wizard-assets and anims are Spine wizard-assets, all under that root.
+ */
+function detectSymbolsStructure(pngPool, spinePool) {
+  // Group PNGs by their *Symbols root (path up to and incl. the Symbols segment)
+  const groups = new Map(); // rootKey → { rootLabel, statics, blurred, loose }
+  for (const a of pngPool) {
+    const segs = assetPathSegments(a);
+    const i = segs.findIndex(isSymbolsSegment);
+    if (i < 0) continue;
+    const rootKey = segs.slice(0, i + 1).join('/').toLowerCase();
+    if (!groups.has(rootKey))
+      groups.set(rootKey, { rootKey, rootLabel: segs[i], statics: [], blurred: [], loose: [] });
+    const g = groups.get(rootKey);
+    const sub = segs[i + 1]; // subfolder name, or the filename if PNG sits in root
+    const isFile = i + 1 === segs.length - 1;
+    if (!isFile && isStaticSegment(sub)) g.statics.push(a);
+    else if (!isFile && isBlurSegment(sub)) g.blurred.push(a);
+    else if (isFile) g.loose.push(a);
+    // PNGs in Animations/ are Spine atlas pages — ignore.
+  }
+  if (!groups.size) return null;
+
+  // Pick the root with the most statics (tie-break: most PNGs overall)
+  let best = null;
+  for (const g of groups.values()) {
+    const score = [g.statics.length, g.statics.length + g.blurred.length + g.loose.length];
+    const bestScore = best ? [best.statics.length, best.statics.length + best.blurred.length + best.loose.length] : [-1, -1];
+    if (score[0] > bestScore[0] || (score[0] === bestScore[0] && score[1] > bestScore[1])) best = g;
+  }
+  if (!best) return null;
+
+  // No StaticArt subfolder → PNGs sitting directly in the Symbols folder are
+  // the statics (minus obvious blur variants).
+  const statics = best.statics.length
+    ? best.statics
+    : best.loose.filter((a) => !isBlurVariant(a));
+  if (!statics.length) return null;
+
+  // Spine assets under the same root (prefer an Animations/ subfolder; fall
+  // back to anything under the root if there is none).
+  const spineUnderRoot = spinePool.filter((a) => {
+    const segs = assetPathSegments(a);
+    const i = segs.findIndex(isSymbolsSegment);
+    if (i < 0) return false;
+    return segs.slice(0, i + 1).join('/').toLowerCase() === best.rootKey;
+  });
+  const spineInAnimFolder = spineUnderRoot.filter((a) => {
+    const segs = assetPathSegments(a);
+    const i = segs.findIndex(isSymbolsSegment);
+    return segs.slice(i + 1, -1).some(isAnimSegment);
+  });
+  const anims = spineInAnimFolder.length ? spineInAnimFolder : spineUnderRoot;
+
+  return {
+    rootLabel: best.rootLabel,
+    statics: statics.slice().sort((a, b) => assetBaseName(a).localeCompare(assetBaseName(b))),
+    blurred: best.blurred,
+    anims,
+  };
 }
 
 /**
@@ -169,9 +254,75 @@ function buildCandidates(pool, filterText) {
   return scored; // may be empty — caller shows a hint
 }
 
+// ── Preview cells ────────────────────────────────────────────────────────────
+
+const isDirectUrl = (src) => /^(blob:|data:|https?:)/.test(String(src || ''));
+
+/** Small image preview that resolves project-relative paths via rootHandle. */
+function SymbolThumb({ label, asset, rootHandle }) {
+  const [url, setUrl] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let created = null;
+    setUrl(null);
+    setFailed(!asset?.src);
+    if (!asset?.src) return undefined;
+    const src = String(asset.src);
+    if (isDirectUrl(src)) { setUrl(src); return undefined; }
+    (async () => {
+      try {
+        const file = rootHandle ? await resolveAssetFile(src, rootHandle) : null;
+        if (!file) { if (alive) setFailed(true); return; }
+        created = URL.createObjectURL(file);
+        if (alive) setUrl(created);
+        else URL.revokeObjectURL(created);
+      } catch {
+        if (alive) setFailed(true);
+      }
+    })();
+    return () => {
+      alive = false;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [asset?.id, asset?.src, rootHandle]);
+
+  const missing = !asset || failed;
+  return (
+    <div
+      className={'spinner-thumb' + (missing ? ' spinner-thumb--missing' : '')}
+      title={asset ? `${label}: ${assetBaseName(asset)}` : `${label}: missing`}
+    >
+      <span className="spinner-thumb-box">
+        {url ? <img src={url} alt="" /> : missing ? '✕' : '…'}
+      </span>
+      <em>{label}</em>
+    </div>
+  );
+}
+
+/** Land/win cell: spine file + resolved animation name, or what's missing. */
+function AnimBadge({ label, anim, spinePool }) {
+  const spineA = anim?.assetId ? spinePool.find((a) => a.id === anim.assetId) : null;
+  const state = spineA && anim?.anim ? 'ok' : spineA ? 'warn' : 'missing';
+  const title =
+    state === 'ok' ? `${label}: ${assetBaseName(spineA)} → ${anim.anim}`
+    : state === 'warn' ? `${label}: ${assetBaseName(spineA)} — animation name not resolved`
+    : `${label}: no spine assigned`;
+  return (
+    <div className={'spinner-thumb spinner-thumb--anim spinner-thumb--' + state} title={title}>
+      <span className="spinner-thumb-box">
+        {state === 'ok' ? <small>{anim.anim}</small> : state === 'warn' ? '?' : '✕'}
+      </span>
+      <em>{label}</em>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
+export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate }) {
   const [step, setStep] = useState('grid');
 
   // Step 1 — grid
@@ -250,30 +401,85 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
 
   const validSymbols = symbols.filter((s) => s.name.trim());
 
-  // Candidates for the "fill from assets" button
-  const candidates    = buildCandidates(allPngAssets, assetFilter);
-  // True when no filter text AND the heuristic found nothing (score ≤ 0 for everything)
+  // ── Structure detection (NN_Symbols/StaticArt|Animations|Blurred) ─────────
+  // Statics define the symbol set; blurred + anims only match against them.
+  const structure = detectSymbolsStructure(allPngAssets, allSpineAssets);
+
+  // Candidates for the "fill from assets" button:
+  //   manual filter text → filtered pool (user override)
+  //   detected structure → statics folder ONLY
+  //   neither            → legacy name-score heuristic
+  const candidates =
+    assetFilter.trim() ? buildCandidates(allPngAssets, assetFilter)
+    : structure        ? structure.statics
+    : buildCandidates(allPngAssets, '');
+  // True when no filter text AND nothing was detected (no Symbols folder, score ≤ 0 everywhere)
   const noAutoDetect  = !assetFilter.trim() && candidates.length === 0 && allPngAssets.length > 0;
 
+  // Blur search order: detected Blurred folder first, then the whole pool.
+  const blurSearchPool = structure ? [...structure.blurred, ...allPngAssets] : allPngAssets;
+  // Anim search order: Spine assets from the symbols root's Animations folder
+  // first, then everything (a symbol with no in-root match stays unassigned —
+  // findSpineForSymbol matches by name, so unrelated spines don't leak in).
+  const animSearchPool = structure?.anims?.length ? structure.anims : allSpineAssets;
+
+  // ── Spine animation lists (read from the actual .json files) ─────────────
+  // assetId → string[] (animation names) | null (file unreadable).
+  const spineAnimsCacheRef = useRef(new Map());
+
+  const loadSpineAnims = useCallback(async (spineAsset) => {
+    if (!spineAsset) return null;
+    const cache = spineAnimsCacheRef.current;
+    if (cache.has(spineAsset.id)) return cache.get(spineAsset.id);
+    let names = null;
+    try {
+      const src = String(spineAsset.src || '');
+      let text = null;
+      if (isDirectUrl(src)) text = await (await fetch(src)).text();
+      else if (rootHandle) {
+        const file = await resolveAssetFile(src, rootHandle);
+        if (file) text = await file.text();
+      }
+      if (text) names = Object.keys(JSON.parse(text).animations || {});
+    } catch { /* unreadable → keep null, callers fall back to name guess */ }
+    cache.set(spineAsset.id, names);
+    return names;
+  }, [rootHandle]);
+
+  /** land/win entries for a symbol: real anim names when readable, guess otherwise. */
+  const resolveAnimsFor = useCallback(async (symName, spineA) => {
+    if (!spineA) return { landAnim: null, winAnim: null };
+    const names = await loadSpineAnims(spineA);
+    const entry = (kind) => {
+      const picked = names ? pickAnimName(names, kind, symName) : null;
+      // File unreadable → legacy guess; readable but no match → leave empty
+      // so the UI flags it instead of inventing a wrong key.
+      const anim = picked ?? (names ? '' : `${symName}_${kind}`);
+      return { kind: 'spine', assetId: spineA.id, anim };
+    };
+    return { landAnim: entry('land'), winAnim: entry('win') };
+  }, [loadSpineAnims]);
+
   // ── Auto-fill symbols ─────────────────────────────────────────────────────
-  const autoFillFromAssets = () => {
+  const autoFillFromAssets = async () => {
     if (!candidates.length) return;
     const nonBlurCandidates = candidates.filter((a) => !isBlurVariant(a));
-    setSymbols(
-      nonBlurCandidates.map((a) => {
+    const built = await Promise.all(
+      nonBlurCandidates.map(async (a) => {
         const symName   = assetBaseName(a);
-        const blurAsset = findBlurPair(a, allPngAssets);
-        const spineA    = findSpineForSymbol(symName, allSpineAssets);
+        const blurAsset = findBlurPair(a, blurSearchPool);
+        const spineA    = findSpineForSymbol(symName, animSearchPool);
+        const anims     = await resolveAnimsFor(symName, spineA);
         return {
           id: uid('sym'),
           name: symName,
           assetId: a.id,
           blurAssetId: blurAsset?.id || null,
-          landAnim: spineA ? { kind: 'spine', assetId: spineA.id, anim: `${symName}_land` } : null,
-          winAnim:  spineA ? { kind: 'spine', assetId: spineA.id, anim: `${symName}_win`  } : null,
+          ...anims,
         };
       })
     );
+    setSymbols(built);
   };
 
   // ── Auto-match blur counterparts ──────────────────────────────────────────
@@ -283,28 +489,66 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
         if (sym.blurAssetId) return sym;
         const staticA = allPngAssets.find((a) => a.id === sym.assetId);
         if (!staticA) return sym;
-        const blurA = findBlurPair(staticA, allPngAssets);
+        const blurA = findBlurPair(staticA, blurSearchPool);
         return blurA ? { ...sym, blurAssetId: blurA.id } : sym;
       })
     );
   };
 
   // ── Auto-match spine anims ────────────────────────────────────────────────
-  const autoMatchAnims = () => {
-    setSymbols((prev) =>
-      prev.map((sym) => {
+  const autoMatchAnims = async () => {
+    const updates = await Promise.all(
+      symbols.map(async (sym) => {
         const spineA =
           sym.landAnim?.assetId
             ? allSpineAssets.find((a) => a.id === sym.landAnim.assetId)
-            : findSpineForSymbol(sym.name, allSpineAssets);
-        if (!spineA) return sym;
+            : findSpineForSymbol(sym.name, animSearchPool);
+        if (!spineA) return null;
+        const anims = await resolveAnimsFor(sym.name, spineA);
+        return { symId: sym.id, anims };
+      })
+    );
+    setSymbols((prev) =>
+      prev.map((sym) => {
+        const upd = updates.find((u) => u?.symId === sym.id);
+        if (!upd) return sym;
         return {
           ...sym,
-          landAnim: sym.landAnim || { kind: 'spine', assetId: spineA.id, anim: `${sym.name}_land` },
-          winAnim:  sym.winAnim  || { kind: 'spine', assetId: spineA.id, anim: `${sym.name}_win`  },
+          landAnim: sym.landAnim?.anim ? sym.landAnim : upd.anims.landAnim,
+          winAnim:  sym.winAnim?.anim  ? sym.winAnim  : upd.anims.winAnim,
         };
       })
     );
+  };
+
+  // Manual spine pick in a land/win dropdown: assign the file immediately,
+  // then resolve the real animation name from it asynchronously.
+  const assignSpineAnim = (symId, kind, assetId) => {
+    const field = kind + 'Anim';
+    setSymbols((prev) =>
+      prev.map((s) =>
+        s.id === symId
+          ? { ...s, [field]: assetId ? { kind: 'spine', assetId, anim: '' } : null }
+          : s
+      )
+    );
+    if (!assetId) return;
+    const spineA = allSpineAssets.find((a) => a.id === assetId);
+    const symName = symbols.find((s) => s.id === symId)?.name || '';
+    loadSpineAnims(spineA).then((names) => {
+      const picked = names ? pickAnimName(names, kind, symName) : null;
+      const anim = picked ?? (names ? '' : `${symName}_${kind}`);
+      if (!anim) return;
+      setSymbols((prev) =>
+        prev.map((s) => {
+          if (s.id !== symId) return s;
+          const cur = s[field];
+          // Bail if the user re-picked or typed a name in the meantime.
+          if (!cur || cur.assetId !== assetId || cur.anim) return s;
+          return { ...s, [field]: { ...cur, anim } };
+        })
+      );
+    });
   };
 
   // ── Generate blur variants ────────────────────────────────────────────────
@@ -503,9 +747,18 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
                     </span>
                   </div>
 
+                  {structure && !assetFilter.trim() && (
+                    <div className="scene-spinner-meta" style={{ marginBottom: 6 }}>
+                      📁 <strong>{structure.rootLabel}</strong> detected —{' '}
+                      {structure.statics.length} static{structure.statics.length !== 1 ? 's' : ''}
+                      {' · '}{structure.blurred.length} blurred
+                      {' · '}{structure.anims.length} spine anim{structure.anims.length !== 1 ? 's' : ''}
+                    </div>
+                  )}
+
                   {noAutoDetect && (
                     <div className="scene-spinner-meta" style={{ color: 'var(--text-2)', marginBottom: 6 }}>
-                      Auto-detect found nothing — type a folder name above (e.g. <em>Symbols</em>, <em>Static</em>) to filter.
+                      No <em>Symbols</em> folder detected — type a folder name above (e.g. <em>Symbols</em>, <em>Static</em>) to filter.
                     </div>
                   )}
 
@@ -515,9 +768,14 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
                       className="scene-btn scene-btn--ghost"
                       onClick={autoFillFromAssets}
                       disabled={candidates.length === 0}
-                      title={candidates.length > 0 ? `Create ${candidates.length} symbol(s) from matching assets` : 'Type a folder name in the filter above'}
+                      title={
+                        candidates.length === 0 ? 'Type a folder name in the filter above'
+                        : structure && !assetFilter.trim()
+                          ? `Create ${candidates.length} symbol(s) from ${structure.rootLabel} statics, matching blur + anims by name`
+                          : `Create ${candidates.length} symbol(s) from matching assets`
+                      }
                     >
-                      ⬇ fill from assets ({candidates.length})
+                      ⬇ {structure && !assetFilter.trim() ? `fill from ${structure.rootLabel}` : 'fill from assets'} ({candidates.length})
                     </button>
                     <button type="button" className="scene-btn scene-btn--ghost" onClick={autoMatchBlur}
                       title="Find blur counterparts by filename suffix or Blur subfolder">
@@ -576,20 +834,20 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
                       <button type="button" className="scene-icon-btn" onClick={() => removeSymbol(i)} title="Remove">✕</button>
                     </div>
 
+                    <div className="spinner-sym-previews">
+                      <SymbolThumb label="static" asset={allPngAssets.find((a) => a.id === sym.assetId) || null} rootHandle={rootHandle} />
+                      <SymbolThumb label="blur" asset={allPngAssets.find((a) => a.id === sym.blurAssetId) || null} rootHandle={rootHandle} />
+                      <AnimBadge label="land" anim={sym.landAnim} spinePool={allSpineAssets} />
+                      <AnimBadge label="win" anim={sym.winAnim} spinePool={allSpineAssets} />
+                    </div>
+
                     {allSpineAssets.length > 0 && (
                       <div className="spinner-sym-anim-row">
                         <span className="spinner-sym-anim-label">land</span>
                         <select
                           className="spinner-sym-asset spinner-sym-asset--sm"
                           value={sym.landAnim?.assetId || ''}
-                          onChange={(e) => {
-                            const assetId = e.target.value || null;
-                            patchSymbol(i, {
-                              landAnim: assetId
-                                ? { kind: 'spine', assetId, anim: sym.landAnim?.anim || `${sym.name}_land` }
-                                : null,
-                            });
-                          }}
+                          onChange={(e) => assignSpineAnim(sym.id, 'land', e.target.value || null)}
                         >
                           <option value="">— spine —</option>
                           {allSpineAssets.map((a) => (
@@ -610,14 +868,7 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
                         <select
                           className="spinner-sym-asset spinner-sym-asset--sm"
                           value={sym.winAnim?.assetId || ''}
-                          onChange={(e) => {
-                            const assetId = e.target.value || null;
-                            patchSymbol(i, {
-                              winAnim: assetId
-                                ? { kind: 'spine', assetId, anim: sym.winAnim?.anim || `${sym.name}_win` }
-                                : null,
-                            });
-                          }}
+                          onChange={(e) => assignSpineAnim(sym.id, 'win', e.target.value || null)}
                         >
                           <option value="">— spine —</option>
                           {allSpineAssets.map((a) => (
@@ -646,7 +897,7 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
               {symbolsNeedingBlur > 0 && (
                 <div className="spinner-blur-gen">
                   <div className="scene-field-group-sub">
-                    Generate blur ({symbolsNeedingBlur} symbol{symbolsNeedingBlur !== 1 ? 's' : ''} without blur)
+                    {symbolsNeedingBlur} symbol{symbolsNeedingBlur !== 1 ? 's' : ''} without a blur PNG — generate the missing ones
                   </div>
                   <div className="spinner-wizard-row">
                     <DragNumberField label="sigma px" value={blurSigma} step={1} min={1} max={64}
@@ -660,7 +911,7 @@ export function SpinnerWizard({ scene, assetItems, onClose, onCreate }) {
                     onClick={generateBlurs}
                     disabled={blurGenerating}
                   >
-                    {blurGenerating ? '⏳ generating…' : '⚡ generate blur variants'}
+                    {blurGenerating ? '⏳ generating…' : `⚡ fill missing blurs (${symbolsNeedingBlur})`}
                   </button>
                 </div>
               )}

@@ -1,5 +1,26 @@
 # Spinner — Phase 5 of Scene Studio
 
+> Status (2026-06-12): **M0–M4 and M6 shipped**; M5 shipped except the
+> procedural `pop` fallback. The wizard shipped as **4 steps** and its
+> auto-detect was reworked to structure-driven detection + fuzzy
+> spine/anim matching (`engine/spinner/symbolMatch.js`, see §4) with a
+> per-symbol static/blur/land/win preview strip.
+>
+> **Unity feedback round (2026-06-12) — next phase is specced in
+> `next phase spinner unity.md` (repo root).** Headlines:
+> ① BUG: land/win Spine overlays never render in the WEB preview —
+> `pixiApp.js` never provides `deps.createSpineContainer` to
+> `spinnerRuntime.js`, so the overlay pool is always empty.
+> ② Unity prefab should bake the reel hierarchy (pool-style cells,
+> statics/blurred/anims layered under separate parents for draw calls,
+> RectMask2D for UI / SpriteMask + SpriteRenderer for world) instead of
+> runtime-only `Build()` — the spinner reads as an empty GO in the editor.
+> ③ Wanted: a Spine-Timeline-style `YggSpinnerTrack` with action clips,
+> scrubbable in edit mode; ④ Scene Studio spine clips should expose the
+> Spine Animation State Clip fields (mix, hold previous, clip-in, alpha…)
+> for 1:1 export; ⑤ Timeline auto-build should be opt-in and refuse to
+> build spine-less timelines silently.
+
 Deterministic slot-machine reel object for Scene Studio ("pixie engine"), replacing
 the old `SlotMachineTool` art tool. Cross-target by design: the core model is a pure
 JSON spec + evaluator with **zero rendering dependencies**, rendered first by Pixi
@@ -159,6 +180,16 @@ clip.spinner = {  // action-specific, all optional
 
 ## §4 Editor UX
 
+> **As-built (2026-06-12):** the wizard shipped as 4 steps — Grid → Symbols →
+> Timing → Review. Symbol auto-detect is **structure-driven**: it finds the
+> `NN_Symbols` folder in the scanned project, takes **`StaticArt/` PNGs as the
+> symbol definitions** (one symbol per static), matches land/win Spine anims
+> from the adjacent `Animations/` folder by name, matches blur PNGs from
+> `Blurred/` by static stem (`h1` ↔ `Blurred/h1` / `h1_blur`), and offers a
+> "⚡ fill missing blurs" button (WASM motion-blur) for symbols without a blur
+> pair. A manual filter + the legacy name-score heuristic remain as fallback
+> when no Symbols folder exists.
+
 - **Setup wizard** (`SpinnerWizard.jsx`, opened from "+ spinner" in the toolbar /
   asset browser): ① symbols (drop PNGs or pick existing assets; per-symbol land/win
   Spine pickers, `pop` fallback) → ② grid (reels × rows, cell size, spacing, live
@@ -194,32 +225,52 @@ ways functions + the BoardGridEditor highlight.
 
 ### Milestone A — Scene Studio (web)
 
-- [ ] **M0 — cleanup (½d)**: port `makeBlurWasm` (old `SlotMachineTool.jsx:36-90`)
+- [x] **M0 — cleanup (½d)**: port `makeBlurWasm` (old `SlotMachineTool.jsx:36-90`)
       → `engine/spinner/spinnerBlur.js`; delete `SlotMachineTool.jsx`; scrub
       `registry.js`, `components.css` `.sm-*`, `CLAUDE.md`, `TOOL_REVIEW.md`.
       Legacy `index.html` block stays (reference golden rule).
-      *Verify: build clean; grep clean.*
-- [ ] **M1 — pure core (1–2d)**: `spinnerModel.js`, `spinnerEval.js` + node unit
+      *Verify: build clean; grep clean.* **DONE.**
+- [x] **M1 — pure core (1–2d)**: `spinnerModel.js`, `spinnerEval.js` + node unit
       tests. *Verify: ways truth table; non-winning generator over 1000 seeds;
       |Δs|,|Δv| < 1e-9 at clip boundaries incl. truncated startSpin; stop lands
       exact target board; evaluate(t) order-independent; blurMix monotone.*
-- [ ] **M2 — Pixi rendering (2d)**: `spinnerRuntime.js`; `pixiApp.js` build branch,
+      **DONE** (`spinnerEval.test.js`).
+- [x] **M2 — Pixi rendering (2d)**: `spinnerRuntime.js`; `pixiApp.js` build branch,
       `applyFlowAtTime` dispatch, structural hash + `rev`. *Verify: hand-authored
       spinner JSON scrubs identically in both directions; selection handles work.*
-- [ ] **M3 — timeline + inspector (2d)**: clip `action` model, action picker,
+      **DONE.**
+- [x] **M3 — timeline + inspector (2d)**: clip `action` model, action picker,
       contextual "+ clip" defaults, `SpinnerSection` / `SpinnerClipSection` /
       `BoardGridEditor`. *Verify: edited stop board lands; staggers cascade;
-      save/reload roundtrips.*
-- [ ] **M4 — wizard (2d)**: 6-step wizard incl. blur generation + fallback.
-      *Verify: fresh scene → wizard → play → full spin cycle with blur crossfade
-      and non-winning initial board.*
-- [ ] **M5 — land/win events (1–2d)**: event windows, Spine overlay pool +
-      procedural pop, per-reel land anims, win anims on `winCells`.
-      *Verify: scrub into mid-win-window → pose matches `stateT`.*
+      save/reload roundtrips.* **DONE** (`SpinnerInspectorSections.jsx`).
+- [x] **M4 — wizard (2d)**: shipped as **4 steps** (Grid → Symbols → Timing →
+      Review) instead of the 6 designed in §4; includes blur generation.
+      **DONE, with caveat**: symbol auto-detect used fuzzy name scoring over the
+      whole project pool and over-matched — reworked 2026-06-12 to
+      structure-driven detection (see §4 status note).
+- [x] **M5 — land/win events (1–2d)**: event windows, Spine overlay pool,
+      per-reel land anims, win anims on `winCells`. **DONE except the
+      procedural `pop` fallback** — symbols whose land/win anim is not Spine
+      currently get nothing. *Remaining: `pop` scale-punch driven by `stateT`.*
 
 ### Milestone B — Unity export
 
-- [ ] **M6 (3–4d)**: symbol/blur textures under `Art/Spinner/`; `SpinnerConfig` +
+- [x] **M6 (3–4d)** — **DONE** (`unity/csharp.js`: `YggSpinner.cs` C# port,
+      `spinnerCues` in the canvas descriptor, auto-wired components).
+      **2026-06-12 fixes**: the YggSpinner component (configJson + clipsJson +
+      symbolBindings with sprite refs) is now serialized directly into the
+      prefab (`prefab.js#spinnerYaml`) — previously the spinner exported as an
+      empty GameObject and bindings were never assigned. Timeline-dependent
+      editor code moved to a `defineConstraints`-gated
+      `Ygg.SceneStudio.Editor.Timeline` asmdef so the package-install dialog
+      can't be killed by a missing `Unity.Timeline` reference; manual re-prompt
+      via *Ygg ▸ Scene Studio ▸ Install Required Packages*; Timelines now
+      auto-build after import/package install (`YggTimelineAutoBuild`).
+      Spinner reels are UI Images — **UI variant only** (warning added).
+      **Phase 2 (pending)**: import testing surfaced rework items — prefab-baked
+      layered reel hierarchy, spinner Timeline track, opt-in auto-build, web
+      overlay bug — see `next phase spinner unity.md` (repo root).
+      Original spec: symbol/blur textures under `Art/Spinner/`; `SpinnerConfig` +
       clip actions serialized as `spinnerCues` in the canvas descriptor (motion is
       **not** baked into `.anim` — evaluated at runtime from the same math);
       generated `YggSpinner.cs` = direct C# port of `spinnerEval.js` (same N=256

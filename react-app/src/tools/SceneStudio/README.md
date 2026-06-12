@@ -2,13 +2,41 @@
 
 See `react-app/SCENE_STUDIO.md` (root of react-app) for the full design.
 Phase 5 (deterministic slot-machine **Spinner** object) is designed in
-`react-app/SPINNER.md` — milestones M0–M6, in progress.
+`react-app/SPINNER.md`.
 
-## Status (2026-06-02)
+## Status (2026-06-12)
 
-Phases 1–3.7 land (skeleton + Spine/video + timeline/flow + full
-keyframe-channel animation). Phase 4 (exporters) is next. The full
-as-built record of the animation system is **§20** in
+Phases 1–3.7 landed (skeleton + Spine/video + timeline/flow + full
+keyframe-channel animation), plus since then:
+
+- **Phase 4.2 — Unity `.unitypackage` export** (DONE): `unity/` module —
+  tar writer, GUIDs, `.meta` files, prefab (SkeletonGraphic/UI-Image),
+  Unity Timeline translation with tint curves, generated C# player,
+  spine auto-wiring on import. UI: `UnityExportDialog.jsx`.
+- **Phase 5 — Spinner** (DONE except procedural `pop` land/win
+  fallback): pure-core eval + Pixi runtime + timeline actions +
+  4-step setup wizard (structure-driven symbol detection, fuzzy
+  spine/anim matching, preview strip) + Unity C# port (`YggSpinner.cs`
+  serialized into the prefab). Status detail in `react-app/SPINNER.md`.
+  **Phase 5.2 pending** (Unity import feedback, specced in
+  `next phase spinner unity.md` at repo root): web land/win overlay BUG
+  (`pixiApp.js` never passes `createSpineContainer` to the spinner
+  runtime), prefab-baked layered reel hierarchy + masks, Spine-style
+  `YggSpinnerTrack` on Unity Timeline, spine-clip settings parity,
+  opt-in timeline auto-build.
+- **P5 path animation** (DONE): position-as-spline mode with on-scene
+  handles, arc-length `progress(t)` curve, bake-to-keys on export.
+  See `react-app/SCENE_STUDIO_PHASE_STATUS.md` (sessions 2–5).
+
+**Still NOT done — Phase 4 web exporters**: no `exporter.js` /
+`ExportPanel` — no hero-frame PNG, PNG sequence, or WebM export from
+the browser. Also outstanding: `pixi-filters` / `effects[]` wiring
+(Phase 2 carryover), `pngSequence` import + AnimatedSprite rendering,
+the Pixi v8 rapid-rebuild crash (§20.10, contained by
+`PixiErrorBoundary`), `loop` marker type, and deleting the unused
+`LayerListPanel.jsx`.
+
+The full as-built record of the animation system is **§20** in
 `react-app/SCENE_STUDIO.md`; **§18** is the older phase audit and
 **§19** is the original Phase 3.7 proposal (superseded by §20).
 

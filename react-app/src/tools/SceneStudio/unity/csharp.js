@@ -19,11 +19,19 @@ export const SCRIPT_PATHS = {
   player: 'Assets/YggSceneStudio/Runtime/YggScenePlayer.cs',
   spinner: 'Assets/YggSceneStudio/Runtime/YggSpinner.cs',
   playerEditor: 'Assets/YggSceneStudio/Editor/YggScenePlayerEditor.cs',
-  timelineBuilder: 'Assets/YggSceneStudio/Editor/YggSceneTimelineBuilder.cs',
+  // Timeline-dependent code lives in its OWN assembly, gated by a
+  // defineConstraint, so the rest of the editor tooling (package bootstrap,
+  // spine auto-wire, inspector) compiles even when com.unity.timeline is
+  // absent. A missing by-name asmdef reference is a hard compile error —
+  // referencing Unity.Timeline from the main editor asmdef used to kill the
+  // whole assembly (and the install dialog with it) on projects without
+  // the package.
+  timelineBuilder: 'Assets/YggSceneStudio/Editor/Timeline/YggSceneTimelineBuilder.cs',
   packageBootstrap: 'Assets/YggSceneStudio/Editor/YggPackageBootstrap.cs',
   spineAutoWire: 'Assets/YggSceneStudio/Editor/YggSpineAutoWire.cs',
   runtimeAsmdef: 'Assets/YggSceneStudio/Runtime/Ygg.SceneStudio.Runtime.asmdef',
-  editorAsmdef: 'Assets/YggSceneStudio/Editor/Ygg.SceneStudio.Editor.asmdef'
+  editorAsmdef: 'Assets/YggSceneStudio/Editor/Ygg.SceneStudio.Editor.asmdef',
+  timelineAsmdef: 'Assets/YggSceneStudio/Editor/Timeline/Ygg.SceneStudio.Editor.Timeline.asmdef'
 };
 
 /**
@@ -52,7 +60,12 @@ namespace Ygg.SceneStudio
             "https://github.com/EsotericSoftware/spine-runtimes.git?path=spine-unity/Modules/com.esotericsoftware.spine.timeline#4.2";
 
         [InitializeOnLoadMethod]
-        static void EnsurePackages()
+        static void EnsurePackages() { Prompt(false); }
+
+        [MenuItem("Ygg/Scene Studio/Install Required Packages\\u2026")]
+        static void InstallMenu() { Prompt(true); }
+
+        static void Prompt(bool manual)
         {
             var missing = new List<string>();
             var missingNames = new List<string>();
@@ -68,9 +81,22 @@ namespace Ygg.SceneStudio
                 missing.Add(SpineTimelinePackage);
                 missingNames.Add("Spine Timeline extension (com.esotericsoftware.spine.timeline @4.2)");
             }
-            if (missing.Count == 0) return;
-            if (SessionState.GetBool(SessionKey, false)) return;
-            SessionState.SetBool(SessionKey, true);
+            if (missing.Count == 0)
+            {
+                if (manual) EditorUtility.DisplayDialog("YGG Scene Studio", "All required packages are installed.", "OK");
+                return;
+            }
+            if (!manual)
+            {
+                // Auto-prompt once per editor session; always re-runnable from
+                // Ygg > Scene Studio > Install Required Packages.
+                if (SessionState.GetBool(SessionKey, false))
+                {
+                    Debug.Log("[Ygg] Packages still missing (" + string.Join(", ", missingNames) + ") - use Ygg > Scene Studio > Install Required Packages\\u2026");
+                    return;
+                }
+                SessionState.SetBool(SessionKey, true);
+            }
 
             EditorApplication.delayCall += () =>
             {
@@ -121,8 +147,33 @@ export function runtimeAsmdefSource() {
 }
 
 export function editorAsmdefSource() {
+  // No Unity.Timeline reference and no versionDefines here: this assembly
+  // must ALWAYS compile (it hosts the package-install bootstrap). Dropping
+  // the versionDefine also keeps a stale pre-split YggSceneTimelineBuilder.cs
+  // (old package versions placed it in this folder) compiling as its
+  // !YGG_HAS_TIMELINE stub instead of erroring.
   return JSON.stringify({
     name: 'Ygg.SceneStudio.Editor',
+    rootNamespace: 'Ygg.SceneStudio',
+    references: ['Ygg.SceneStudio.Runtime'],
+    includePlatforms: ['Editor'],
+    excludePlatforms: [],
+    allowUnsafeCode: false,
+    overrideReferences: false,
+    precompiledReferences: [],
+    autoReferenced: true,
+    defineConstraints: [],
+    versionDefines: [],
+    noEngineReferences: false
+  }, null, 2);
+}
+
+export function timelineAsmdefSource() {
+  // Compiled ONLY when com.unity.timeline is installed: the versionDefine
+  // provides YGG_HAS_TIMELINE and the defineConstraint excludes the whole
+  // assembly (reference checks included) when it is missing.
+  return JSON.stringify({
+    name: 'Ygg.SceneStudio.Editor.Timeline',
     rootNamespace: 'Ygg.SceneStudio',
     references: ['Ygg.SceneStudio.Runtime', 'Unity.Timeline'],
     includePlatforms: ['Editor'],
@@ -131,7 +182,7 @@ export function editorAsmdefSource() {
     overrideReferences: false,
     precompiledReferences: [],
     autoReferenced: true,
-    defineConstraints: [],
+    defineConstraints: ['YGG_HAS_TIMELINE'],
     versionDefines: [
       { name: 'com.unity.timeline', expression: '', define: 'YGG_HAS_TIMELINE' }
     ],
@@ -198,7 +249,9 @@ namespace Ygg.SceneStudio
                 if (child == null) { Debug.LogWarning($"[YggScenePlayer] spinner target not found: {cue.target}"); continue; }
                 var spinner = child.GetComponent<YggSpinner>();
                 if (spinner == null) spinner = child.gameObject.AddComponent<YggSpinner>();
-                spinner.Configure(cue.configJson, cue.clips);
+                // Newer prefabs ship the spinner pre-configured (serialized
+                // configJson + bindings) — only configure legacy placeholders.
+                if (!spinner.IsConfigured) spinner.Configure(cue.configJson, cue.clips);
             }
         }
 
@@ -525,6 +578,8 @@ namespace Ygg.SceneStudio
 
 export function scenePlayerEditorSource() {
   return `// Auto-generated by YGG Toolkit Scene Studio.
+using System;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 
@@ -535,6 +590,13 @@ namespace Ygg.SceneStudio
     // "Editor" namespace would otherwise shadow UnityEditor.Editor (CS0118).
     public class YggScenePlayerEditor : UnityEditor.Editor
     {
+        // The builder lives in Ygg.SceneStudio.Editor.Timeline, which only
+        // compiles when com.unity.timeline is installed — resolve it
+        // reflectively so this assembly never references it directly.
+        static MethodInfo TimelineBuild =>
+            Type.GetType("Ygg.SceneStudio.YggSceneTimelineBuilder, Ygg.SceneStudio.Editor.Timeline")
+                ?.GetMethod("Build", new[] { typeof(YggScenePlayer) });
+
         public override void OnInspectorGUI()
         {
             DrawDefaultInspector();
@@ -545,10 +607,14 @@ namespace Ygg.SceneStudio
             {
                 YggSpineAutoWire.Wire(player, out _);
             }
-            if (GUILayout.Button("Build Unity Timeline from baked clip"))
+            var build = TimelineBuild;
+            using (new EditorGUI.DisabledScope(build == null))
             {
-                YggSceneTimelineBuilder.Build(player);
+                if (GUILayout.Button("Build Unity Timeline from baked clip"))
+                    build.Invoke(null, new object[] { player });
             }
+            if (build == null)
+                EditorGUILayout.HelpBox("Unity Timeline package not installed - use Ygg > Scene Studio > Install Required Packages. \\u25B6 Play works without it (direct clip sampling).", MessageType.Info);
 
             using (new EditorGUI.DisabledScope(!Application.isPlaying))
             {
@@ -575,24 +641,10 @@ export function timelineBuilderSource() {
 // as needed); otherwise the cues stay on YggScenePlayer as a runtime
 // fallback.
 //
-// Compiles to a stub when the com.unity.timeline package is missing
-// (YGG_HAS_TIMELINE comes from the asmdef versionDefines) so importing the
-// package never breaks the project — ▶ Play then samples the baked clip
-// directly instead of driving a PlayableDirector.
-#if !YGG_HAS_TIMELINE
-using UnityEngine;
-
-namespace Ygg.SceneStudio
-{
-    public static class YggSceneTimelineBuilder
-    {
-        public static void Build(YggScenePlayer player)
-        {
-            Debug.LogWarning("[Ygg] The com.unity.timeline package is not installed — add it via Package Manager to build a Timeline. ▶ Play works without it (direct clip sampling).");
-        }
-    }
-}
-#else
+// This file lives in the Ygg.SceneStudio.Editor.Timeline assembly, which is
+// excluded from compilation entirely (defineConstraints) when the
+// com.unity.timeline package is missing — importing the package never
+// breaks the project; ▶ Play then samples the baked clip directly.
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -785,8 +837,110 @@ namespace Ygg.SceneStudio
             if (p != null) p.floatValue = value;
         }
     }
+
+    /// <summary>
+    /// Builds Timelines automatically: once per session on load (covers the
+    /// first compile of this assembly — i.e. right after com.unity.timeline
+    /// is installed) and for every imported Ygg prefab afterwards. Retries a
+    /// few editor ticks so spine auto-wiring can finish first.
+    /// </summary>
+    static class YggTimelineAutoBuild
+    {
+        class ImportHook : AssetPostprocessor
+        {
+            static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
+            {
+                var prefabs = new List<string>();
+                foreach (var p in imported)
+                    if (p.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase)) prefabs.Add(p);
+                if (prefabs.Count > 0) Schedule(prefabs, 8);
+            }
+        }
+
+        [InitializeOnLoadMethod]
+        static void SessionSweep()
+        {
+            if (SessionState.GetBool("Ygg.Timeline.AutoBuilt", false)) return;
+            SessionState.SetBool("Ygg.Timeline.AutoBuilt", true);
+            EditorApplication.delayCall += () =>
+            {
+                var prefabs = new List<string>();
+                foreach (var guid in AssetDatabase.FindAssets("t:Prefab"))
+                {
+                    var path = AssetDatabase.GUIDToAssetPath(guid);
+                    if (path.StartsWith("Assets/")) prefabs.Add(path);
+                }
+                Schedule(prefabs, 8);
+            };
+        }
+
+        static void Schedule(List<string> prefabPaths, int retries)
+        {
+            EditorApplication.delayCall += () =>
+            {
+                if (EditorApplication.isCompiling || EditorApplication.isUpdating)
+                {
+                    if (retries > 0) Schedule(prefabPaths, retries - 1);
+                    return;
+                }
+                var remaining = new List<string>();
+                foreach (var path in prefabPaths)
+                {
+                    var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
+                    var player = go != null ? go.GetComponentInChildren<YggScenePlayer>() : null;
+                    if (player == null) continue;
+                    var director = player.director != null ? player.director : player.GetComponent<PlayableDirector>();
+                    if (director == null || director.playableAsset != null) continue;
+                    // Spine cues need wired SkeletonDataAssets for real Spine
+                    // tracks — wait for YggSpineAutoWire when they're missing.
+                    if (player.spineCues != null && player.spineCues.Count > 0 && !SpineWired(player))
+                    {
+                        remaining.Add(path);
+                        continue;
+                    }
+                    try { BuildForPrefab(path); }
+                    catch (Exception e) { Debug.LogWarning($"[Ygg] Timeline auto-build failed for {path}: {e.Message}"); }
+                }
+                if (remaining.Count > 0 && retries > 0) Schedule(remaining, retries - 1);
+            };
+        }
+
+        static bool SpineWired(YggScenePlayer player)
+        {
+            foreach (var cue in player.spineCues)
+            {
+                var child = string.IsNullOrEmpty(cue.target) ? player.transform : player.transform.Find(cue.target);
+                if (child == null) continue;
+                foreach (var comp in child.GetComponents<MonoBehaviour>())
+                {
+                    if (comp == null) continue;
+                    var fn = comp.GetType().FullName;
+                    if (fn != "Spine.Unity.SkeletonGraphic" && fn != "Spine.Unity.SkeletonAnimation") continue;
+                    var data = new SerializedObject(comp).FindProperty("skeletonDataAsset")?.objectReferenceValue;
+                    if (data == null) return false;
+                }
+            }
+            return true;
+        }
+
+        static void BuildForPrefab(string path)
+        {
+            var root = PrefabUtility.LoadPrefabContents(path);
+            try
+            {
+                var player = root.GetComponentInChildren<YggScenePlayer>();
+                if (player == null) return;
+                YggSceneTimelineBuilder.Build(player);
+                PrefabUtility.SaveAsPrefabAsset(root, path);
+                Debug.Log($"[Ygg] Timeline auto-built for {path}");
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+    }
 }
-#endif
 `;
 }
 
@@ -856,8 +1010,14 @@ namespace Ygg.SceneStudio
         public Sprite staticSprite, blurSprite;
     }
 
+    [Serializable] class SpinnerClipList { public SpinnerClipData[] clips; }
+
     public class YggSpinner : MonoBehaviour
     {
+        // Serialized by the exporter directly into the prefab — the component
+        // self-configures on Awake, no YggScenePlayer needed for setup.
+        [TextArea(2, 6)] public string configJson;
+        [TextArea(2, 6)] public string clipsJson;
         public SpinnerSymbolBinding[] symbolBindings;
 
         SpinnerConfigData _cfg;
@@ -867,6 +1027,8 @@ namespace Ygg.SceneStudio
         struct CellView { public RectTransform rt; public Image staticImg, blurImg; public string symId; }
         List<CellView>[] _reelCells;
 
+        public bool IsConfigured => _cfg != null;
+
         public void Configure(string cfgJson, SpinnerClipData[] clips)
         {
             if (!string.IsNullOrEmpty(cfgJson))
@@ -874,9 +1036,23 @@ namespace Ygg.SceneStudio
             if (_cfg == null) return;
             _resolved = ResolveTrack(_cfg, clips);
             if (!_built) Build();
+            Evaluate(0f);
         }
 
-        void Awake() { }
+        /// Configure from the serialized prefab fields (idempotent).
+        public void EnsureConfigured()
+        {
+            if (_cfg != null || string.IsNullOrEmpty(configJson)) return;
+            SpinnerClipData[] parsed = null;
+            if (!string.IsNullOrEmpty(clipsJson))
+            {
+                try { parsed = JsonUtility.FromJson<SpinnerClipList>(clipsJson)?.clips; }
+                catch (Exception e) { Debug.LogWarning("[YggSpinner] clipsJson parse failed: " + e.Message, this); }
+            }
+            Configure(configJson, parsed);
+        }
+
+        void Awake() { EnsureConfigured(); }
 
         public void Evaluate(float t)
         {

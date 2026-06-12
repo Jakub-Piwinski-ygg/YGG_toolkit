@@ -163,7 +163,7 @@ flat tool column without search.
 ## PRIORITY RANKING (Jira-style)
 
 ### P0 — do first (blocks value or compounds daily)
-1. **Scene Studio: ship Phase 4 export** (PNG hero / PNG sequence / WebM) + **Phase 4.2 Unity package export** (scaffolded `.unitypackage` with import-correct `.meta` files, Unity Timeline translation, per-canvas prefab in SkeletonGraphic/UI-Image or SkeletonAnimation/SpriteRenderer variants, generated play-test MonoBehaviour — full spec in Focus area 1) + fix or properly contain the Pixi v8 crash. The flagship tool currently can't deliver output.
+1. **Scene Studio: ship Phase 4 export** (PNG hero / PNG sequence / WebM) + fix or properly contain the Pixi v8 crash. ~~Phase 4.2 Unity package export~~ — **SHIPPED 2026-06-04..12** (`SceneStudio/unity/`: `.unitypackage` with `.meta` files, Unity Timeline translation, SkeletonGraphic prefab, generated C# player + `YggSpinner.cs`). Browser-side exports remain the gap. **Spinner Unity phase 2** queued from import testing — see `next phase spinner unity.md` (prefab-baked reel hierarchy, spinner Timeline track, spine-clip parity, opt-in auto-build, web land/win overlay bug).
 2. **Art Tools shared infra**: extract `makeFeatherMask()` / `scaleImageWasm()` / `canvasToBlob()` utils + add batch mode to the 7 single-file tools. Small effort, multiplies across 13 tools.
 3. **Asset Checker: rule presets + auto-fix suggestions** — turns a reporter into a pipeline tool teams act on.
 

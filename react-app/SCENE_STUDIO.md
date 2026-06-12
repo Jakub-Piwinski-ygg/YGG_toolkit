@@ -3,13 +3,17 @@
 > Status: **Phases 1–3.7 landed** (skeleton + Spine/video + timeline/flow
 > + full keyframe-channel animation). Phase 3.7 grew well past its
 > original scope across rounds 4–6 — see **§20** for the as-built record.
-> Next: Phase 4 (exporters + polish + pixi-filters carryover).
+> Since the §18 audit, **Phase 4.2 (Unity `.unitypackage` export) and
+> Phase 5 (Spinner, `SPINNER.md`) have also shipped**, plus per-key
+> tangent-model keyframes and path-mode position animation
+> (`SCENE_STUDIO_PHASE_STATUS.md`). **Phase 4 web exporters (hero PNG /
+> PNG sequence / WebM) remain NOT started**, as do pixi-filters wiring,
+> `pngSequence` rendering, and the `loop` marker.
 > GlowForge is no longer part of Scene Studio — it will ship as its own
 > top-level Art Tool.
-> Branch: `feat/templates-spine-export-and-repo-browser-merge`
-> (Scene Studio currently rides along on this branch instead of its own
-> `feat/scene-studio` — the originally-proposed branch was never cut).
-> Last updated: 2026-06-02.
+> Branch: work continues on `main` (the originally-proposed
+> `feat/scene-studio` branch was never cut).
+> Last updated: 2026-06-12.
 >
 > **Read order for the animation system:** §19 is the original Phase 3.7
 > *design proposal* (per-property channels, single shared key per vec2).

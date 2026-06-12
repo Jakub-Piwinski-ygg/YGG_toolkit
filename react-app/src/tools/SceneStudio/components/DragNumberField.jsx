@@ -8,13 +8,19 @@
 // The drag delta is multiplied by `step` to derive the value change. Hold
 // Shift while dragging for 10× sensitivity, Alt for 0.1×.
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 
 const DRAG_THRESHOLD = 3; // px movement before we commit to "scrub" mode
 
 export function DragNumberField({ label, value, step = 1, suffix, min, max, onChange }) {
   const inputRef = useRef(null);
   const stateRef = useRef({ active: false, scrubbing: false, startX: 0, startValue: 0 });
+  // While the field is focused the user types into this local string; the
+  // input always renders it verbatim, so the parent's clamped state can't
+  // rewrite "1" to the minimum mid-way through typing "120". The parent
+  // still receives clamped live values; blur / Enter commits, Esc reverts.
+  const [editText, setEditText] = useState(null); // null = not editing
+  const preEditRef = useRef(0);                   // value to restore on Esc
 
   const clamp = (v) => {
     if (typeof min === 'number') v = Math.max(min, v);
@@ -65,6 +71,17 @@ export function DragNumberField({ label, value, step = 1, suffix, min, max, onCh
 
   const display = Number.isFinite(value) ? Number(value.toFixed(3)) : 0;
 
+  const cancelRef = useRef(false); // Esc pressed — blur must not re-commit
+
+  const commitEdit = () => {
+    if (!cancelRef.current && editText !== null) {
+      const v = parseFloat(editText);
+      if (Number.isFinite(v)) onChange(clamp(v));
+    }
+    cancelRef.current = false;
+    setEditText(null);
+  };
+
   return (
     <label className="scene-field scene-field--inline scene-field--scrub">
       <span
@@ -78,11 +95,26 @@ export function DragNumberField({ label, value, step = 1, suffix, min, max, onCh
         ref={inputRef}
         type="number"
         step={step}
-        value={display}
+        value={editText !== null ? editText : display}
         onMouseDown={onMouseDown}
+        onFocus={() => {
+          preEditRef.current = display;
+          setEditText(String(display));
+        }}
         onChange={(e) => {
+          setEditText(e.target.value);
+          // Parent state stays valid (clamped); the raw text stays local.
           const v = parseFloat(e.target.value);
           if (Number.isFinite(v)) onChange(clamp(v));
+        }}
+        onBlur={commitEdit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') inputRef.current?.blur();
+          else if (e.key === 'Escape') {
+            cancelRef.current = true;
+            onChange(clamp(preEditRef.current));
+            inputRef.current?.blur();
+          }
         }}
       />
       {suffix && <em className="scene-field-suffix">{suffix}</em>}

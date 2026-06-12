@@ -286,6 +286,33 @@ function skeletonAnimationYaml(id, goId, scriptGuid, spine) {
   timeScale: 1`;
 }
 
+/** Escape a JSON string for a single-quoted YAML scalar ('' = literal '). */
+function yamlSq(s) {
+  return String(s ?? '').replace(/'/g, "''");
+}
+
+/**
+ * Generated YggSpinner component — pre-configured in the prefab: serialized
+ * config + clips JSON (the component self-configures in Awake) and sprite
+ * bindings per symbol so the reels render without any manual setup.
+ */
+function spinnerYaml(id, goId, scriptGuid, spinner) {
+  const bindings = (spinner.bindings || []).map((b) => `  - symbolId: ${b.symbolId}
+    staticSprite: ${b.staticGuid ? `{fileID: 21300000, guid: ${b.staticGuid}, type: 3}` : '{fileID: 0}'}
+    blurSprite: ${b.blurGuid ? `{fileID: 21300000, guid: ${b.blurGuid}, type: 3}` : '{fileID: 0}'}`).join('\n');
+  return `${commonHeader(114, id, 'MonoBehaviour')}
+  m_GameObject: {fileID: ${goId}}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ${scriptGuid}, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  configJson: '${yamlSq(spinner.configJson)}'
+  clipsJson: '${yamlSq(spinner.clipsJson)}'
+  symbolBindings:
+${bindings || '  []'}`.replace('symbolBindings:\n  []', 'symbolBindings: []');
+}
+
 function animatorYaml(id, goId) {
   return `${commonHeader(95, id, 'Animator')}
   m_Enabled: 1
@@ -355,10 +382,12 @@ ${cues || '  []'}`.replace('spineCues:\n  []', 'spineCues: []');
  *                    size {w,h}|null, spriteGuid?, spine?, children: [] }]
  *   player — { scriptGuid, clipGuid, descriptorGuid, durationSeconds, spineCues }
  *   spineScriptGuid — SkeletonGraphic (ui) / SkeletonAnimation (world) GUID or ''
+ *   spinnerScriptGuid — generated YggSpinner.cs GUID (spinner nodes carry a
+ *     `spinner: { configJson, clipsJson, bindings }` payload)
  * @returns {Promise<string>} prefab YAML
  */
 export async function buildPrefab(spec) {
-  const { canvasName, variant, stage, nodes, player, spineScriptGuid } = spec;
+  const { canvasName, variant, stage, nodes, player, spineScriptGuid, spinnerScriptGuid } = spec;
   const ui = variant === 'ui';
   const docs = [];
 
@@ -407,6 +436,11 @@ export async function buildPrefab(spec) {
       } else {
         extraDocs.push(skeletonAnimationYaml(spId, goId, spineScriptGuid, node.spine));
       }
+    }
+    if (node.kind === 'spinner' && node.spinner && spinnerScriptGuid) {
+      const snId = await id(`${node.key}:spinner`);
+      comps.push(snId);
+      extraDocs.push(spinnerYaml(snId, goId, spinnerScriptGuid, node.spinner));
     }
     if (ui) {
       comps.push(cgId);

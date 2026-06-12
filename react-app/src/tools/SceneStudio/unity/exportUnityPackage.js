@@ -24,7 +24,8 @@ import {
   packageBootstrapSource,
   spineAutoWireSource,
   runtimeAsmdefSource,
-  editorAsmdefSource
+  editorAsmdefSource,
+  timelineAsmdefSource
 } from './csharp.js';
 
 export const DEFAULT_UNITY_SETTINGS = {
@@ -213,7 +214,9 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
   await pushShared(SCRIPT_PATHS.spineAutoWire, spineAutoWireSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.runtimeAsmdef, runtimeAsmdefSource(), asmdefMeta);
   await pushShared(SCRIPT_PATHS.editorAsmdef, editorAsmdefSource(), asmdefMeta);
+  await pushShared(SCRIPT_PATHS.timelineAsmdef, timelineAsmdefSource(), asmdefMeta);
   const playerScriptGuid = itemsByPath.get(SCRIPT_PATHS.player).guid;
+  const spinnerScriptGuid = itemsByPath.get(SCRIPT_PATHS.spinner).guid;
 
   // ── 3. Per-canvas: bake → anim, descriptor, prefab ────────────────────
   const tree = buildLayerTree(scene);
@@ -304,13 +307,33 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           spineCues.push({ ...cue, target: path });
         }
 
-        // Spinner cues
+        // Spinner: descriptor cues + serialized component payload for the prefab
+        let spinnerData = null;
+        let spinnerSize = null;
         if (info.kind === 'spinner') {
           const sc = spinnerCuesForLayer(scene, layer);
-          if (sc) spinnerCues.push({ target: path, ...sc });
+          if (sc) {
+            spinnerCues.push({ target: path, ...sc });
+            const spinnerAsset = (scene.assets || []).find((a) => a.id === layer.assetId);
+            const bindings = (spinnerAsset?.spinner?.symbols || []).map((sym) => ({
+              symbolId: sym.id,
+              staticGuid: info.symAssetMap?.get(sym.assetId)?.spriteGuid || null,
+              blurGuid: info.symAssetMap?.get(sym.blurAssetId)?.spriteGuid || null
+            }));
+            spinnerData = {
+              configJson: sc.configJson,
+              clipsJson: JSON.stringify({ clips: sc.clips }),
+              bindings
+            };
+            const g = spinnerAsset?.spinner?.grid;
+            if (g) spinnerSize = {
+              w: g.reels * g.cellW + (g.reels - 1) * g.spacingX,
+              h: g.rows * g.cellH + (g.rows - 1) * g.spacingY
+            };
+          }
         }
 
-        const size = info.size ? { w: info.size.width, h: info.size.height } : null;
+        const size = spinnerSize || (info.size ? { w: info.size.width, h: info.size.height } : null);
         descriptorNodes.push({
           path,
           kind: info.kind,
@@ -325,12 +348,16 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
         out.push({
           key: layer.id,
           name,
-          kind: info.kind === 'png' ? 'static' : (info.kind === 'spine' ? 'spine' : 'group'),
+          kind: info.kind === 'png' ? 'static'
+            : info.kind === 'spine' ? 'spine'
+            : info.kind === 'spinner' ? 'spinner'
+            : 'group',
           active: layer.visible !== false,
           ...conv,
           size,
           spriteGuid: info.spriteGuid || null,
           spine: layer.spine || null,
+          spinner: spinnerData,
           children: buildNodes(tn.children, false, path, new Set())
         });
       }
@@ -373,6 +400,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
       stage,
       nodes,
       spineScriptGuid: ui ? settings.spineGraphicGuid : settings.spineAnimationGuid,
+      spinnerScriptGuid,
       player: {
         scriptGuid: playerScriptGuid,
         clipGuid: animItem.guid,
@@ -385,6 +413,9 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
   }
 
   if (!exportedCanvases) throw new Error('Nothing to export — the scene has no layers.');
+  if (!ui && [...assetInfo.values()].some((i) => i.kind === 'spinner')) {
+    warnings.push('Spinner reels render via UnityEngine.UI Images and need a Canvas — use the UI variant for spinner scenes (world variant exports the component but it will not be visible without a Canvas).');
+  }
   const hasSpine = [...assetInfo.values()].some((i) => i.kind === 'spine');
   if (hasSpine && ((ui && !settings.spineGraphicGuid) || (!ui && !settings.spineAnimationGuid))) {
     warnings.push('Spine script GUID cleared in settings — spine layers export as placeholders.');

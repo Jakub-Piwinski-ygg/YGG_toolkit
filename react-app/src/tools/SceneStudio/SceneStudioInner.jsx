@@ -1939,6 +1939,7 @@ export default function SceneStudioInner() {
         <SpinnerWizard
           scene={scene}
           assetItems={assetItems}
+          rootHandle={rootHandle}
           onClose={() => setShowSpinnerWizard(false)}
           onCreate={handleCreateSpinner}
         />

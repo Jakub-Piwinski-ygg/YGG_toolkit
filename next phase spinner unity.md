@@ -1,0 +1,168 @@
+# Spinner — Unity export phase 2 (handoff prompt)
+
+> Paste this file (or point Claude at it) to start the next session. It captures
+> the Unity import-testing feedback from 2026-06-12 and all context needed to
+> act on it. Companion docs: `react-app/SPINNER.md` (design + milestone status),
+> `react-app/SCENE_STUDIO.md` (master design), `TOOL_REVIEW.md` (backlog).
+
+## Where things stand (verified against code, 2026-06-12)
+
+Spinner web side (Scene Studio) works: pure-core eval (`engine/spinner/spinnerEval.js`
++ tests), Pixi runtime (`spinnerRuntime.js`), timeline actions, 4-step wizard with
+structure-driven symbol detection + fuzzy spine/anim matching
+(`engine/spinner/symbolMatch.js` + tests), per-symbol preview strip.
+
+Unity export ships: `unity/csharp.js` generates `YggSpinner.cs` (full C# port of the
+evaluator — LUT, continuity, stop landing, bounce, blur crossfade, ways wins);
+the component is serialized **into the prefab** (`prefab.js#spinnerYaml`) with
+`configJson`, `clipsJson` and `symbolBindings` (sprite GUID refs), and
+self-configures in `Awake()`. Editor tooling is split into asmdefs:
+`Ygg.SceneStudio.Editor` (bootstrap install dialog + menu item
+*Ygg ▸ Scene Studio ▸ Install Required Packages*, spine auto-wire) always
+compiles; `Ygg.SceneStudio.Editor.Timeline` (timeline builder +
+`YggTimelineAutoBuild` import/session sweep) is `defineConstraints`-gated on
+`com.unity.timeline`.
+
+## Feedback from Unity import testing — what to build next
+
+### 1. BUG (web): land/win Spine overlays never render in Scene Studio
+`spinnerRuntime.js:115` reads `deps.createSpineContainer`, but **no caller in
+`pixiApp.js` ever provides it** — the Spine overlay pool is always empty, so
+land/win animations assigned in the wizard do nothing in the web preview.
+Fix first (small, self-contained): implement `createSpineContainer(assetId,
+animName, loop)` in `pixiApp.js` reusing the existing spine loading path
+(`spineLoader.js`), pass it in the spinner build deps, and verify scrubbing
+drives `setTrackTime(t)` deterministically.
+
+### 2. Unity: pre-baked reel hierarchy in the prefab (no more "empty GO")
+Today `YggSpinner.Build()` creates the whole cell hierarchy at runtime in
+`Awake()` — in the editor the spinner is a bare GameObject with one component.
+Wanted: the exporter bakes the visible hierarchy into the prefab YAML
+(`prefab.js`), pool-style, and `YggSpinner` binds to it instead of building:
+
+- **Layered for draw calls**: one parent GO holding ALL static `Image`s, a
+  sibling holding ALL blurred `Image`s, and a top layer for spine/land-win
+  renderers — NOT per-cell nesting (current runtime build nests
+  Static+Blur under each cell; that interleaves materials and breaks batching).
+- **Masking per variant**: `RectMask2D` per reel for the UI variant (exists at
+  runtime today), `SpriteMask` + `SpriteRenderer` cells for the world variant
+  (currently the world variant exports UI Images that are invisible without a
+  Canvas — warning was added, but the real fix is SpriteRenderer cells).
+- **Prebaked pool semantics**: rows+2 cells per reel baked into the prefab,
+  with `YggSpinner` able to spawn extra cells at runtime if a config edit
+  needs more (treat baked cells as the pool's warm start).
+- `YggSpinner.Awake()` should detect the baked hierarchy (e.g. serialized
+  references or a marker) and only fall back to runtime building for legacy
+  prefabs.
+
+### 3. Unity: spinner control track on Timeline (Spine-Timeline-style UX)
+The user expects the spinner to be driven like Spine's
+`SpineAnimationStateTrack`: a custom track with one clip per action, editable
+in the Timeline window. Reference screenshot (Spine Animation State Clip
+inspector) exposes: Clip Timing (start/end/duration, ease in/out duration,
+clip-in, speed multiplier), Blend Curves, Animation Reference, Loop,
+Don't Pause with Director, Don't End with Clip, Clip End Mix Out Duration,
+Mixing (default/custom mix duration, use blend duration, hold previous),
+thresholds (event/attachment/draw order), Alpha.
+
+Build `YggSpinnerTrack` / `YggSpinnerClip` / mixer (PlayableBehaviour) in the
+**timeline-gated assembly** (`Ygg.SceneStudio.Editor.Timeline` for the builder
+parts; the track/clip/mixer themselves must live in a RUNTIME assembly that
+references Unity.Timeline — likely a new `Ygg.SceneStudio.Runtime.Timeline`
+asmdef with the same defineConstraints pattern). Clips carry the action
+(`startSpin/spin/stopSpin/holdResult`) + per-action params (target board,
+staggers, `matchEntrySpeed`…); the mixer drives `YggSpinner.Evaluate(t)` so
+**scrubbing the Timeline in edit mode moves the reels**. The timeline builder
+should create this track from the descriptor's `spinnerCues` instead of
+leaving spinner motion runtime-only.
+
+### 4. Scene Studio: Spine clip settings parity with Spine Timeline clips
+To make export (and a potential future import) 1:1, Scene Studio's spine clips
+should expose the same knobs as the Spine Animation State Clip (screenshot
+above): loop, speed multiplier, mix duration / use blend duration, hold
+previous, clip-in offset, alpha (the thresholds can come later). Today a clip
+has `anim/loop/speed/mixDuration` only. Schema: extend `clip` in
+`sceneModel.js` (`normalizeClip`), UI in `InspectorPanel.jsx` clip section,
+playback honoring in `pixiApp.js#applyFlowAtTime` where sensible (at minimum
+holdPrevious + clipIn + alpha), and map all fields in
+`unity/csharp.js#timelineBuilderSource` `TryBuildSpineTracks` (the
+SerializedObject `template.*` properties match the screenshot fields).
+
+### 5. Timeline auto-build → opt-in
+The auto-built timeline surprised the user and was built WITHOUT spine tracks
+(spine-timeline extension wasn't installed / wiring incomplete at sweep time)
+— they prefer pressing "Build Unity Timeline from baked clip" themselves.
+Change `YggTimelineAutoBuild` to opt-in: either an export setting serialized
+into the descriptor (`autoBuildTimeline: false` default) or remove the session
+sweep and keep only a menu item / inspector button. Also make the builder
+refuse (or warn loudly) when `player.spineCues` exist but the spine-timeline
+types are missing, instead of silently building a spine-less timeline.
+
+### Carry-over gaps (still open from earlier rounds)
+- `blob:` URLs (wizard-GENERATED blur PNGs) are not packaged by
+  `exportUnityPackage.js#bytesForSrc` — add a fetch branch.
+- Procedural `pop` land/win fallback (web) for symbols without Spine anims —
+  Unity already has a scale-punch; web has nothing.
+- Edit-mode parity test vectors (`{t → scroll[]}` C# editor test) never built.
+
+## Key files
+
+| File | Role |
+|---|---|
+| `react-app/src/tools/SceneStudio/engine/spinner/spinnerRuntime.js` | Pixi reel renderer + (broken) spine overlay pool |
+| `react-app/src/tools/SceneStudio/engine/pixiApp.js` | scene graph builder — must provide `createSpineContainer` dep |
+| `react-app/src/tools/SceneStudio/engine/spineLoader.js` | Spine 4.2 load path to reuse |
+| `react-app/src/tools/SceneStudio/unity/csharp.js` | ALL generated C# (player, YggSpinner, bootstrap, autowire, timeline builder, asmdefs) |
+| `react-app/src/tools/SceneStudio/unity/prefab.js` | prefab YAML generator (`spinnerYaml`, `imageYaml`, masks would go here) |
+| `react-app/src/tools/SceneStudio/unity/exportUnityPackage.js` | orchestrates export; spinner node payload + `bytesForSrc` |
+| `react-app/src/tools/SceneStudio/unity/bake.js` | `spinnerCuesForLayer` (configJson + clips for descriptor/prefab) |
+| `react-app/src/tools/SceneStudio/engine/sceneModel.js` | clip schema (`normalizeClip`) for spine-clip parity fields |
+| `react-app/src/tools/SceneStudio/components/InspectorPanel.jsx` | spine clip UI |
+
+## Hard-won gotchas (do not relearn)
+
+- Unity `JsonUtility` cannot deserialize jagged arrays — all `string[][]` go
+  through `SpinnerRow { cells }` wrappers (`bake.js#row`, C# `SpinnerRow`).
+- Prefab YAML is hand-written; fileIDs come from `guid.js#fileIdFor(seed)` —
+  deterministic per `canvasName:key:role` seed. Sprite refs are
+  `{fileID: 21300000, guid: <texture guid>, type: 3}`; script refs
+  `{fileID: 11500000, guid: <script guid>, type: 3}`.
+- Generated script paths/GUIDs are CONSTANT across exports (`pushShared`) so
+  packages share one runtime copy — never per-scene-seed a shared script.
+- A missing **by-name** asmdef reference is a hard compile error that kills the
+  whole assembly — that's why Timeline code is isolated behind
+  `defineConstraints: ['YGG_HAS_TIMELINE']` (versionDefine from
+  com.unity.timeline). Use the same pattern for any new Timeline-dependent
+  runtime assembly. Cross-assembly calls from always-compiled code go through
+  `Type.GetType("…, Ygg.SceneStudio.Editor.Timeline")` reflection.
+- spine-timeline types are resolved reflectively
+  (`Spine.Unity.Playables.SpineAnimationState(Graphic)Track, spine-timeline`);
+  SkeletonGraphic vs SkeletonAnimation pick the Graphic/world track variant.
+- Old packages may leave a stale `Editor/YggSceneTimelineBuilder.cs` in user
+  projects — it compiles as a harmless `#if !YGG_HAS_TIMELINE` stub because the
+  main editor asmdef no longer defines YGG_HAS_TIMELINE. Don't re-add that
+  versionDefine to `Ygg.SceneStudio.Editor`.
+- The user project is `C:\Users\jakub.pi\game-toothless-smile` (spine-unity 4.2,
+  `.atlas.txt` atlases, `NN_Symbols/StaticArt|Animations|Blurred` layout).
+
+## Suggested order
+
+1. Web land/win overlay fix (#1) — unblocks validating anim assignments at all.
+2. Prefab-baked layered reel hierarchy + masks + world-variant SpriteRenderers (#2).
+3. Spinner Timeline track with scrub support (#3).
+4. Spine clip settings parity + export mapping (#4).
+5. Auto-build → opt-in + spine-less-timeline guard (#5).
+6. Carry-overs (blob: packaging, pop fallback) as time allows.
+
+## Acceptance
+
+- Wizard-made spinner: land/win Spine anims visibly play in Scene Studio when
+  scrubbing into land/win windows.
+- Fresh Unity import: spinner prefab shows the full reel hierarchy in the
+  editor; ▶ Play spins, blur-crossfades, lands the target board; statics batch
+  under one parent, blurred under another, anims on top; UI variant masks with
+  RectMask2D, world variant renders via SpriteRenderer + SpriteMask.
+- Timeline window: a Ygg Spinner track with action clips; scrubbing moves reels
+  in edit mode; no timeline is created unless the user asks for one.
+- Scene Studio spine clip inspector exposes the Spine-Timeline-compatible
+  fields and they survive export round-trip into Spine Animation State clips.

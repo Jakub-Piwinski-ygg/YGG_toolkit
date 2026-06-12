@@ -8,14 +8,19 @@ slot-game preview utilities.
 1. **Original (`index.html`)**: Single ~4100-line HTML file, zero dependencies, runs
    from `file://`. Legacy reference during React port.
 2. **React rewrite (`react-app/`)**: Vite + React 18 + Framer Motion, modular
-   components, dev server + GitHub Pages deployment. **All 13 art tools ported.**
-   Several QoL features from the original still missing — see backlog below.
+   components, dev server + GitHub Pages deployment. **The port is complete and the
+   React app has grown well past the original** — 19 tools across 4 categories
+   (see `src/tools/registry.js` → `TOOL_CATEGORIES`).
 
 ---
 
-## Version: React (all art tools ported)
+## Version: React (primary)
 
-**Status**: All 13 art tools complete as of this session. QoL backlog remains — see below.
+**Status (2026-06-12)**: 19 registered tools in 4 categories — Art Tools 🎨 (12),
+Asset Pipeline 🏗️ (Asset Checker, Project Scaffold, Char Extractor, Repo Content
+Browser, Templates), Scene Studio 🎬 (Pixi v8 scene editor/animator — design in
+`react-app/SCENE_STUDIO.md`, spinner in `react-app/SPINNER.md`), Cheets 🎲
+(Cheat Tool). The priority backlog lives in `TOOL_REVIEW.md` (root).
 
 ### Project structure
 ```
@@ -40,10 +45,10 @@ react-app/
     │   ├── DownloadBar.jsx
     │   ├── WasmBadge.jsx
     ├── tools/
-    │   ├── registry.js             # ART_TOOLS[] — all tools registered here
-    │   ├── WebPTool.jsx            # PNG → WebP (canvas-based)
+    │   ├── registry.js             # TOOL_CATEGORIES (4 categories) + TOOL_ALIASES — all tools registered here
     │   ├── CropTool.jsx            # Canvas Resize (crop + pad, match-first-image)
     │   ├── ScalerTool.jsx          # Image Scaler (8 filter algorithms, WASM)
+    │   ├── ConverterTool.jsx       # Format converter + video frame extraction (WebP/PNG…)
     │   ├── BlurTool.jsx            # Directional Motion Blur (5-step WASM pipeline)
     │   ├── GaussianBlurTool.jsx    # Gaussian Blur (keep/blur alpha, feather)
     │   ├── RgbaMaskTool.jsx        # RGBA Mask Combiner (4 slots, live preview thumbs)
@@ -53,7 +58,13 @@ react-app/
     │   ├── AtlasPackerTool.jsx     # Atlas Packer (grid/tile mode, pre-scaling)
     │   ├── PaylinesTool.jsx        # Paylines designer (toggle cells, import/export .txt)
     │   ├── FontPreviewTool.jsx     # Image Font Preview (per-letter PNG assignment, live canvas)
-    │   └── ContentBrowserTool.jsx  # Content Browser (GitHub/GitLab auth, tree nav, send to tools)
+    │   ├── RepoContentBrowserTool.jsx  # Repo browser (GH/GL auth, art+sound modes, global search, lightbox)
+    │   ├── ProjectScaffoldTool.jsx # Folder-structure designer (presets, leaf rules, Unity/ZIP export)
+    │   ├── CharExtractorTool.jsx   # Unicode char extraction from text / font cmap
+    │   ├── TemplatesTool.jsx       # Markdown template library (public/templates/)
+    │   ├── AssetChecker/           # Delivery validator (7 check modules + Unity ZIP export)
+    │   ├── CheatTool/              # Client-side game sim ("Real Spin", presets, board editor)
+    │   └── SceneStudio/            # Pixi v8 scene editor/animator (fullBleed; see its README.md)
     ├── styles/
     │   ├── tokens.css              # CSS variables (--bg, --accent, etc.)
     │   ├── base.css                # Resets, scrollbars, animations
@@ -96,7 +107,7 @@ useEffect(() => {
 
 **Tool checklist** (add each tool by):
 1. Create `src/tools/NewTool.jsx` with `meta` + `Component` + `useEffect` runner
-2. Add to `registry.js` → `ART_TOOLS`
+2. Add to `registry.js` → the right category array (`ART` / `REVIEW` / `STUDIO` / `CHEETS`)
 3. Import nothing in `App.jsx` — registry is the only coupling point
 
 **meta flags** used by ToolPanel dispatch:
@@ -110,66 +121,35 @@ useEffect(() => {
 - Result card reveals (`AnimatePresence` with fade+scale)
 - Button taps (scale feedback)
 
-### Porting status — all 13 art tools done
+### Porting status — COMPLETE
 
-- [x] WebP (canvas-based PNG → WebP)
-- [x] Crop (Canvas Resize — crop/pad/mixed, match-first-image)
-- [x] Blur (Directional Motion Blur — 5-step WASM)
-- [x] Gaussian Blur (keep/blur alpha, feather edge)
-- [x] RGBA Mask Combiner (4 slots, live preview thumbs)
-- [x] Grey to Alpha (canvas pixel-push, threshold + scale)
-- [x] Font Preview (per-letter PNG assignment, live canvas)
-- [x] Image Scaler (8 filter algorithms, WASM resize)
-- [x] Gradient Map (drag stops, 8 presets, 256-entry LUT)
-- [x] Paylines (grid designer, import/export .txt, no files needed)
-- [x] Outline / Stroke (outside/center/inside, kernel shape)
-- [x] Atlas Packer (grid/tile mode, pre-scaling)
-- [x] ~~Slot Machine~~ — retired in Phase 5; superseded by the Scene Studio
-      Spinner object (`react-app/SPINNER.md`)
-- [x] Content Browser (GitHub/GitLab auth, repo list, tree nav, breadcrumbs, lazy thumbnails, send to Art Tools)
+All 13 original art tools are ported, and the old QoL backlog (replace-with-output,
+category tabs, sound browser, cross-repo global search, lightbox) has **all
+shipped**. Slot Machine was retired in Phase 5 — superseded by the Scene Studio
+Spinner object (`react-app/SPINNER.md`); `?tool=slotmachine` soft-redirects via
+`TOOL_ALIASES`.
 
-### React QoL backlog — missing vs original
+### Current backlog
 
-These features exist in `index.html` but have not yet been ported:
+The maintained, prioritized backlog is **`TOOL_REVIEW.md`** (repo root). Headline
+open items as of 2026-06-12:
 
-#### 1. "Replace with output" / promote output to working directory
-In the original, after running a tool the user can click a button to replace the
-input file list with the output files, making chained workflows possible without
-manual download→re-upload. React has no equivalent. The output panel is read-only.
-**Design hint**: add a "→ Working Dir" button to ResultsGrid (or per-card) that
-calls `addFiles(outputFiles.map(f => new File([f.blob], f.name)))` and clears outputs.
+- **P0** — Scene Studio Phase 4 *web* exporters (hero PNG / PNG sequence / WebM —
+  the Unity `.unitypackage` export already shipped as Phase 4.2); Pixi v8
+  rapid-rebuild crash fix; shared Art-Tools utils (`makeFeatherMask` etc.) +
+  batch mode on single-file tools; Asset Checker presets + auto-fix.
+- **P1** — pixi-filters/`effects[]` wiring, `pngSequence` import/render, Atlas
+  Packer JSON metadata, Project Scaffold decomposition, app-shell hardening.
 
-#### 2. Category tabs — Art Tools vs Content Browser vs future groups
-The original sidebar has top-level category tabs: **Art Tools** and **Content Browser**,
-each with its own sub-navigation. In React, `ContentBrowserTool` is listed in the same
-flat `ART_TOOLS` array as image processors, which is wrong.
-**Design hint**: introduce a `TOOL_CATEGORIES` structure in `registry.js`:
-```js
-export const TOOL_CATEGORIES = [
-  { id: 'arttools', label: 'Art Tools', tools: [cropMeta, scalerMeta, ...] },
-  { id: 'browser',  label: 'Content',   tools: [contentBrowserMeta] },
-];
-```
-ToolTabs and Sidebar need a top-level category switcher that gates which tool list is shown.
+### Key docs
 
-#### 3. Content Browser — audio / Sound Browser tab
-The original Content Browser has two sub-tabs: **Art** (images) and **Sounds** (audio files).
-The Sounds tab lists `.ogg`/`.mp3`/`.wav` files, plays them inline with `<audio>` elements,
-and supports download. Currently the React port only has the Art (image) tab.
-See `index.html` L3331–3434 for the original Sound Browser implementation.
-
-#### 4. Content Browser — cross-repo global search
-The original supports searching a phrase across *all repos* simultaneously using an
-8-worker concurrency pool, live progress overlay, cancellable, cached results, and
-click-through to the matching file in any repo.
-See `index.html` L3037–3329 (`cbGlobalSearchPrompt`, `cbGlobalSearchStart`, etc.)
-Currently missing in React — the search input in `ContentBrowserTool` only filters
-within the currently-open repo's tree.
-
-#### 5. Content Browser — lightbox image preview
-Clicking an image in the original opens a full-screen lightbox overlay with
-Escape-to-close, download button, and "+ Art Tools" button.
-The React port has no lightbox — images are only shown as thumbnails in the grid.
+| Doc | What |
+|---|---|
+| `TOOL_REVIEW.md` | per-tool review + P0–P4 priority backlog |
+| `react-app/SCENE_STUDIO.md` | Scene Studio design doc (§18 phase audit, §20 as-built animation) |
+| `react-app/SCENE_STUDIO_PHASE_STATUS.md` | session-by-session Scene Studio changelog (most current) |
+| `react-app/SPINNER.md` | Spinner (Phase 5) design + milestone status |
+| `react-app/docs/asset-checker-checks.md` | Asset Checker rule reference |
 
 ---
 
