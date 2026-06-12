@@ -1,6 +1,8 @@
 # Scene Studio
 
 See `react-app/SCENE_STUDIO.md` (root of react-app) for the full design.
+Phase 5 (deterministic slot-machine **Spinner** object) is designed in
+`react-app/SPINNER.md` — milestones M0–M6, in progress.
 
 ## Status (2026-06-02)
 

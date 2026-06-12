@@ -34,7 +34,8 @@ export function StudioToolbar({
   onRedo,
   canUndo = false,
   canRedo = false,
-  onUnityExport
+  onUnityExport,
+  onAddSpinner
 }) {
   const supported = isFsAccessSupported();
   const handleFallbackInput = (e) => {
@@ -188,6 +189,12 @@ export function StudioToolbar({
       <button className="scene-btn scene-btn--ghost" onClick={onNewProject} disabled={busy} title="New project (will prompt to save)">new</button>
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>
       <button className="scene-btn scene-btn--primary" onClick={onSave} disabled={busy}>save</button>
+      <button
+        className="scene-btn"
+        onClick={onAddSpinner}
+        disabled={busy}
+        title="Add a Spinner (slot reel machine) object via the setup wizard"
+      >🎰 spinner</button>
       <button
         className="scene-btn"
         onClick={onUnityExport}

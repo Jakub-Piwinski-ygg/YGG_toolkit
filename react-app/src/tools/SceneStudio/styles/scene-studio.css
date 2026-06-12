@@ -1884,3 +1884,297 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   flex-wrap: wrap;
   margin-top: 4px;
 }
+
+/* ── Spinner inspector sections ──────────────────────────────────────────── */
+
+.scene-spinner-meta {
+  padding: 4px 12px 6px;
+  font-size: 10px;
+  color: var(--text-1, #a8afc0);
+  line-height: 1.5;
+}
+
+.scene-spinner-reel-delays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 12px 6px;
+}
+
+/* ── BoardGridEditor ──────────────────────────────────────────────────────── */
+
+.spinner-board-editor {
+  padding: 6px 12px;
+}
+
+.spinner-board-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.spinner-board-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.spinner-board-col-head {
+  font-size: 9px;
+  text-align: center;
+  color: var(--text-2, #6a7080);
+  margin-bottom: 1px;
+}
+
+.spinner-board-cell {
+  font-size: 10px;
+  padding: 2px 2px;
+  background: var(--bg-3, #2a2d3a);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 3px;
+  color: var(--text-0, #e8eaf0);
+  width: 100%;
+  min-width: 0;
+}
+
+.spinner-board-cell.is-win {
+  border-color: var(--accent, #4fc);
+  background: rgba(64, 200, 180, 0.12);
+}
+
+.spinner-board-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.spinner-board-win-label {
+  font-size: 10px;
+  color: var(--accent, #4fc);
+}
+
+/* ── SpinnerWizard modal ─────────────────────────────────────────────────── */
+
+.spinner-wizard {
+  background: var(--bg-2, #1e2130);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 8px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  width: 520px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 80px);
+  overflow: hidden;
+}
+
+.spinner-wizard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #2e3340);
+  flex-shrink: 0;
+}
+
+.spinner-wizard-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-0, #e8eaf0);
+  margin-right: 4px;
+}
+
+.spinner-wizard-steps {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.spinner-wizard-step-btn {
+  background: transparent;
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 4px;
+  color: var(--text-1, #a8afc0);
+  font-size: 10px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.spinner-wizard-step-btn:hover {
+  background: var(--bg-3, #2a2d3a);
+  color: var(--text-0, #e8eaf0);
+}
+
+.spinner-wizard-step-btn.active {
+  background: rgba(64, 200, 180, 0.15);
+  border-color: var(--accent, #4fc);
+  color: var(--accent, #4fc);
+}
+
+.spinner-wizard-step-btn.done {
+  color: var(--text-2, #6a7080);
+}
+
+.spinner-wizard-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.spinner-wizard-section {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.spinner-wizard-row {
+  display: flex;
+  gap: 8px;
+}
+
+.spinner-wizard-row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.spinner-wizard-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border, #2e3340);
+  flex-shrink: 0;
+}
+
+/* ── Spinner symbol list (wizard step 2) ─────────────────────────────────── */
+
+.spinner-sym-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+}
+
+.spinner-sym-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.spinner-sym-name {
+  width: 72px;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 3px 6px;
+  background: var(--bg-3, #2a2d3a);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 3px;
+  color: var(--text-0, #e8eaf0);
+}
+
+.spinner-sym-asset {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  background: var(--bg-3, #2a2d3a);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 3px;
+  color: var(--text-0, #e8eaf0);
+  padding: 2px 4px;
+}
+
+.spinner-sym-asset--sm {
+  flex: 0 0 90px;
+  font-size: 10px;
+}
+
+.spinner-sym-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.spinner-sym-anim-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding-left: 6px;
+  opacity: 0.85;
+}
+
+.spinner-sym-anim-label {
+  font-size: 9px;
+  color: var(--text-2, #9599a8);
+  flex-shrink: 0;
+  width: 22px;
+}
+
+.spinner-sym-anim-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  padding: 2px 4px;
+  background: var(--bg-3, #2a2d3a);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 3px;
+  color: var(--text-0, #e8eaf0);
+}
+
+
+.spinner-asset-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.spinner-filter-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  padding: 4px 6px;
+  background: var(--bg-3, #2a2d3a);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 3px;
+  color: var(--text-0, #e8eaf0);
+}
+
+.spinner-filter-input::placeholder {
+  color: var(--text-2, #9599a8);
+  font-size: 10px;
+}
+
+.spinner-filter-count {
+  font-size: 10px;
+  color: var(--text-2, #9599a8);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.spinner-wizard-auto-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.spinner-blur-gen {
+  margin-top: 10px;
+  padding: 8px;
+  background: var(--bg-2, #222530);
+  border-radius: 4px;
+  border: 1px solid var(--border, #2e3340);
+}
+
+/* ── Spinner clip tints in timeline ─────────────────────────────────────── */
+
+.scene-clip--spinner-startSpin  { border-top: 2px solid #4a8; }
+.scene-clip--spinner-spin       { border-top: 2px solid #48c; }
+.scene-clip--spinner-stopSpin   { border-top: 2px solid #c86; }
+.scene-clip--spinner-holdResult { border-top: 2px solid #88a; }

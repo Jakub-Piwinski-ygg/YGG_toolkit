@@ -20,6 +20,7 @@ import { clipAt, lastClipAt, remapClipTime } from './flowInterpreter.js';
 import { CHANNEL_DEFS, CHANNEL_NAMES, clipLocalSeconds, evalChannel, isPathChannel } from './animation/keyframes.js';
 import { resolvePointHandles } from './animation/pathSpline.js';
 import { buildSpineFromUrls, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
+import { buildSpinnerObject, applySpinnerAtTime } from './spinner/spinnerRuntime.js';
 
 async function loadTextureFromUrl(url) {
   // Use Pixi v8 Assets.load — it returns a Texture whose `source.orig` is
@@ -191,7 +192,7 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
     if (!layer.visible) return;
     const asset = scene.assets.find((a) => a.id === layer.assetId);
     if (!asset) return;
-    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null);
+    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene);
     if (!obj) return;
 
     if (asset.type === 'spine' && onAssetReady) {
@@ -231,8 +232,17 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
   return handles;
 }
 
-async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null) {
+async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null) {
   try {
+    if (asset.type === 'spinner') {
+      return await buildSpinnerObject(asset, layer, {
+        scene,
+        rootHandle,
+        sceneBasePath,
+        resolveAssetUrl,
+        loadTexture: loadTextureFromUrl
+      });
+    }
     if (asset.type === 'png') {
       const resolved = await resolveAssetUrl(asset.src, rootHandle, sceneBasePath);
       if (!resolved) return null;
@@ -680,7 +690,12 @@ export function sceneStructuralHash(scene) {
   const parts = [];
   for (const c of scene.canvases || []) parts.push('c:', c.id, c.visible ? '1' : '0');
   parts.push('|a|');
-  for (const a of scene.assets) parts.push(a.id, a.type, a.src?.slice?.(0, 32) || '');
+  for (const a of scene.assets) {
+    parts.push(a.id, a.type, a.src?.slice?.(0, 32) || '');
+    // Spinner structural edits bump `rev` (wizard re-runs) — clip/timing
+    // edits stay on the cheap apply path via the resolve-key memo.
+    if (a.type === 'spinner') parts.push('rev', String(a.spinner?.rev ?? 1));
+  }
   parts.push('|l|');
   // Layer order + parentage are structural — reorder/reparent must rebuild
   // the Pixi tree (children physically move between containers).
@@ -777,6 +792,14 @@ export function applyFlowAtTime(handles, scene, t) {
       applySpineMultiTrack(obj, layer, tracks, t);
       // Alpha + tint channels also apply on Spine layers so the user
       // can fade / colourise the whole skeleton from the timeline.
+      applyPngChannels(obj, layer, tracks, t, orientation, { alphaAndTintOnly: true });
+      continue;
+    }
+
+    if (asset.type === 'spinner' && obj.__spinner) {
+      applySpinnerAtTime(obj, layer, tracks, t);
+      // Alpha/tint channels still apply so the whole machine can be faded
+      // or colourised from a second (transform) track.
       applyPngChannels(obj, layer, tracks, t, orientation, { alphaAndTintOnly: true });
       continue;
     }

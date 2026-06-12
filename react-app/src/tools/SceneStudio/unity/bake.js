@@ -11,6 +11,7 @@
 
 import { evalChannel, clipLocalSeconds } from '../engine/animation/keyframes.js';
 import { tracksForLayer } from '../engine/sceneModel.js';
+import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 
 const PROPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'alpha', 'tintR', 'tintG', 'tintB'];
 
@@ -124,6 +125,57 @@ export function bakeLayer(scene, layer, orientation, fps = 30) {
     if (!constant) animated = true;
   }
   return { animated, base, props };
+}
+
+/**
+ * Collect spinner action clips for a spinner-asset layer — consumed by the
+ * generated YggSpinner component and the canvas descriptor JSON.
+ * Returns null when the layer is not a spinner.
+ */
+export function spinnerCuesForLayer(scene, layer) {
+  const asset = (scene.assets || []).find((a) => a.id === layer.assetId);
+  if (!asset || asset.type !== 'spinner' || !asset.spinner) return null;
+  const cfg = normalizeSpinnerConfig(asset.spinner);
+  if (!cfg) return null;
+
+  const SPINNER_ACTIONS = new Set(['startSpin', 'spin', 'stopSpin', 'holdResult']);
+  const clips = tracksForLayer(scene, layer.id)
+    .flatMap((tr) => tr.clips || [])
+    .filter((c) => SPINNER_ACTIONS.has(c.action))
+    .sort((a, b) => a.start - b.start);
+
+  // Wrap string[] rows with { cells } so Unity JsonUtility can deserialize them
+  // (JsonUtility does not support string[][] / jagged arrays directly).
+  const row = (arr) => ({ cells: Array.isArray(arr) ? arr : [] });
+
+  const configJson = JSON.stringify({
+    symbols: cfg.symbols.map((s) => ({ id: s.id, name: s.name, assetId: s.assetId || '', blurAssetId: s.blurAssetId || '' })),
+    reels: cfg.grid.reels, rows: cfg.grid.rows,
+    cellW: cfg.grid.cellW, cellH: cfg.grid.cellH, spacingX: cfg.grid.spacingX, spacingY: cfg.grid.spacingY,
+    direction: cfg.direction,
+    strips: cfg.strips.map(row),
+    initialBoard: cfg.initialBoard.map(row),
+    startDuration: cfg.timing.startDuration, spinSpeed: cfg.timing.spinSpeed,
+    stopDuration: cfg.timing.stopDuration,
+    reelStaggerStart: cfg.timing.reelStaggerStart, reelStaggerStop: cfg.timing.reelStaggerStop,
+    startEase: cfg.timing.startEase, stopEase: cfg.timing.stopEase,
+    bounceCurve: cfg.bounce.curve, bounceAmplitude: cfg.bounce.amplitude, bounceDurationFrac: cfg.bounce.durationFrac,
+    blurEnabled: cfg.blur.enabled, blurVLo: cfg.blur.vLo, blurVHi: cfg.blur.vHi,
+    winDelay: cfg.events.winDelay, landAnimDuration: cfg.events.landAnimDuration, winAnimDuration: cfg.events.winAnimDuration
+  });
+
+  return {
+    configJson,
+    clips: clips.map((c) => ({
+      action: c.action,
+      start: c.start ?? 0,
+      duration: c.duration ?? 0,
+      targetBoard: c.targetBoard ? c.targetBoard.map(row) : null,
+      matchEntrySpeed: c.matchEntrySpeed !== false,
+      perReelStartDelay: c.perReelStartDelay || [],
+      perReelStopDelay: c.perReelStopDelay || []
+    }))
+  };
 }
 
 /**

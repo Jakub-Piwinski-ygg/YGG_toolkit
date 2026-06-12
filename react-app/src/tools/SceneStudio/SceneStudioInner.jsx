@@ -7,6 +7,7 @@ import { HierarchyPanel } from './components/HierarchyPanel.jsx';
 import { InspectorPanel } from './components/InspectorPanel.jsx';
 import { PixiErrorBoundary } from './components/PixiErrorBoundary.jsx';
 import { PixiViewport } from './components/PixiViewport.jsx';
+import { SpinnerWizard } from './components/SpinnerWizard.jsx';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
 import { UnityExportDialog } from './components/UnityExportDialog.jsx';
@@ -133,6 +134,7 @@ export default function SceneStudioInner() {
   const [scene, setSceneInternal] = useState(() => createEmptyScene('Untitled scene'));
   const [rootHandle, setRootHandle] = useState(null);
   const [showUnityExport, setShowUnityExport] = useState(false);
+  const [showSpinnerWizard, setShowSpinnerWizard] = useState(false);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const [selectedClipId, setSelectedClipId] = useState(null);
   const [selectedKey, setSelectedKey] = useState(null);   // { clipId, name, idx } | null
@@ -511,6 +513,40 @@ export default function SceneStudioInner() {
       layers: prev.layers.map((l) => (l.id === layerId ? { ...l, ...patch } : l))
     }));
   }, []);
+
+  const handlePatchAsset = useCallback((assetId, patch) => {
+    setScene((prev) => ({
+      ...prev,
+      assets: prev.assets.map((a) => (a.id === assetId ? { ...a, ...patch } : a))
+    }));
+  }, []);
+
+  const handleCreateSpinner = useCallback(({ name, spinnerConfig, newAssets }) => {
+    setShowSpinnerWizard(false);
+    const newLayerId = uid('L');
+    setScene((prev) => {
+      const asset = { id: uid('a'), type: 'spinner', spinner: spinnerConfig, meta: { originalName: name } };
+      const transforms = defaultTransformsForNewLayer(prev.stage);
+      // newAssets: generated blur PNGs from the wizard (already have IDs referenced by spinnerConfig.symbols)
+      const extraAssets = Array.isArray(newAssets) ? newAssets : [];
+      return {
+        ...prev,
+        assets: [...prev.assets, ...extraAssets, asset],
+        layers: [...prev.layers, {
+          id: newLayerId,
+          name,
+          assetId: asset.id,
+          canvasId: prev.activeCanvasId || prev.canvases[0].id,
+          parentId: null,
+          visible: true,
+          blend: 'normal',
+          transforms
+        }]
+      };
+    });
+    setSelectedLayerId(newLayerId);
+    log(`Scene Studio: + spinner "${name}"`, 'ok');
+  }, [log]);
 
   // Swap a layer's animated object to an existing scene asset (keeps clips).
   const handleSwapLayerAsset = useCallback((layerId, assetId) => {
@@ -1896,7 +1932,17 @@ export default function SceneStudioInner() {
         canUndo={historyDepth.undo > 0}
         canRedo={historyDepth.redo > 0}
         onUnityExport={() => setShowUnityExport(true)}
+        onAddSpinner={() => setShowSpinnerWizard(true)}
       />
+
+      {showSpinnerWizard && (
+        <SpinnerWizard
+          scene={scene}
+          assetItems={assetItems}
+          onClose={() => setShowSpinnerWizard(false)}
+          onCreate={handleCreateSpinner}
+        />
+      )}
 
       {showUnityExport && (
         <UnityExportDialog
@@ -2004,6 +2050,7 @@ export default function SceneStudioInner() {
           defaultTangentMode={defaultEase}
           onSwapAsset={handleSwapLayerAsset}
           onSwapAssetFromBrowserId={handleSwapLayerAssetFromBrowserId}
+          onPatchAsset={handlePatchAsset}
         />
       </div>
       {rootDropHover && (

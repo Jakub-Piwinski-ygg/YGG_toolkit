@@ -12,12 +12,13 @@ import { resolveAssetFile } from '../engine/persist.js';
 import { guidFor, pngSize, dataUrlToBytes, safeName } from './guid.js';
 import { buildUnityPackage } from './tar.js';
 import { folderMeta, textureMeta, textMeta, nativeMeta, monoMeta, defaultMeta, asmdefMeta } from './metaFiles.js';
-import { bakeLayer, spineCuesForLayer } from './bake.js';
+import { bakeLayer, spineCuesForLayer, spinnerCuesForLayer } from './bake.js';
 import { buildAnimationClip } from './animClip.js';
 import { buildPrefab, UI_IMAGE_GUID } from './prefab.js';
 import {
   SCRIPT_PATHS,
   scenePlayerSource,
+  spinnerSource,
   scenePlayerEditorSource,
   timelineBuilderSource,
   packageBootstrapSource,
@@ -172,6 +173,31 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
       if (!bytes) { warnings.push(`Video not resolved: ${asset.src}`); continue; }
       await pushItem(`${base}/Art/Video/${displayName}${asset.src.match(/\.\w+$/)?.[0] || '.webm'}`, bytes, defaultMeta);
       assetInfo.set(asset.id, { kind: 'video' });
+    } else if (asset.type === 'spinner') {
+      // Export each symbol's static + blurred PNGs under Art/Spinner/.
+      // The symbol png assets may also appear directly on layers (already
+      // handled above); pushItem deduplicates by path so they won't double.
+      const spinnerCfg = asset.spinner || {};
+      const symAssetMap = new Map(); // sym assetId → { spriteGuid, size }
+      for (const sym of (spinnerCfg.symbols || [])) {
+        for (const [saId, suffix] of [[sym.assetId, ''], [sym.blurAssetId, '_blur']]) {
+          if (!saId) continue;
+          const sa = scene.assets.find((a) => a.id === saId);
+          if (!sa || sa.type !== 'png') continue;
+          const bytes = await bytesForSrc(sa.src, rootHandle, sceneBasePath);
+          if (!bytes) { warnings.push(`Spinner symbol PNG not resolved: ${sa.src}`); continue; }
+          const symName = safeName(sym.name || sym.id, 'Symbol');
+          const path = `${base}/Art/Spinner/${symName}${suffix}.png`;
+          const comp = settings.perAssetCompression[saId] || settings.staticCompression;
+          const item = await pushItem(path, bytes, (g) => textureMeta(g, {
+            compression: comp, alphaIsTransparency: settings.alphaIsTransparency, pixelsPerUnit: settings.pixelsPerUnit
+          }));
+          const info = { kind: 'png', spriteGuid: item.guid, size: pngSize(bytes) };
+          symAssetMap.set(saId, info);
+          if (!assetInfo.has(saId)) assetInfo.set(saId, info);
+        }
+      }
+      assetInfo.set(asset.id, { kind: 'spinner', symAssetMap });
     } else {
       warnings.push(`Asset type "${asset.type}" not supported in Unity export yet (${displayName}).`);
       assetInfo.set(asset.id, { kind: 'skipped' });
@@ -180,6 +206,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
 
   // ── 2. Generated C# (constant paths + package-independent GUIDs) ──────
   await pushShared(SCRIPT_PATHS.player, scenePlayerSource(), monoMeta);
+  await pushShared(SCRIPT_PATHS.spinner, spinnerSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.playerEditor, scenePlayerEditorSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.timelineBuilder, timelineBuilderSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.packageBootstrap, packageBootstrapSource(), monoMeta);
@@ -204,6 +231,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
     // Build node tree + per-layer bakes, with unique sibling names.
     const animTracks = [];
     const spineCues = [];
+    const spinnerCues = [];
     const descriptorNodes = [];
 
     const buildNodes = (treeNodes, isRoot, pathPrefix, usedNames) => {
@@ -276,6 +304,12 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           spineCues.push({ ...cue, target: path });
         }
 
+        // Spinner cues
+        if (info.kind === 'spinner') {
+          const sc = spinnerCuesForLayer(scene, layer);
+          if (sc) spinnerCues.push({ target: path, ...sc });
+        }
+
         const size = info.size ? { w: info.size.width, h: info.size.height } : null;
         descriptorNodes.push({
           path,
@@ -325,6 +359,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
       variant: settings.variant,
       nodes: descriptorNodes,
       spineCues,
+      spinnerCues,
       bakeFps: settings.bakeFps
     };
     const descPath = `${sceneFolder}/${canvasName}_timeline.json`;

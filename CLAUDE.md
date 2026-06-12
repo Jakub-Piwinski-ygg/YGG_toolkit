@@ -53,7 +53,6 @@ react-app/
     │   ├── AtlasPackerTool.jsx     # Atlas Packer (grid/tile mode, pre-scaling)
     │   ├── PaylinesTool.jsx        # Paylines designer (toggle cells, import/export .txt)
     │   ├── FontPreviewTool.jsx     # Image Font Preview (per-letter PNG assignment, live canvas)
-    │   ├── SlotMachineTool.jsx     # Slot Machine (reel animation, WASM blur cache, layers)
     │   └── ContentBrowserTool.jsx  # Content Browser (GitHub/GitLab auth, tree nav, send to tools)
     ├── styles/
     │   ├── tokens.css              # CSS variables (--bg, --accent, etc.)
@@ -103,7 +102,7 @@ useEffect(() => {
 **meta flags** used by ToolPanel dispatch:
 - `needsMagick: true` — disables RUN until WASM is ready
 - `batchMode: true` — runner is called once with all files (`run(null, null, null, allFiles)`)
-- `needsFiles: false` — RUN is not gated on input files (Paylines, Slot Machine, Content Browser)
+- `needsFiles: false` — RUN is not gated on input files (Paylines, Content Browser)
 - runner returning `null` is safe — ToolPanel skips `pushOutput` if blob is falsy
 
 **Animation**: Framer Motion used for:
@@ -125,7 +124,8 @@ useEffect(() => {
 - [x] Paylines (grid designer, import/export .txt, no files needed)
 - [x] Outline / Stroke (outside/center/inside, kernel shape)
 - [x] Atlas Packer (grid/tile mode, pre-scaling)
-- [x] Slot Machine (reel animation, WASM blur precompute, layer system)
+- [x] ~~Slot Machine~~ — retired in Phase 5; superseded by the Scene Studio
+      Spinner object (`react-app/SPINNER.md`)
 - [x] Content Browser (GitHub/GitLab auth, repo list, tree nav, breadcrumbs, lazy thumbnails, send to Art Tools)
 
 ### React QoL backlog — missing vs original

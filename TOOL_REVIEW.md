@@ -100,7 +100,7 @@ config JSON.
 4. Replace-with-output flow enables chained workflows.
 
 **Bad (package level) — these multiply across all 13 tools**
-1. **Duplicated feather-mask Magick chain** (`-shave/-bordercolor/-border/-blur/-level`) in BlurTool:66, GaussianBlurTool:52+87, OutlineTool, SlotMachineTool:57 → extract `makeFeatherMask()`.
+1. **Duplicated feather-mask Magick chain** (`-shave/-bordercolor/-border/-blur/-level`) in BlurTool:66, GaussianBlurTool:52+87, OutlineTool, and SceneStudio `engine/spinner/spinnerBlur.js` (the retired SlotMachineTool's copy moved there) → extract `makeFeatherMask()`.
 2. **No batch mode** on 7 single-file tools (Crop, Scaler, Blur, GaussBlur, GreyAlpha, GradientMap, Outline) — biggest daily-use friction.
 3. **No before/after preview** on any Magick tool — users run blind and iterate by re-running.
 4. Duplicated scale-call pattern (Scaler ↔ AtlasPacker) and canvas-to-blob pattern (RGBA/GreyAlpha/GradientMap) → shared utils.
@@ -110,7 +110,6 @@ config JSON.
 
 | Tool | Good (top 3) | Bad / wanted (top 3) |
 |---|---|---|
-| **Slot Machine** (635 L) | realistic decel curve + staggered stops; WASM blur precomputed; multi-layer composition | mutable `runtimeRef` hard to debug; no frame/video export; path-animation & source-swap features incomplete |
 | **Converter** (339 L) | video frame extraction (time/index/range); quality+lossless controls; good progress labels | no frame scrubber/preview; seek reliability epsilon-fragile; output labeling unclear for multi-frame |
 | **Atlas Packer** (183 L) | grid+tile modes; pre-scale w/ filters; size caps + logging | **no JSON metadata output for engines** (top wanted); no bin-packing; silently clips overflow sprites |
 | **Outline** (196 L) | true morphological outline (outside/center/inside); 3 kernels; canvas-expand | 6+ sequential Magick calls (slow); duplicated mask chain; no preview |
@@ -175,7 +174,7 @@ flat tool column without search.
 7. **Live previews** on Magick tools (Blur, Gaussian, Outline, Gradient Map first).
 
 ### P2 — valuable, not urgent
-8. **Slot Machine**: finish path-animation/source-swap, refactor `runtimeRef`, add frame/WebM export (can reuse Scene Studio Phase 4 exporters).
+8. ~~**Slot Machine**~~ — tool retired in Phase 5; replaced by the deterministic Scene Studio Spinner object (`react-app/SPINNER.md`).
 9. **Accessibility pass** (run the `web-design-guidelines` skill audit): ARIA, focus-visible, keyboard nav, Escape handling.
 10. **Converter**: frame scrubber preview, clearer multi-frame output naming.
 11. **Cheat Tool**: state validation, drift warning vs backend version.

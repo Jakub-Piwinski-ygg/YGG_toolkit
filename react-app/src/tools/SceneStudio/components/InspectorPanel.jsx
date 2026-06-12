@@ -23,6 +23,8 @@ import {
 import { ChannelSubplot, ClipGraphEditor } from './ClipGraphEditor.jsx';
 import { CurveEditor, CurveThumbnail } from './CurveEditor.jsx';
 import { DragNumberField } from './DragNumberField.jsx';
+import { SpinnerSection, SpinnerClipSection } from './SpinnerInspectorSections.jsx';
+import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 
 const BLEND_OPTIONS = ['normal', 'additive', 'screen', 'multiply'];
 const CURVES = CURVE_PRESETS;
@@ -91,7 +93,8 @@ export function InspectorPanel({
   onFlowAction,
   defaultTangentMode = 'auto',
   onSwapAsset,
-  onSwapAssetFromBrowserId
+  onSwapAssetFromBrowserId,
+  onPatchAsset
 }) {
   const layer = scene.layers.find((l) => l.id === selectedLayerId);
   const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
@@ -286,6 +289,9 @@ export function InspectorPanel({
       {asset?.type === 'video' && (
         <VideoSection layer={layer} onPatchLayer={onPatchLayer} />
       )}
+      {asset?.type === 'spinner' && (
+        <SpinnerSection asset={asset} onPatchAsset={onPatchAsset} />
+      )}
 
       {selectedClip && (
         <ClipSection
@@ -302,6 +308,7 @@ export function InspectorPanel({
           onPatchFlow={onPatchFlow}
           onFlowAction={onFlowAction}
           defaultTangentMode={defaultTangentMode}
+          spinnerConfig={asset?.type === 'spinner' ? normalizeSpinnerConfig(asset.spinner) : null}
         />
       )}
     </div>
@@ -441,7 +448,7 @@ function VideoSection({ layer, onPatchLayer }) {
  * All mutations go through `onPatchFlow(newFlow)` because clips live on
  * `scene.flow.tracks[].clips[]`.
  */
-function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction, defaultTangentMode = 'auto' }) {
+function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction, defaultTangentMode = 'auto', spinnerConfig = null }) {
   const patchClip = (patch) => {
     const nextTracks = (scene.flow?.tracks || []).map((tr) =>
       tr.id === track.id
@@ -470,6 +477,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
 
   const animations = descriptor?.animations || [];
   const isSpine = asset?.type === 'spine';
+  const isSpinner = asset?.type === 'spinner';
   const supportsChannels = asset?.type === 'png' || asset?.type === 'pngSequence';
   const speed = Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
   const mixDuration = Number.isFinite(Number(clip.mixDuration)) ? Number(clip.mixDuration) : null;
@@ -522,8 +530,10 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
       <DragNumberField label="duration" value={clip.duration} step={0.01} min={0.05}
         onChange={(v) => patchClip({ duration: Math.max(0.05, v), autoFitDuration: false })} />
 
-      <DragNumberField label="speed" value={speed} step={0.01} min={0.01}
-        onChange={(v) => patchClip({ speed: Math.max(0.01, v) })} />
+      {!isSpinner && (
+        <DragNumberField label="speed" value={speed} step={0.01} min={0.01}
+          onChange={(v) => patchClip({ speed: Math.max(0.01, v) })} />
+      )}
 
       {isSpine && (
         <label className="scene-field">
@@ -544,14 +554,16 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
         </label>
       )}
 
-      <label className="scene-field scene-field--check">
-        <input
-          type="checkbox"
-          checked={clip.loop !== false}
-          onChange={(e) => patchClip({ loop: e.target.checked })}
-        />
-        <span>loop</span>
-      </label>
+      {!isSpinner && (
+        <label className="scene-field scene-field--check">
+          <input
+            type="checkbox"
+            checked={clip.loop !== false}
+            onChange={(e) => patchClip({ loop: e.target.checked })}
+          />
+          <span>loop</span>
+        </label>
+      )}
 
       {isSpine && (
         <label className="scene-field">
@@ -611,6 +623,10 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           )}
         </>
       ) : null}
+
+      {isSpinner && (
+        <SpinnerClipSection config={spinnerConfig} clip={clip} patchClip={patchClip} />
+      )}
     </div>
   );
 }

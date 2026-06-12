@@ -1,8 +1,34 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CURVE_PRESETS, TWEEN_PROPS, uid } from '../engine/sceneModel.js';
 import { channelKeyDots, CHANNEL_NAMES, evalChannel, isPathChannel, maxChannelKeyTime } from '../engine/animation/keyframes.js';
+import { SPINNER_ACTIONS } from '../engine/spinner/spinnerModel.js';
 
 const LABEL_COL_W = 140;
+
+// Spinner action progression for adjacent-add "+" buttons.
+const SPINNER_ACTION_SEQUENCE = ['startSpin', 'spin', 'stopSpin', 'holdResult'];
+function nextSpinnerAction(currentAction) {
+  const idx = SPINNER_ACTION_SEQUENCE.indexOf(currentAction);
+  if (idx < 0 || idx >= SPINNER_ACTION_SEQUENCE.length - 1) return 'spin';
+  return SPINNER_ACTION_SEQUENCE[idx + 1];
+}
+
+// Default duration in seconds for each spinner action clip.
+function spinnerActionDuration(action) {
+  if (action === 'startSpin') return 0.5;
+  if (action === 'stopSpin')  return 0.8;
+  if (action === 'holdResult') return 1.0;
+  return 3.0; // spin
+}
+
+// Given a sorted clip list on a spinner track, determine what action the NEXT
+// added clip should have (follows the last clip's action in the sequence).
+function nextActionForSpinnerTrack(clips) {
+  if (!clips || !clips.length) return 'startSpin';
+  const sorted = [...clips].sort((a, b) => a.start - b.start);
+  const last = sorted[sorted.length - 1];
+  return nextSpinnerAction(last.action || 'startSpin');
+}
 const DEFAULT_PX_PER_SEC = 120;
 const MIN_PX_PER_SEC = 30;
 const MAX_PX_PER_SEC = 360;
@@ -135,10 +161,11 @@ export function TimelinePanel({
   }, [tracks]);
   const heightOf = (track) => trackHeights.get(track.id) || ROW_H;
 
-  const defaultClipDurationForLayer = useCallback((layerId, speed = 1, animOverride = null) => {
+  const defaultClipDurationForLayer = useCallback((layerId, speed = 1, animOverride = null, spinnerAction = null) => {
     const layer = scene.layers.find((l) => l.id === layerId);
     if (!layer) return 1;
     const asset = scene.assets.find((a) => a.id === layer.assetId);
+    if (asset?.type === 'spinner') return spinnerActionDuration(spinnerAction || 'spin');
     if (asset?.type !== 'spine') return 1;
     const animName = animOverride || layer.spine?.defaultAnimation || null;
     if (!animName) return 1;
@@ -148,10 +175,12 @@ export function TimelinePanel({
     return Math.max(0.05, rawDur / speedSafe);
   }, [scene.layers, scene.assets, assetDescriptors]);
 
-  const defaultClipForLayer = useCallback((layerId, slot) => {
+  const defaultClipForLayer = useCallback((layerId, slot, spinnerAction = null) => {
     const layer = scene.layers.find((l) => l.id === layerId);
-    const defaultLoop = layer?.spine?.loop !== false;
-    return {
+    const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
+    const isSpinner = asset?.type === 'spinner';
+    const defaultLoop = !isSpinner && (layer?.spine?.loop !== false);
+    const base = {
       id: uid('C'),
       name: null,
       start: slot.start,
@@ -161,9 +190,14 @@ export function TimelinePanel({
       curve: 'linear',
       speed: 1,
       mixDuration: null,
-      autoFitDuration: true
+      autoFitDuration: !isSpinner
     };
-  }, [scene.layers]);
+    if (isSpinner) {
+      base.action = spinnerAction || 'startSpin';
+      base.spinner = null;
+    }
+    return base;
+  }, [scene.layers, scene.assets]);
 
   const ensureTrackForLayer = (layerId) => {
     const existing = tracks.find((t) => t.layerId === layerId);
@@ -173,11 +207,15 @@ export function TimelinePanel({
   const addClipOnSelected = () => {
     if (!selectedLayerId) return;
     const track = ensureTrackForLayer(selectedLayerId);
+    const layer = scene.layers.find((l) => l.id === selectedLayerId);
+    const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
+    const isSpinner = asset?.type === 'spinner';
+    const spinnerAction = isSpinner ? nextActionForSpinnerTrack(track.clips) : null;
     const start = clamp(flowState.time, 0, Math.max(0, duration - 0.25));
-    const wantedDuration = defaultClipDurationForLayer(selectedLayerId);
+    const wantedDuration = defaultClipDurationForLayer(selectedLayerId, 1, null, spinnerAction);
     const slot = findFreeSlot(track, start, wantedDuration);
     if (!slot) return;
-    const clip = defaultClipForLayer(selectedLayerId, slot);
+    const clip = defaultClipForLayer(selectedLayerId, slot, spinnerAction);
     const nextTracks = tracks.filter((t) => t.id !== track.id);
     nextTracks.push({ ...track, clips: [...track.clips, clip].sort((a, b) => a.start - b.start) });
     setFlow({ ...(scene.flow || {}), tracks: nextTracks });
@@ -351,13 +389,15 @@ export function TimelinePanel({
     onSelectLayer?.(layerId);
   };
 
-  const addClipToTrack = (trackId, slot, extraChannels = null) => {
+  const addClipToTrack = (trackId, slot, extraChannels = null, extraProps = null) => {
     const track = tracks.find((t) => t.id === trackId);
     if (!track) return;
-    const wantedDuration = defaultClipDurationForLayer(track.layerId);
+    const spinnerAction = extraProps?.action || null;
+    const wantedDuration = defaultClipDurationForLayer(track.layerId, 1, null, spinnerAction);
     const resolved = findFreeSlot(track, slot.start, wantedDuration) || slot;
-    const clip = { ...defaultClipForLayer(track.layerId, resolved) };
+    const clip = { ...defaultClipForLayer(track.layerId, resolved, spinnerAction) };
     if (extraChannels && Object.keys(extraChannels).length) clip.channels = extraChannels;
+    if (extraProps) Object.assign(clip, extraProps);
     const nextTracks = tracks.map((t) =>
       t.id === trackId
         ? { ...t, clips: [...t.clips, clip].sort((a, b) => a.start - b.start) }
@@ -482,20 +522,27 @@ export function TimelinePanel({
     if (idx < 0) return;
     const leftBound = idx > 0 ? siblings[idx - 1].start + siblings[idx - 1].duration : 0;
     const rightBound = idx < siblings.length - 1 ? siblings[idx + 1].start : duration;
-    const wantedDuration = defaultClipDurationForLayer(track.layerId);
-    const seeded = seedChannelsFromClipEdge(clip, side);
+    // For spinner tracks, determine the contextually correct next action.
+    const layer = scene.layers.find((l) => l.id === track.layerId);
+    const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
+    const isSpinner = asset?.type === 'spinner';
+    const spinnerAction = isSpinner ? nextSpinnerAction(clip.action || 'startSpin') : null;
+    const wantedDuration = defaultClipDurationForLayer(track.layerId, 1, null, spinnerAction);
+    const seeded = isSpinner ? null : seedChannelsFromClipEdge(clip, side);
     if (side === 'left') {
       const gap = clip.start - leftBound;
       if (gap < ADJACENT_ADD_MIN_GAP) return;
       const d = Math.min(wantedDuration, gap);
-      addClipToTrack(track.id, { start: clip.start - d, duration: d }, seeded);
+      addClipToTrack(track.id, { start: clip.start - d, duration: d }, seeded,
+        isSpinner ? { action: spinnerAction } : null);
       return;
     }
     const clipEnd = clip.start + clip.duration;
     const gap = rightBound - clipEnd;
     if (gap < ADJACENT_ADD_MIN_GAP) return;
     const d = Math.min(wantedDuration, gap);
-    addClipToTrack(track.id, { start: clipEnd, duration: d }, seeded);
+    addClipToTrack(track.id, { start: clipEnd, duration: d }, seeded,
+      isSpinner ? { action: spinnerAction } : null);
   };
 
   /**
@@ -665,6 +712,7 @@ export function TimelinePanel({
     if (clip.name) return clip.name;
     const layer = scene.layers.find((l) => l.id === track.layerId);
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
+    if (asset?.type === 'spinner') return clip.action || 'spinner';
     // Compute default: "<layer name> clip N"
     const sameTrackClips = track.clips || [];
     const clipIdx = sameTrackClips.findIndex((c) => c.id === clip.id);
@@ -903,6 +951,7 @@ export function TimelinePanel({
                   const trackLayer = scene.layers.find((l) => l.id === track.layerId);
                   const trackAsset = trackLayer ? scene.assets.find((a) => a.id === trackLayer.assetId) : null;
                   const isSpine = trackAsset?.type === 'spine';
+                  const isSpinner = trackAsset?.type === 'spinner';
                   const spineAnimations = isSpine
                     ? (assetDescriptors?.[trackAsset.id]?.animations || [])
                     : [];
@@ -912,6 +961,7 @@ export function TimelinePanel({
                       clip={c}
                       label={labelForClip(track, c)}
                       isSpine={isSpine}
+                      isSpinner={isSpinner}
                       spineAnimations={spineAnimations}
                       selected={c.id === selectedClipId}
                       duration={duration}
@@ -981,7 +1031,9 @@ const EDGE_GUARD_PX = 12;
 
 const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', tint: 'tint' };
 
-function ClipBlock({ clip, label, isSpine, spineAnimations = [], selected, duration, siblings = [], pxPerSec, onSelect, onPatch, onRemove, snapTime, onAddLeft, onAddRight, selectedKey, onSelectKey, onMoveKey }) {
+const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', holdResult: '#88a' };
+
+function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, duration, siblings = [], pxPerSec, onSelect, onPatch, onRemove, snapTime, onAddLeft, onAddRight, selectedKey, onSelectKey, onMoveKey }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -1087,8 +1139,12 @@ function ClipBlock({ clip, label, isSpine, spineAnimations = [], selected, durat
   return (
     <div
       ref={ref}
-      className={'scene-clip' + (selected ? ' selected' : '')}
-      style={{ left: clip.start * pxPerSec, width: Math.max(8, clip.duration * pxPerSec) }}
+      className={'scene-clip' + (selected ? ' selected' : '') + (isSpinner && clip.action ? ` scene-clip--spinner-${clip.action}` : '')}
+      style={{
+        left: clip.start * pxPerSec,
+        width: Math.max(8, clip.duration * pxPerSec),
+        borderTopColor: isSpinner && clip.action ? SPINNER_ACTION_COLOR[clip.action] : undefined
+      }}
       title={label}
       onPointerDown={onPointerDown}
       onPointerMove={(e) => { onPointerMove(e); onPointerMoveHover(e); }}
@@ -1107,7 +1163,18 @@ function ClipBlock({ clip, label, isSpine, spineAnimations = [], selected, durat
       )}
       <div className="scene-clip-edge scene-clip-edge--left" />
       <div className="scene-clip-body">
-        {isSpine && spineAnimations.length > 0 ? (
+        {isSpinner ? (
+          <select
+            className="scene-clip-spine-select"
+            value={clip.action || ''}
+            title="Spinner action"
+            onPointerDown={(e) => e.stopPropagation()}
+            onChange={(e) => { e.stopPropagation(); onPatch?.({ action: e.target.value || null }); }}
+          >
+            <option value="">— action —</option>
+            {SPINNER_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        ) : isSpine && spineAnimations.length > 0 ? (
           <select
             className="scene-clip-spine-select"
             value={clip.anim || ''}

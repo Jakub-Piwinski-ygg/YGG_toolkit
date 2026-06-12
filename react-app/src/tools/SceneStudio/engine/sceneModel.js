@@ -3,10 +3,17 @@
 // The JSDoc types below are the source of truth for the file format.
 // Keep them in sync with SCENE_STUDIO.md §4.
 
+import { SPINNER_ACTIONS, normalizeSpinnerClipPayload } from './spinner/spinnerModel.js';
+
 /**
- * @typedef {'png' | 'spine' | 'video' | 'pngSequence'} AssetType
+ * @typedef {'png' | 'spine' | 'video' | 'pngSequence' | 'spinner'} AssetType
  * @typedef {'landscape' | 'portrait'} Orientation
  * @typedef {'normal' | 'additive' | 'screen' | 'multiply'} BlendMode
+ *
+ * A `spinner` asset carries a `spinner: SpinnerConfig` payload (see
+ * engine/spinner/spinnerModel.js and SPINNER.md §3) and references its
+ * symbol art as ordinary `png` assets by id. Spinner timeline clips use
+ * `clip.action` + `clip.spinner` instead of `anim`/`channels`.
  */
 
 /**
@@ -839,7 +846,16 @@ export function normalizeClip(c) {
       : (Number.isFinite(mixDuration) && mixDuration >= 0 ? mixDuration : 0),
     /** Helper flag: auto-fit duration on first resolved animation. */
     autoFitDuration: c.autoFitDuration === true,
-    channels
+    channels,
+    /**
+     * Spinner clips (layers whose asset is a `spinner`): the action this
+     * clip performs plus its action-specific payload. Null on every other
+     * clip kind. See SPINNER.md §3.
+     */
+    action: SPINNER_ACTIONS.includes(c.action) ? c.action : null,
+    spinner: SPINNER_ACTIONS.includes(c.action)
+      ? normalizeSpinnerClipPayload(c.action, c.spinner)
+      : null
   };
 }
 
