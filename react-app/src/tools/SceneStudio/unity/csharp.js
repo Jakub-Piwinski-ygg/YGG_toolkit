@@ -1019,23 +1019,43 @@ namespace Ygg.SceneStudio
         [TextArea(2, 6)] public string configJson;
         [TextArea(2, 6)] public string clipsJson;
         public SpinnerSymbolBinding[] symbolBindings;
+        // World variant renders SpriteRenderer cells masked by per-reel
+        // SpriteMasks; positions are divided by pixelsPerUnit. The UI variant
+        // ignores all three fields.
+        public bool worldVariant;
+        public float pixelsPerUnit = 100f;
+        public Sprite maskSprite;
 
         SpinnerConfigData _cfg;
         ResolvedTrack _resolved;
         bool _built;
+        float _W, _H, _pitchY;
+        Transform _fxRoot;
 
-        struct CellView { public RectTransform rt; public Image staticImg, blurImg; public string symId; }
+        struct CellView
+        {
+            public Transform sTr, bTr;
+            public Image staticImg, blurImg;        // ui
+            public SpriteRenderer staticSr, blurSr; // world
+            public string symId;
+            public float fitS, fitB;                // world: sprite-to-cell fit scale
+        }
         List<CellView>[] _reelCells;
 
         public bool IsConfigured => _cfg != null;
+        /// Top render layer of the reel board — land/win FX parent.
+        public Transform FxRoot => _fxRoot;
 
         public void Configure(string cfgJson, SpinnerClipData[] clips)
         {
             if (!string.IsNullOrEmpty(cfgJson))
                 _cfg = JsonUtility.FromJson<SpinnerConfigData>(cfgJson);
             if (_cfg == null) return;
+            _pitchY = _cfg.cellH + _cfg.spacingY;
+            _W = _cfg.reels * _cfg.cellW + (_cfg.reels - 1) * _cfg.spacingX;
+            _H = _cfg.rows  * _cfg.cellH + (_cfg.rows - 1)  * _cfg.spacingY;
             _resolved = ResolveTrack(_cfg, clips);
-            if (!_built) Build();
+            if (!_built && !BindBakedHierarchy()) BuildRuntime();
             Evaluate(0f);
         }
 
@@ -1058,38 +1078,76 @@ namespace Ygg.SceneStudio
         {
             if (_cfg == null || !_built) return;
             var res = EvaluateInternal(_cfg, _resolved, t);
-            float pitchY = _cfg.cellH + _cfg.spacingY;
             for (int r = 0; r < _cfg.reels; r++)
             {
                 var reel = res[r];
+                float disp = (reel.frac + reel.bounceOffset) * _cfg.direction;
                 for (int i = 0; i < _reelCells[r].Count; i++)
                 {
                     var cell = _reelCells[r][i];
                     var data = reel.cells[i];
-                    cell.rt.anchoredPosition = new Vector2(cell.rt.anchoredPosition.x,
-                        -(data.gridRow + (reel.frac + reel.bounceOffset) * _cfg.direction) * pitchY - _cfg.cellH / 2f);
+                    float y = _H / 2f - _cfg.cellH / 2f - (data.gridRow + disp) * _pitchY;
+                    SetCellY(cell.sTr, y);
+                    SetCellY(cell.bTr, y);
                     if (cell.symId != data.symbolId)
                     {
                         var bind = FindBinding(data.symbolId);
-                        if (bind != null) {
-                            cell.staticImg.sprite = bind.staticSprite;
-                            cell.blurImg.sprite = bind.blurSprite != null ? bind.blurSprite : bind.staticSprite;
+                        if (bind != null)
+                        {
+                            var blur = bind.blurSprite != null ? bind.blurSprite : bind.staticSprite;
+                            if (worldVariant)
+                            {
+                                if (cell.staticSr != null) cell.staticSr.sprite = bind.staticSprite;
+                                if (cell.blurSr != null) cell.blurSr.sprite = blur;
+                                cell.fitS = FitScale(bind.staticSprite);
+                                cell.fitB = FitScale(blur);
+                            }
+                            else
+                            {
+                                if (cell.staticImg != null) cell.staticImg.sprite = bind.staticSprite;
+                                if (cell.blurImg != null) cell.blurImg.sprite = blur;
+                            }
                         }
-                        cell.symId = data.symbolId; _reelCells[r][i] = cell;
+                        cell.symId = data.symbolId;
                     }
-                    cell.staticImg.color = new Color(1,1,1,1f-reel.blurMix);
-                    cell.blurImg.color   = new Color(1,1,1,reel.blurMix);
-                    float scale = 1f;
+                    var sCol = new Color(1, 1, 1, 1f - reel.blurMix);
+                    var bCol = new Color(1, 1, 1, reel.blurMix);
+                    if (worldVariant)
+                    {
+                        if (cell.staticSr != null) cell.staticSr.color = sCol;
+                        if (cell.blurSr != null) cell.blurSr.color = bCol;
+                    }
+                    else
+                    {
+                        if (cell.staticImg != null) cell.staticImg.color = sCol;
+                        if (cell.blurImg != null) cell.blurImg.color = bCol;
+                    }
+                    float punch = 1f;
                     if (data.state == CellState.Landing) {
                         float p = Mathf.Min(1, data.stateT / _cfg.landAnimDuration);
-                        scale = 1 + 0.12f * Mathf.Sin(Mathf.PI * p);
+                        punch = 1 + 0.12f * Mathf.Sin(Mathf.PI * p);
                     } else if (data.state == CellState.Win) {
                         float p = Mathf.Min(1, data.stateT / _cfg.winAnimDuration);
-                        scale = 1 + 0.18f * Mathf.Sin(Mathf.PI * Mathf.Min(1, p*2)) * (1 - p*0.5f);
+                        punch = 1 + 0.18f * Mathf.Sin(Mathf.PI * Mathf.Min(1, p*2)) * (1 - p*0.5f);
                     }
-                    cell.rt.localScale = Vector3.one * scale;
+                    cell.sTr.localScale = Vector3.one * ((worldVariant ? cell.fitS : 1f) * punch);
+                    cell.bTr.localScale = Vector3.one * ((worldVariant ? cell.fitB : 1f) * punch);
+                    _reelCells[r][i] = cell;
                 }
             }
+        }
+
+        void SetCellY(Transform tr, float yPx)
+        {
+            var rt = tr as RectTransform;
+            if (rt != null && !worldVariant) rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, yPx);
+            else tr.localPosition = new Vector3(tr.localPosition.x, yPx / Mathf.Max(1e-3f, pixelsPerUnit), 0);
+        }
+
+        float FitScale(Sprite s)
+        {
+            if (s == null) return 1f;
+            return Mathf.Min(_cfg.cellW / Mathf.Max(1f, s.rect.width), _cfg.cellH / Mathf.Max(1f, s.rect.height));
         }
 
         SpinnerSymbolBinding FindBinding(string id)
@@ -1099,43 +1157,156 @@ namespace Ygg.SceneStudio
             return null;
         }
 
-        void Build()
+        // ── Hierarchy: bind the exporter-baked structure, or build it ─────
+        //
+        //   Board > Statics > Reel_r (mask) > Cell_-1..Cell_rows
+        //         > Blurs   > Reel_r (mask) > Cell_-1..Cell_rows
+        //         > Fx                                  (land/win renderers)
+        //
+        // Statics/Blurs are sibling layers (contiguous draw order batches;
+        // per-cell nesting would interleave materials). Baked cells are the
+        // pool's warm start: a config edit that needs more reels/rows spawns
+        // extras at runtime; shrunk configs deactivate the leftovers.
+
+        bool BindBakedHierarchy()
         {
-            float pitchY = _cfg.cellH + _cfg.spacingY;
-            float W = _cfg.reels * _cfg.cellW + (_cfg.reels-1) * _cfg.spacingX;
-            float H = _cfg.rows  * _cfg.cellH + (_cfg.rows-1)  * _cfg.spacingY;
-            var boardGo = new GameObject("Board"); boardGo.transform.SetParent(transform, false);
-            var boardRT = boardGo.AddComponent<RectTransform>();
-            boardRT.anchorMin = boardRT.anchorMax = new Vector2(0.5f,0.5f);
-            boardRT.pivot = new Vector2(0.5f,0.5f);
-            boardRT.anchoredPosition = Vector2.zero; boardRT.sizeDelta = new Vector2(W,H);
+            var board = transform.Find("Board");
+            if (board == null) return false;
+            var statics = board.Find("Statics");
+            var blurs = board.Find("Blurs");
+            if (statics == null || blurs == null) return false; // legacy prefab
+            _fxRoot = board.Find("Fx");
             _reelCells = new List<CellView>[_cfg.reels];
             for (int r = 0; r < _cfg.reels; r++)
             {
-                var rGo = new GameObject($"Reel_{r}"); rGo.transform.SetParent(boardGo.transform, false);
-                var rRT = rGo.AddComponent<RectTransform>();
-                rRT.anchorMin = rRT.anchorMax = new Vector2(0,1); rRT.pivot = new Vector2(0,1);
-                rRT.anchoredPosition = new Vector2(r*(_cfg.cellW+_cfg.spacingX)-W/2f, H/2f);
-                rRT.sizeDelta = new Vector2(_cfg.cellW,H);
-                rGo.AddComponent<RectMask2D>();
+                var sReel = EnsureReel(statics, r);
+                var bReel = EnsureReel(blurs, r);
                 _reelCells[r] = new List<CellView>();
                 for (int j = -1; j <= _cfg.rows; j++)
                 {
-                    var cGo = new GameObject($"Cell_{j}"); cGo.transform.SetParent(rGo.transform, false);
-                    var cRT = cGo.AddComponent<RectTransform>();
-                    cRT.anchorMin = cRT.anchorMax = new Vector2(0.5f,1); cRT.pivot = new Vector2(0.5f,1);
-                    cRT.sizeDelta = new Vector2(_cfg.cellW,_cfg.cellH);
-                    cRT.anchoredPosition = new Vector2(0, -(j+1)*pitchY+_cfg.cellH/2f);
-                    Image AddImg(string n, float a) {
-                        var g = new GameObject(n); g.transform.SetParent(cGo.transform, false);
-                        var rt = g.AddComponent<RectTransform>();
-                        rt.anchorMin=Vector2.zero; rt.anchorMax=Vector2.one; rt.offsetMin=rt.offsetMax=Vector2.zero;
-                        var img = g.AddComponent<Image>(); img.preserveAspect=true; img.color=new Color(1,1,1,a); return img;
-                    }
-                    _reelCells[r].Add(new CellView{rt=cRT,staticImg=AddImg("Static",1),blurImg=AddImg("Blur",0),symId=null});
+                    var v = new CellView
+                    {
+                        sTr = EnsureCell(sReel, j, false, 0),
+                        bTr = EnsureCell(bReel, j, true, 1),
+                        symId = null, fitS = 1f, fitB = 1f
+                    };
+                    v.staticImg = v.sTr.GetComponent<Image>();
+                    v.blurImg = v.bTr.GetComponent<Image>();
+                    v.staticSr = v.sTr.GetComponent<SpriteRenderer>();
+                    v.blurSr = v.bTr.GetComponent<SpriteRenderer>();
+                    _reelCells[r].Add(v);
+                }
+                HideExtraCells(sReel); HideExtraCells(bReel);
+            }
+            HideExtraReels(statics); HideExtraReels(blurs);
+            _built = true;
+            return true;
+        }
+
+        void BuildRuntime()
+        {
+            var board = NewContainer(transform, "Board");
+            NewContainer(board, "Statics");
+            NewContainer(board, "Blurs");
+            NewContainer(board, "Fx");
+            BindBakedHierarchy();
+        }
+
+        Transform NewContainer(Transform parent, string name)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            if (!worldVariant)
+            {
+                var rt = go.AddComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(_W, _H);
+                rt.anchoredPosition = Vector2.zero;
+            }
+            return go.transform;
+        }
+
+        Transform EnsureReel(Transform parent, int r)
+        {
+            var tr = parent.Find("Reel_" + r);
+            if (tr != null) { tr.gameObject.SetActive(true); return tr; }
+            var go = new GameObject("Reel_" + r);
+            go.transform.SetParent(parent, false);
+            float colX = r * (_cfg.cellW + _cfg.spacingX) - _W / 2f + _cfg.cellW / 2f;
+            if (!worldVariant)
+            {
+                var rt = go.AddComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(_cfg.cellW, _H);
+                rt.anchoredPosition = new Vector2(colX, 0);
+                go.AddComponent<RectMask2D>();
+            }
+            else
+            {
+                go.transform.localPosition = new Vector3(colX / Mathf.Max(1e-3f, pixelsPerUnit), 0, 0);
+                if (maskSprite != null)
+                {
+                    var maskGo = new GameObject("Mask");
+                    maskGo.transform.SetParent(go.transform, false);
+                    var sm = maskGo.AddComponent<SpriteMask>();
+                    sm.sprite = maskSprite;
+                    maskGo.transform.localScale = new Vector3(
+                        _cfg.cellW / Mathf.Max(1f, maskSprite.rect.width),
+                        _H / Mathf.Max(1f, maskSprite.rect.height), 1);
                 }
             }
-            _built = true;
+            return go.transform;
+        }
+
+        Transform EnsureCell(Transform reel, int j, bool isBlur, int sortingOrder)
+        {
+            var tr = reel.Find("Cell_" + j);
+            if (tr != null) { tr.gameObject.SetActive(true); return tr; }
+            var go = new GameObject("Cell_" + j);
+            go.transform.SetParent(reel, false);
+            float y = _H / 2f - _cfg.cellH / 2f - j * _pitchY;
+            if (!worldVariant)
+            {
+                var rt = go.AddComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(_cfg.cellW, _cfg.cellH);
+                rt.anchoredPosition = new Vector2(0, y);
+                var img = go.AddComponent<Image>();
+                img.preserveAspect = true;
+                img.raycastTarget = false;
+                img.color = new Color(1, 1, 1, isBlur ? 0f : 1f);
+            }
+            else
+            {
+                go.transform.localPosition = new Vector3(0, y / Mathf.Max(1e-3f, pixelsPerUnit), 0);
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.maskInteraction = SpriteMaskInteraction.VisibleInsideMask;
+                sr.sortingOrder = sortingOrder;
+                sr.color = new Color(1, 1, 1, isBlur ? 0f : 1f);
+            }
+            return go.transform;
+        }
+
+        void HideExtraCells(Transform reel)
+        {
+            foreach (Transform c in reel)
+            {
+                if (!c.name.StartsWith("Cell_")) continue;
+                int j;
+                if (int.TryParse(c.name.Substring(5), out j) && (j < -1 || j > _cfg.rows))
+                    c.gameObject.SetActive(false);
+            }
+        }
+
+        void HideExtraReels(Transform layerRoot)
+        {
+            foreach (Transform c in layerRoot)
+            {
+                if (!c.name.StartsWith("Reel_")) continue;
+                int r;
+                if (int.TryParse(c.name.Substring(5), out r) && r >= _cfg.reels)
+                    c.gameObject.SetActive(false);
+            }
         }
 
         enum CellState { Idle, Spinning, Landing, Win }

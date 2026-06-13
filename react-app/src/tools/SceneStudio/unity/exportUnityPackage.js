@@ -8,6 +8,7 @@
 // .unitypackage.
 
 import { buildLayerTree } from '../engine/sceneModel.js';
+import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 import { resolveAssetFile } from '../engine/persist.js';
 import { guidFor, pngSize, dataUrlToBytes, safeName } from './guid.js';
 import { buildUnityPackage } from './tar.js';
@@ -58,6 +59,21 @@ async function bytesForSrc(src, rootHandle, sceneBasePath) {
 function lastSegment(p) {
   const segs = String(p || '').split(/[\\/]/).filter(Boolean);
   return segs[segs.length - 1] || 'asset';
+}
+
+/**
+ * 4×4 white PNG used as the SpriteMask sprite for world-variant spinner reels.
+ * Size must match SPINNER_MASK_PX in prefab.js (the baked mask scale divides
+ * the column size by it).
+ */
+function whiteMaskPngBytes() {
+  const c = document.createElement('canvas');
+  c.width = 4;
+  c.height = 4;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, 4, 4);
+  return dataUrlToBytes(c.toDataURL('image/png'));
 }
 
 /** Convert a scene transform to Unity space for prefab placement. */
@@ -218,6 +234,21 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
   const playerScriptGuid = itemsByPath.get(SCRIPT_PATHS.player).guid;
   const spinnerScriptGuid = itemsByPath.get(SCRIPT_PATHS.spinner).guid;
 
+  // World-variant spinner reels are masked with SpriteMask — ship a tiny
+  // white sprite for it (the UI variant uses RectMask2D, no asset needed).
+  let spinnerMaskSpriteGuid = null;
+  if (!ui && [...assetInfo.values()].some((i) => i.kind === 'spinner')) {
+    const maskBytes = whiteMaskPngBytes();
+    if (maskBytes) {
+      const maskItem = await pushItem(`${base}/Art/Spinner/YggReelMask.png`, maskBytes, (g) => textureMeta(g, {
+        compression: 'none',
+        alphaIsTransparency: false,
+        pixelsPerUnit: settings.pixelsPerUnit
+      }));
+      spinnerMaskSpriteGuid = maskItem.guid;
+    }
+  }
+
   // ── 3. Per-canvas: bake → anim, descriptor, prefab ────────────────────
   const tree = buildLayerTree(scene);
   const canvases = scene.canvases?.length ? scene.canvases : [{ id: '__all', name: 'Canvas' }];
@@ -315,15 +346,25 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           if (sc) {
             spinnerCues.push({ target: path, ...sc });
             const spinnerAsset = (scene.assets || []).find((a) => a.id === layer.assetId);
-            const bindings = (spinnerAsset?.spinner?.symbols || []).map((sym) => ({
-              symbolId: sym.id,
-              staticGuid: info.symAssetMap?.get(sym.assetId)?.spriteGuid || null,
-              blurGuid: info.symAssetMap?.get(sym.blurAssetId)?.spriteGuid || null
-            }));
+            const size2 = (i) => (i?.size ? { w: i.size.width, h: i.size.height } : null);
+            const bindings = (spinnerAsset?.spinner?.symbols || []).map((sym) => {
+              const sInfo = info.symAssetMap?.get(sym.assetId);
+              const bInfo = info.symAssetMap?.get(sym.blurAssetId);
+              return {
+                symbolId: sym.id,
+                staticGuid: sInfo?.spriteGuid || null,
+                blurGuid: bInfo?.spriteGuid || null,
+                staticSize: size2(sInfo),
+                blurSize: size2(bInfo)
+              };
+            });
             spinnerData = {
               configJson: sc.configJson,
               clipsJson: JSON.stringify({ clips: sc.clips }),
-              bindings
+              bindings,
+              // Normalized config for prefab.js to bake the reel hierarchy
+              // (grid, strips, initialBoard, direction).
+              config: normalizeSpinnerConfig(spinnerAsset?.spinner)
             };
             const g = spinnerAsset?.spinner?.grid;
             if (g) spinnerSize = {
@@ -401,6 +442,8 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
       nodes,
       spineScriptGuid: ui ? settings.spineGraphicGuid : settings.spineAnimationGuid,
       spinnerScriptGuid,
+      pixelsPerUnit: settings.pixelsPerUnit,
+      spinnerMaskSpriteGuid,
       player: {
         scriptGuid: playerScriptGuid,
         clipGuid: animItem.guid,
@@ -413,9 +456,6 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
   }
 
   if (!exportedCanvases) throw new Error('Nothing to export — the scene has no layers.');
-  if (!ui && [...assetInfo.values()].some((i) => i.kind === 'spinner')) {
-    warnings.push('Spinner reels render via UnityEngine.UI Images and need a Canvas — use the UI variant for spinner scenes (world variant exports the component but it will not be visible without a Canvas).');
-  }
   const hasSpine = [...assetInfo.values()].some((i) => i.kind === 'spine');
   if (hasSpine && ((ui && !settings.spineGraphicGuid) || (!ui && !settings.spineAnimationGuid))) {
     warnings.push('Spine script GUID cleared in settings — spine layers export as placeholders.');

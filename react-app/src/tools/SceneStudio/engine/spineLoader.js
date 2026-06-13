@@ -44,14 +44,15 @@ async function loadPixiTexture(url) {
 }
 
 /**
- * Build a Spine instance from three resolved URLs.
+ * Load and parse SkeletonData from three resolved URLs. One SkeletonData can
+ * back many Spine instances (spinner overlay pool) — atlas texture included.
  *
  * @param {string} skeletonUrl  blob: or relative URL for the .json
  * @param {string} atlasUrl     blob: or relative URL for the .atlas / .atlas.txt
  * @param {string} textureUrl   blob: or relative URL for the .png
- * @returns {Promise<Spine>}
+ * @returns {Promise<SkeletonData>}
  */
-export async function buildSpineFromUrls(skeletonUrl, atlasUrl, textureUrl) {
+export async function loadSkeletonData(skeletonUrl, atlasUrl, textureUrl) {
   const [skeletonJson, atlasText, pixiTexture] = await Promise.all([
     loadJson(skeletonUrl),
     loadText(atlasUrl),
@@ -70,9 +71,19 @@ export async function buildSpineFromUrls(skeletonUrl, atlasUrl, textureUrl) {
   const skelLoader = new SkeletonJson(loader);
   // Spine 4.2 JSON uses default scale = 1; expose if needed later.
   skelLoader.scale = 1;
-  const skeletonData = skelLoader.readSkeletonData(skeletonJson);
+  return skelLoader.readSkeletonData(skeletonJson);
+}
 
-  return new Spine(skeletonData);
+/**
+ * Build a Spine instance from three resolved URLs.
+ *
+ * @param {string} skeletonUrl  blob: or relative URL for the .json
+ * @param {string} atlasUrl     blob: or relative URL for the .atlas / .atlas.txt
+ * @param {string} textureUrl   blob: or relative URL for the .png
+ * @returns {Promise<Spine>}
+ */
+export async function buildSpineFromUrls(skeletonUrl, atlasUrl, textureUrl) {
+  return new Spine(await loadSkeletonData(skeletonUrl, atlasUrl, textureUrl));
 }
 
 /**

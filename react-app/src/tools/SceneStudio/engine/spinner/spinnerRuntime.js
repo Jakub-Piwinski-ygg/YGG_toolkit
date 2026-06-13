@@ -6,8 +6,9 @@
 // evaluateSpinner(config, resolved, t) onto sprite positions, textures and
 // alphas. NO timing or spin logic lives here.
 //
-// Dependencies (resolveAssetUrl, loadTexture) are injected by pixiApp.js so
-// this module stays import-cycle-free and unit-mockable.
+// Dependencies (resolveAssetUrl, loadTexture, createSpineContainer) are
+// injected by pixiApp.js so this module stays import-cycle-free and
+// unit-mockable.
 //
 // Object shape:
 //   root Container            ← transform applied by rebuildScene like any layer
@@ -43,7 +44,7 @@ function useSpineOverlay(spinePool, key, x, y, stateT) {
  * Build the Pixi object for a `spinner` asset.
  * @param {object} asset  scene asset with `.spinner` config
  * @param {object} layer  owning SceneLayer (unused today, kept for parity)
- * @param {object} deps   { scene, rootHandle, sceneBasePath, resolveAssetUrl, loadTexture }
+ * @param {object} deps   { scene, rootHandle, sceneBasePath, resolveAssetUrl, loadTexture, createSpineContainer }
  */
 export async function buildSpinnerObject(asset, layer, deps) {
   const config = normalizeSpinnerConfig(asset.spinner);

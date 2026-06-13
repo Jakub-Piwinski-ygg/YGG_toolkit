@@ -20,6 +20,11 @@ import { fileIdFor } from './guid.js';
 
 // UnityEngine.UI.Image — stable GUID shipped with UnityEngine.UI since 4.6.
 export const UI_IMAGE_GUID = 'fe87c0e1cc204ed48ad3b37840f39efc';
+// UnityEngine.UI.RectMask2D — same package, same stability guarantee.
+export const UI_RECTMASK2D_GUID = '3312d7739989d2b4e91e6319e9a96d76';
+// Pixel size of the generated white reel-mask sprite (world variant) — must
+// match the canvas size in exportUnityPackage.js#whiteMaskPngBytes.
+export const SPINNER_MASK_PX = 4;
 
 function f(n) {
   if (!Number.isFinite(n)) return '0';
@@ -108,7 +113,7 @@ function canvasGroupYaml(id, goId, alpha) {
   m_IgnoreParentGroups: 0`;
 }
 
-function imageYaml(id, goId, spriteGuid, tint) {
+function imageYaml(id, goId, spriteGuid, tint, alpha = 1, preserveAspect = false) {
   const c = tint || { r: 1, g: 1, b: 1 };
   return `${commonHeader(114, id, 'MonoBehaviour')}
   m_GameObject: {fileID: ${goId}}
@@ -118,16 +123,16 @@ function imageYaml(id, goId, spriteGuid, tint) {
   m_Name:
   m_EditorClassIdentifier:
   m_Material: {fileID: 0}
-  m_Color: {r: ${f(c.r)}, g: ${f(c.g)}, b: ${f(c.b)}, a: 1}
+  m_Color: {r: ${f(c.r)}, g: ${f(c.g)}, b: ${f(c.b)}, a: ${f(alpha)}}
   m_RaycastTarget: 0
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: ${spriteGuid}, type: 3}
+  m_Sprite: ${spriteGuid ? `{fileID: 21300000, guid: ${spriteGuid}, type: 3}` : '{fileID: 0}'}
   m_Type: 0
-  m_PreserveAspect: 0
+  m_PreserveAspect: ${preserveAspect ? 1 : 0}
   m_FillCenter: 1
   m_FillMethod: 4
   m_FillAmount: 1
@@ -137,8 +142,9 @@ function imageYaml(id, goId, spriteGuid, tint) {
   m_PixelsPerUnitMultiplier: 1`;
 }
 
-function spriteRendererYaml(id, goId, spriteGuid, alpha, tint) {
+function spriteRendererYaml(id, goId, spriteGuid, alpha, tint, opts = {}) {
   const c = tint || { r: 1, g: 1, b: 1 };
+  const { maskInteraction = 0, sortingOrder = 0 } = opts;
   return `${commonHeader(212, id, 'SpriteRenderer')}
   m_GameObject: {fileID: ${goId}}
   m_Enabled: 1
@@ -174,8 +180,8 @@ function spriteRendererYaml(id, goId, spriteGuid, alpha, tint) {
   m_LightmapParameters: {fileID: 0}
   m_SortingLayerID: 0
   m_SortingLayer: 0
-  m_SortingOrder: 0
-  m_Sprite: {fileID: 21300000, guid: ${spriteGuid}, type: 3}
+  m_SortingOrder: ${sortingOrder}
+  m_Sprite: ${spriteGuid ? `{fileID: 21300000, guid: ${spriteGuid}, type: 3}` : '{fileID: 0}'}
   m_Color: {r: ${f(c.r)}, g: ${f(c.g)}, b: ${f(c.b)}, a: ${f(alpha ?? 1)}}
   m_FlipX: 0
   m_FlipY: 0
@@ -184,7 +190,69 @@ function spriteRendererYaml(id, goId, spriteGuid, alpha, tint) {
   m_AdaptiveModeThreshold: 0.5
   m_SpriteTileMode: 0
   m_WasSpriteAssigned: 1
-  m_MaskInteraction: 0
+  m_MaskInteraction: ${maskInteraction}
+  m_SpriteSortPoint: 0`;
+}
+
+function rectMask2DYaml(id, goId) {
+  return `${commonHeader(114, id, 'MonoBehaviour')}
+  m_GameObject: {fileID: ${goId}}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ${UI_RECTMASK2D_GUID}, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  m_Padding: {x: 0, y: 0, z: 0, w: 0}
+  m_Softness: {x: 0, y: 0}`;
+}
+
+/** SpriteMask (world variant) — native class 331, Renderer field layout. */
+function spriteMaskYaml(id, goId, spriteGuid) {
+  return `${commonHeader(331, id, 'SpriteMask')}
+  m_GameObject: {fileID: ${goId}}
+  m_Enabled: 1
+  m_CastShadows: 0
+  m_ReceiveShadows: 0
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 0
+  m_ReflectionProbeUsage: 0
+  m_RayTracingMode: 0
+  m_RayTraceProcedural: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 0}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 0
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_Sprite: {fileID: 21300000, guid: ${spriteGuid}, type: 3}
+  m_MaskAlphaCutoff: 0.2
+  m_FrontSortingLayerID: 0
+  m_FrontSortingLayer: 0
+  m_FrontSortingOrder: 0
+  m_BackSortingLayerID: 0
+  m_BackSortingLayer: 0
+  m_BackSortingOrder: 0
+  m_IsCustomRangeActive: 0
   m_SpriteSortPoint: 0`;
 }
 
@@ -296,7 +364,7 @@ function yamlSq(s) {
  * config + clips JSON (the component self-configures in Awake) and sprite
  * bindings per symbol so the reels render without any manual setup.
  */
-function spinnerYaml(id, goId, scriptGuid, spinner) {
+function spinnerYaml(id, goId, scriptGuid, spinner, { ui, ppu, maskSpriteGuid } = {}) {
   const bindings = (spinner.bindings || []).map((b) => `  - symbolId: ${b.symbolId}
     staticSprite: ${b.staticGuid ? `{fileID: 21300000, guid: ${b.staticGuid}, type: 3}` : '{fileID: 0}'}
     blurSprite: ${b.blurGuid ? `{fileID: 21300000, guid: ${b.blurGuid}, type: 3}` : '{fileID: 0}'}`).join('\n');
@@ -310,7 +378,138 @@ function spinnerYaml(id, goId, scriptGuid, spinner) {
   configJson: '${yamlSq(spinner.configJson)}'
   clipsJson: '${yamlSq(spinner.clipsJson)}'
   symbolBindings:
-${bindings || '  []'}`.replace('symbolBindings:\n  []', 'symbolBindings: []');
+${bindings || '  []'}
+  worldVariant: ${ui === false ? 1 : 0}
+  pixelsPerUnit: ${f(ppu || 100)}
+  maskSprite: ${ui === false && maskSpriteGuid ? `{fileID: 21300000, guid: ${maskSpriteGuid}, type: 3}` : '{fileID: 0}'}`.replace('symbolBindings:\n  []', 'symbolBindings: []');
+}
+
+/**
+ * Baked spinner reel hierarchy (Phase 2 of the Unity feedback round):
+ *
+ *   Board                      ← W×H, centered on the spinner GO
+ *     Statics                  ← ALL static cells (contiguous draw order)
+ *       Reel_0 (RectMask2D)    ← cellW×H column; SpriteMask child in world
+ *         Cell_-1 … Cell_rows  ← Image / SpriteRenderer, initial-board sprites
+ *       …
+ *     Blurs                    ← same shape, blur sprites, alpha 0
+ *     Fx                       ← top layer for land/win renderers (runtime)
+ *
+ * Statics and Blurs are SIBLING layers (not per-cell nesting) so same-texture
+ * cells batch; per-reel masking matches the runtime behaviour. The generated
+ * YggSpinner binds to this structure by name in Awake (warm-start pool) and
+ * only builds at runtime for legacy prefabs.
+ */
+async function spinnerBakedDocs({ id, ui, node, fatherTrId, ppu, maskSpriteGuid }) {
+  const cfg = node.spinner.config;
+  const bindMap = new Map((node.spinner.bindings || []).map((b) => [b.symbolId, b]));
+  const { reels, rows, cellW, cellH, spacingX, spacingY } = cfg.grid;
+  const pitchY = cellH + spacingY;
+  const W = reels * cellW + (reels - 1) * spacingX;
+  const H = rows * cellH + (rows - 1) * spacingY;
+  const k = ui ? 1 : 1 / (ppu || 100);
+  const docs = [];
+
+  // Symbol shown by cell j of reel r at t=0 — initial board for visible rows,
+  // strip lookup (same formula as the evaluator at scroll 0) for the buffers.
+  const symbolAt = (r, j) => {
+    if (j >= 0 && j < rows && cfg.initialBoard?.[r]?.[j] != null) return cfg.initialBoard[r][j];
+    const sr = cfg.direction === -1 ? j : rows - 1 - j;
+    const strip = cfg.strips?.[r] || [];
+    const L = strip.length || 1;
+    return strip[((sr % L) + L) % L] ?? null;
+  };
+
+  /** Emit one GO + transform (+extra component docs); returns its trId. */
+  const emit = async (seed, name, props, compDocs, childTrIds, father, order) => {
+    const goId = await id(`${seed}:go`);
+    const trId = await id(`${seed}:tr`);
+    const comps = [trId, ...compDocs.map((c) => c.id)];
+    const trYaml = ui
+      ? rectTransformYaml(trId, goId, props, childTrIds, father, order)
+      : transformYaml(trId, goId, props, childTrIds, father, order);
+    docs.push(gameObjectYaml(goId, name, comps, { layer: ui ? 5 : 0, active: true }));
+    docs.push(trYaml);
+    docs.push(...compDocs.map((c) => c.yaml));
+    return trId;
+  };
+  const box = (w, h, x = 0, y = 0, scale = null) => ({
+    pos: { x, y }, scale: scale || { x: 1, y: 1 }, rotDeg: 0,
+    size: { w, h }, pivot: { x: 0.5, y: 0.5 }
+  });
+
+  const base = `${node.key}:sp`;
+  const boardTrId = await id(`${base}:board:tr`);
+  const layerTrIds = [];
+
+  for (const [layerIdx, lay] of [
+    { key: 'statics', name: 'Statics', blur: false },
+    { key: 'blurs', name: 'Blurs', blur: true }
+  ].entries()) {
+    const laySeed = `${base}:${lay.key}`;
+    const layTrId = await id(`${laySeed}:tr`);
+    const reelTrIds = [];
+
+    for (let r = 0; r < reels; r++) {
+      const reelSeed = `${laySeed}:reel${r}`;
+      const reelTrId = await id(`${reelSeed}:tr`);
+      const colX = (r * (cellW + spacingX) - W / 2 + cellW / 2) * k;
+      const cellTrIds = [];
+      let order = 0;
+
+      if (!ui && maskSpriteGuid) {
+        const maskSeed = `${reelSeed}:mask`;
+        const smId = await id(`${maskSeed}:sm`);
+        cellTrIds.push(await emit(maskSeed, 'Mask',
+          box(0, 0, 0, 0, { x: cellW / SPINNER_MASK_PX, y: H / SPINNER_MASK_PX }),
+          [{ id: smId, yaml: spriteMaskYaml(smId, await id(`${maskSeed}:go`), maskSpriteGuid) }],
+          [], reelTrId, order++));
+      }
+
+      for (let j = -1; j <= rows; j++) {
+        const cellSeed = `${reelSeed}:cell${j}`;
+        const cellGoId = await id(`${cellSeed}:go`);
+        const sym = symbolAt(r, j);
+        const bind = sym != null ? bindMap.get(sym) : null;
+        const spriteGuid = lay.blur ? (bind?.blurGuid || bind?.staticGuid) : bind?.staticGuid;
+        const y = (H / 2 - cellH / 2 - j * pitchY) * k;
+        const compDocs = [];
+        let scale = null;
+        if (ui) {
+          const crId = await id(`${cellSeed}:cr`);
+          const imgId = await id(`${cellSeed}:img`);
+          compDocs.push({ id: crId, yaml: canvasRendererYaml(crId, cellGoId) });
+          compDocs.push({ id: imgId, yaml: imageYaml(imgId, cellGoId, spriteGuid || null, null, lay.blur ? 0 : 1, true) });
+        } else {
+          const srId = await id(`${cellSeed}:sr`);
+          compDocs.push({
+            id: srId,
+            yaml: spriteRendererYaml(srId, cellGoId, spriteGuid || null, lay.blur ? 0 : 1, null,
+              { maskInteraction: 1, sortingOrder: layerIdx })
+          });
+          const sz = lay.blur ? (bind?.blurSize || bind?.staticSize) : bind?.staticSize;
+          if (sz?.w && sz?.h) {
+            const fit = Math.min(cellW / sz.w, cellH / sz.h);
+            scale = { x: fit, y: fit };
+          }
+        }
+        cellTrIds.push(await emit(cellSeed, `Cell_${j}`, box(cellW, cellH, 0, y, scale), compDocs, [], reelTrId, order++));
+      }
+
+      const reelComps = [];
+      if (ui) {
+        const rmId = await id(`${reelSeed}:rm`);
+        reelComps.push({ id: rmId, yaml: rectMask2DYaml(rmId, await id(`${reelSeed}:go`)) });
+      }
+      reelTrIds.push(await emit(reelSeed, `Reel_${r}`, box(cellW, H, colX, 0), reelComps, cellTrIds, layTrId, r));
+    }
+
+    layerTrIds.push(await emit(laySeed, lay.name, box(W, H), [], reelTrIds, boardTrId, layerIdx));
+  }
+
+  layerTrIds.push(await emit(`${base}:fx`, 'Fx', box(W, H), [], [], boardTrId, 2));
+  await emit(`${base}:board`, 'Board', box(W, H), [], layerTrIds, fatherTrId, 0);
+  return { boardTrId, docs };
 }
 
 function animatorYaml(id, goId) {
@@ -383,11 +582,17 @@ ${cues || '  []'}`.replace('spineCues:\n  []', 'spineCues: []');
  *   player — { scriptGuid, clipGuid, descriptorGuid, durationSeconds, spineCues }
  *   spineScriptGuid — SkeletonGraphic (ui) / SkeletonAnimation (world) GUID or ''
  *   spinnerScriptGuid — generated YggSpinner.cs GUID (spinner nodes carry a
- *     `spinner: { configJson, clipsJson, bindings }` payload)
+ *     `spinner: { configJson, clipsJson, bindings, config }` payload; `config`
+ *     is the normalized spinner config used to bake the reel hierarchy)
+ *   pixelsPerUnit — world-variant px→unit divisor (default 100)
+ *   spinnerMaskSpriteGuid — white mask sprite GUID for world-variant SpriteMasks
  * @returns {Promise<string>} prefab YAML
  */
 export async function buildPrefab(spec) {
-  const { canvasName, variant, stage, nodes, player, spineScriptGuid, spinnerScriptGuid } = spec;
+  const {
+    canvasName, variant, stage, nodes, player, spineScriptGuid, spinnerScriptGuid,
+    pixelsPerUnit = 100, spinnerMaskSpriteGuid = null
+  } = spec;
   const ui = variant === 'ui';
   const docs = [];
 
@@ -437,19 +642,31 @@ export async function buildPrefab(spec) {
         extraDocs.push(skeletonAnimationYaml(spId, goId, spineScriptGuid, node.spine));
       }
     }
+    const preChildTrIds = [];
     if (node.kind === 'spinner' && node.spinner && spinnerScriptGuid) {
       const snId = await id(`${node.key}:spinner`);
       comps.push(snId);
-      extraDocs.push(spinnerYaml(snId, goId, spinnerScriptGuid, node.spinner));
+      extraDocs.push(spinnerYaml(snId, goId, spinnerScriptGuid, node.spinner,
+        { ui, ppu: pixelsPerUnit, maskSpriteGuid: spinnerMaskSpriteGuid }));
+      // Bake the reel hierarchy into the prefab so the editor shows the full
+      // spinner; YggSpinner binds to it in Awake instead of building.
+      if (node.spinner.config) {
+        const baked = await spinnerBakedDocs({
+          id, ui, node, fatherTrId: trId,
+          ppu: pixelsPerUnit, maskSpriteGuid: spinnerMaskSpriteGuid
+        });
+        extraDocs.push(...baked.docs);
+        preChildTrIds.push(baked.boardTrId);
+      }
     }
     if (ui) {
       comps.push(cgId);
       extraDocs.push(canvasGroupYaml(cgId, goId, node.alpha));
     }
 
-    const childTrIds = [];
+    const childTrIds = [...preChildTrIds];
     const childDocs = [];
-    let childOrder = 0;
+    let childOrder = preChildTrIds.length;
     for (const child of node.children || []) {
       const res = await emitNode(child, trId, childOrder++, `${pathPrefix}${node.name}/`);
       childTrIds.push(res.trId);

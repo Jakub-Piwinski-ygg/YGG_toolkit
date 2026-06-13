@@ -19,7 +19,8 @@ import { buildLayerTree, tracksForLayer } from './sceneModel.js';
 import { clipAt, lastClipAt, remapClipTime } from './flowInterpreter.js';
 import { CHANNEL_DEFS, CHANNEL_NAMES, clipLocalSeconds, evalChannel, isPathChannel } from './animation/keyframes.js';
 import { resolvePointHandles } from './animation/pathSpline.js';
-import { buildSpineFromUrls, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
+import { Spine } from '@esotericsoftware/spine-pixi-v8';
+import { buildSpineFromUrls, loadSkeletonData, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
 import { buildSpinnerObject, applySpinnerAtTime } from './spinner/spinnerRuntime.js';
 
 async function loadTextureFromUrl(url) {
@@ -232,6 +233,55 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
   return handles;
 }
 
+// Factory for the spinner's land/win Spine overlay pool
+// (spinnerRuntime.js deps.createSpineContainer). SkeletonData is memoized per
+// assetId so the pool's N instances share one fetch/parse and atlas texture.
+// Overlay spines are scrub-driven only: autoUpdate off, no __isSpine mark, so
+// neither the shared ticker nor the live-preview RAF advances them —
+// setTrackTime(t) is the single source of pose truth.
+function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath) {
+  const dataCache = new Map(); // assetId → Promise<SkeletonData|null>
+  const skeletonDataFor = (assetId) => {
+    if (!dataCache.has(assetId)) {
+      dataCache.set(assetId, (async () => {
+        const asset = (scene?.assets || []).find((a) => a.id === assetId && a.type === 'spine');
+        if (!asset) return null;
+        const skelR = await resolveAssetUrl(asset.src, rootHandle, sceneBasePath);
+        const atlasR = await resolveAssetUrl(asset.atlas, rootHandle, sceneBasePath);
+        const texR = await resolveAssetUrl(asset.texture, rootHandle, sceneBasePath);
+        if (!skelR || !atlasR || !texR) return null;
+        return await loadSkeletonData(skelR.url, atlasR.url, texR.url);
+      })().catch((e) => {
+        console.warn('[SceneStudio] spinner overlay spine load failed', assetId, e);
+        return null;
+      }));
+    }
+    return dataCache.get(assetId);
+  };
+  return async function createSpineContainer(assetId, animName, loop) {
+    const skeletonData = await skeletonDataFor(assetId);
+    if (!skeletonData || !skeletonData.findAnimation(animName)) return null;
+    try {
+      const spine = new Spine(skeletonData);
+      spine.state.setAnimation(0, animName, !!loop);
+      try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
+      return {
+        container: spine,
+        setTrackTime(t) {
+          const tr = spine.state.tracks[0];
+          if (tr) tr.trackTime = t;
+          // Deterministic pose refresh without advancing time — same scrub
+          // pattern as applySpineMultiTrack.
+          try { spine.update(0); } catch { /* ignore */ }
+        }
+      };
+    } catch (e) {
+      console.warn('[SceneStudio] spinner overlay spine instantiation failed', assetId, animName, e);
+      return null;
+    }
+  };
+}
+
 async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null) {
   try {
     if (asset.type === 'spinner') {
@@ -240,7 +290,8 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
         rootHandle,
         sceneBasePath,
         resolveAssetUrl,
-        loadTexture: loadTextureFromUrl
+        loadTexture: loadTextureFromUrl,
+        createSpineContainer: makeSpineOverlayFactory(scene, rootHandle, sceneBasePath)
       });
     }
     if (asset.type === 'png') {

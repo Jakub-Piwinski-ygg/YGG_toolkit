@@ -266,10 +266,26 @@ ways functions + the BoardGridEditor highlight.
       can't be killed by a missing `Unity.Timeline` reference; manual re-prompt
       via *Ygg ▸ Scene Studio ▸ Install Required Packages*; Timelines now
       auto-build after import/package install (`YggTimelineAutoBuild`).
-      Spinner reels are UI Images — **UI variant only** (warning added).
-      **Phase 2 (pending)**: import testing surfaced rework items — prefab-baked
-      layered reel hierarchy, spinner Timeline track, opt-in auto-build, web
-      overlay bug — see `next phase spinner unity.md` (repo root).
+      **Unity phase 2 (2026-06-12, in progress)** — per
+      `next phase spinner unity.md` (repo root):
+      ✓ #1 web land/win Spine overlays fixed (`pixiApp.js#makeSpineOverlayFactory`
+      provides the missing `createSpineContainer` dep; shared SkeletonData via
+      `spineLoader.js#loadSkeletonData`; scrub-deterministic `setTrackTime`).
+      ✓ #2 prefab-baked reel hierarchy: `prefab.js#spinnerBakedDocs` bakes
+      `Board > Statics/Blurs/Fx` with per-reel masked columns (rows+2 cells,
+      initial-board sprites; Statics/Blurs are sibling layers — not per-cell
+      nesting — so same-texture cells batch). UI variant masks with RectMask2D
+      per reel; **the world variant now renders** via SpriteRenderer cells +
+      per-reel SpriteMask (generated 4×4 white `YggReelMask.png`; the old
+      "UI-only" warning is gone). `YggSpinner` gained `worldVariant` /
+      `pixelsPerUnit` / `maskSprite` fields, binds the baked hierarchy by name
+      in Awake (`BindBakedHierarchy` — baked cells are the pool's warm start;
+      config drift spawns/deactivates extras) and falls back to
+      `BuildRuntime()` only for legacy prefabs. Cell layout convention is now
+      centered-anchors everywhere: `y = H/2 − cellH/2 − (gridRow+disp)·pitchY`
+      (matches the web runtime). Tests: `unity/prefab.spinner.test.mjs`.
+      Remaining: #3 spinner Timeline track, #4 spine clip parity, #5 opt-in
+      auto-build, carry-overs (blob: packaging, web `pop` fallback).
       Original spec: symbol/blur textures under `Art/Spinner/`; `SpinnerConfig` +
       clip actions serialized as `spinnerCues` in the canvas descriptor (motion is
       **not** baked into `.anim` — evaluated at runtime from the same math);
