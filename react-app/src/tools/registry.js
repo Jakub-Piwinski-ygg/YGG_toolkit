@@ -16,6 +16,7 @@ import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.
 import { CharExtractorTool, charExtractorMeta } from './CharExtractorTool.jsx';
 import { CheatTool, cheatToolMeta } from './CheatTool/index.jsx';
 import { TemplatesTool, templatesMeta } from './TemplatesTool.jsx';
+import { AssetLibraryTool, assetLibraryMeta } from './AssetLibraryTool.jsx';
 import { SceneStudioTool, sceneStudioMeta } from './SceneStudio/SceneStudioTool.jsx';
 
 const ART = [
@@ -38,7 +39,8 @@ const REVIEW = [
   { meta: projectScaffoldMeta, Component: ProjectScaffoldTool },
   { meta: charExtractorMeta, Component: CharExtractorTool },
   { meta: repoContentBrowserMeta, Component: RepoContentBrowserTool },
-  { meta: templatesMeta, Component: TemplatesTool }
+  { meta: templatesMeta, Component: TemplatesTool },
+  { meta: assetLibraryMeta, Component: AssetLibraryTool }
 ];
 
 const CHEETS = [

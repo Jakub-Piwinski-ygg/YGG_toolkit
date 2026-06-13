@@ -1,0 +1,67 @@
+VFX STUDIO
+VFX_Texture_Library
+
+*Instructions for use are provided in "README.html".
+
+Details
+
+A texture library for game effects!
+
+The following is included:
+
+* General-purpose textures
+* Substance 3D Designer source data (.sbs)
+* Custom nodes to streamline texture creation
+Introduction Article
+
+A detailed introduction with images is available on our blog below.
+
+https://vfx.crdg.jp/tech/2026/05/26/5972/
+【Important】Regarding .tga
+
+To preview in Windows Explorer, you will need to install the following software.
+
+■DevTexThumb
+https://blog.techlab-xe.net/softwares/devtexthumb/
+Update History
+
+2026/04/20: ver1.0.0 Distribution Started
+License Information
+
+1. License Grant
+Creek & River Co., Ltd. (hereinafter referred to as "we") grants you (hereinafter referred to as "user") the right to use this software in a non-exclusive and non-transferable manner, based on the terms of this agreement.
+This license is generally valid for one machine only. If you wish to use the same license on multiple devices, please purchase a separate license or contact us.
+Furthermore, this license is valid for use on one machine only per paid version of the tool.
+If you wish to use the same license on multiple devices, please purchase a separate license
+or contact us.
+There is no limit on the number of machines per license for the free version of the tool.
+
+2. Copyright Notice
+Users are not required to include our copyright notice or report our use of this software.
+However, when using it in a commercial project, we would appreciate it if you could indicate that our tools were used.
+You do not need to contact us separately when making such an indication.
+
+3. Software Modification
+Users may modify this software.
+However, the terms of this agreement apply to the modified software as well, and redistribution or public display of the modified software is not permitted.
+
+4. Prohibition of Redistribution and Reproduction
+Users may not redistribute or publicly display this software online or offline.
+
+5. Disclaimer
+We are not liable for any defects or damages that may arise from this software, except in cases of our willful misconduct or gross negligence.
+Please also be aware that the usability may be affected by application version updates. This agreement is governed by Japanese law, and its interpretation and application shall be governed by Japanese law.
+
+6. Refund Policy
+No refunds will be given for software once purchased.
+
+Before purchasing, we strongly recommend that you verify that this software meets your requirements and that it works with the free version.
+
+7. License Changes
+We reserve the right to change this agreement at any time.
+If this agreement is changed, the revised agreement will apply.
+We recommend that users periodically review this agreement.
+
+8. Contact Information
+If you encounter any problems or have any inquiries regarding this software, please contact us at the following email address:
+Contact: [vfx_studio@hq.cri.co.jp]
