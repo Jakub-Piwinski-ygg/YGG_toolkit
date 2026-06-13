@@ -5,7 +5,7 @@ import { triggerDownload } from '../utils/download.js';
 
 export const assetLibraryMeta = {
   id: 'assetlibrary',
-  label: 'Asset Library',
+  label: 'Texture Library',
   small: 'reusable textures & sequences',
   icon: '🧱',
   needsMagick: false,
@@ -13,15 +13,16 @@ export const assetLibraryMeta = {
   needsFiles: false,
   fullBleed: true,
   hideOutput: true,
-  desc: 'Browse the team\'s reusable texture library (noise, gradients, trails, patterns, UI bits…). Hover a tile for details and downloads; sequences preview as animated thumbnails and download as a ZIP of PNG frames. New assets are imported via docs/ASSET_LIBRARY_IMPORT.md.'
+  desc: 'Browse the team\'s reusable texture library (noise, gradients, trails, patterns, UI bits…). Hover a tile for details and downloads; sequence frames can be browsed and downloaded individually from the preview window. New assets are imported via docs/ASSET_LIBRARY_IMPORT.md.'
 };
 
-// Base URL respects Vite's `base` config — same pattern as TemplatesTool.
 const LIB_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') + '/assetLibrary/';
 const DEFAULT_SEQ_FPS = 4;
 const MIN_SEQ_FPS = 0.1;
 const MAX_SEQ_FPS = 30;
 const GRID_SEQ_PREVIEW_FRAMES = 12;
+const PREVIEW_FPS_KEY = 'textureLibrary.previewFps';
+const LEGACY_PREVIEW_FPS_KEY = 'assetLibrary.previewFps';
 
 function clampSeqFps(v) {
   if (!Number.isFinite(v)) return DEFAULT_SEQ_FPS;
@@ -49,8 +50,23 @@ function fmtBytes(n) {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
-// All alt-format conversions go through ImageMagick WASM — canvas round-trips
-// premultiply alpha and corrupt straight-alpha channels (see CLAUDE.md).
+function pathBaseName(path) {
+  const base = (path || '').split('/').pop();
+  return base || path || 'file';
+}
+
+function triggerBlobDownload(blob, name) {
+  const url = URL.createObjectURL(blob);
+  triggerDownload(url, name);
+  window.setTimeout(() => URL.revokeObjectURL(url), 7000);
+}
+
+function frameFileName(entryName, idx, slug) {
+  const fromZip = pathBaseName(entryName);
+  if (fromZip) return fromZip;
+  return `${slug || 'sequence'}_${String(idx + 1).padStart(4, '0')}.png`;
+}
+
 async function convertViaMagick(pngUrl, outName, extraArgs = []) {
   const res = await fetch(pngUrl);
   if (!res.ok) throw new Error(`fetch ${res.status}`);
@@ -63,6 +79,52 @@ async function convertViaMagick(pngUrl, outName, extraArgs = []) {
   return r[0].blob;
 }
 
+async function convertPngBlackAsAlpha(pngUrl) {
+  const res = await fetch(pngUrl);
+  if (!res.ok) throw new Error(`fetch ${res.status}`);
+  const srcBlob = await res.blob();
+  const srcUrl = URL.createObjectURL(srcBlob);
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = img.naturalWidth;
+          c.height = img.naturalHeight;
+          const ctx = c.getContext('2d', { willReadFrequently: true });
+          if (!ctx) throw new Error('2D context unavailable');
+          ctx.drawImage(img, 0, 0);
+          const imgData = ctx.getImageData(0, 0, c.width, c.height);
+          const d = imgData.data;
+          for (let i = 0; i < d.length; i += 4) {
+            const lum = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+            d[i] = 255;
+            d[i + 1] = 255;
+            d[i + 2] = 255;
+            d[i + 3] = Math.min(255, Math.max(0, Math.round(lum)));
+          }
+          ctx.putImageData(imgData, 0, 0);
+          c.toBlob((blob) => {
+            if (!blob) {
+              reject(new Error('toBlob failed'));
+              return;
+            }
+            resolve(blob);
+          }, 'image/png');
+        } catch (e) {
+          reject(e);
+        }
+      };
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = srcUrl;
+    });
+  } finally {
+    URL.revokeObjectURL(srcUrl);
+  }
+}
+
 const ALT_FORMATS = [
   { id: 'webp', label: 'WebP', args: ['-quality', '100', '-define', 'webp:lossless=true'] },
   { id: 'jpg', label: 'JPG (flattened)', args: ['-background', 'white', '-flatten', '-quality', '95'] },
@@ -70,11 +132,16 @@ const ALT_FORMATS = [
   { id: 'bmp', label: 'BMP', args: [] }
 ];
 
-function SequenceFramePlayer({ asset, fps, log }) {
-  const [loading, setLoading] = useState(true);
+function readZipPngEntries(zip) {
+  return Object.values(zip.files)
+    .filter((f) => !f.dir && /\.png$/i.test(f.name))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+function useSequenceFrames(asset, enabled, log) {
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [frameUrls, setFrameUrls] = useState([]);
-  const [frameIdx, setFrameIdx] = useState(0);
+  const [frames, setFrames] = useState([]);
   const frameUrlsRef = useRef([]);
 
   useEffect(() => {
@@ -85,38 +152,51 @@ function SequenceFramePlayer({ asset, fps, log }) {
       frameUrlsRef.current = [];
     };
 
+    if (!enabled || !asset?.file) {
+      cleanupUrls();
+      setLoading(false);
+      setError(null);
+      setFrames([]);
+      return () => {
+        cancelled = true;
+        cleanupUrls();
+      };
+    }
+
     const load = async () => {
       setLoading(true);
       setError(null);
-      setFrameIdx(0);
-      setFrameUrls([]);
+      setFrames([]);
       cleanupUrls();
       try {
         const res = await fetch(LIB_BASE + asset.file, { cache: 'force-cache' });
         if (!res.ok) throw new Error(`sequence ZIP: ${res.status}`);
         const zip = await JSZip.loadAsync(await res.arrayBuffer());
-        const pngs = Object.values(zip.files)
-          .filter((f) => !f.dir && /\.png$/i.test(f.name))
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        const pngs = readZipPngEntries(zip);
         if (pngs.length === 0) throw new Error('sequence ZIP contains no PNG frames');
 
-        const urls = [];
-        for (const f of pngs) {
-          const blob = await f.async('blob');
+        const loaded = [];
+        for (let i = 0; i < pngs.length; i++) {
+          const entry = pngs[i];
+          const blob = await entry.async('blob');
           if (cancelled) {
-            for (const u of urls) URL.revokeObjectURL(u);
+            for (const f of loaded) URL.revokeObjectURL(f.url);
             return;
           }
-          urls.push(URL.createObjectURL(blob));
+          loaded.push({
+            name: frameFileName(entry.name, i, asset.slug),
+            bytes: blob.size,
+            url: URL.createObjectURL(blob)
+          });
         }
 
         if (cancelled) {
-          for (const u of urls) URL.revokeObjectURL(u);
+          for (const f of loaded) URL.revokeObjectURL(f.url);
           return;
         }
 
-        frameUrlsRef.current = urls;
-        setFrameUrls(urls);
+        frameUrlsRef.current = loaded.map((f) => f.url);
+        setFrames(loaded);
       } catch (e) {
         if (cancelled) return;
         const msg = e.message || String(e);
@@ -133,32 +213,21 @@ function SequenceFramePlayer({ asset, fps, log }) {
       cancelled = true;
       cleanupUrls();
     };
-  }, [asset.file, asset.slug, log]);
+  }, [asset?.file, asset?.slug, enabled, log]);
 
-  useEffect(() => {
-    if (frameUrls.length < 2) return;
-    const hz = clampSeqFps(fps);
-    const timer = window.setInterval(() => {
-      setFrameIdx((i) => (i + 1) % frameUrls.length);
-    }, 1000 / hz);
-    return () => window.clearInterval(timer);
-  }, [frameUrls, fps]);
-
-  if (loading) return <div className="al-lb-loading">Loading sequence frames…</div>;
-  if (error) return <div className="al-lb-loading al-err">Sequence preview unavailable: {error}</div>;
-  if (frameUrls.length === 0) return <div className="al-lb-loading al-err">No frames found.</div>;
-
-  return <img className="al-lb-img" src={frameUrls[frameIdx]} alt={asset.name} />;
+  return { loading, error, frames };
 }
 
 function SequenceThumb({ asset, fps, log, playing }) {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [frameUrls, setFrameUrls] = useState([]);
   const [frameIdx, setFrameIdx] = useState(0);
   const [inView, setInView] = useState(false);
   const hostRef = useRef(null);
   const frameUrlsRef = useRef([]);
+  const logRef = useRef(log);
+  logRef.current = log;
 
   useEffect(() => {
     const el = hostRef.current;
@@ -192,9 +261,7 @@ function SequenceThumb({ asset, fps, log, playing }) {
         const res = await fetch(LIB_BASE + asset.file, { cache: 'force-cache' });
         if (!res.ok) throw new Error(`sequence ZIP: ${res.status}`);
         const zip = await JSZip.loadAsync(await res.arrayBuffer());
-        const pngs = Object.values(zip.files)
-          .filter((f) => !f.dir && /\.png$/i.test(f.name))
-          .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+        const pngs = readZipPngEntries(zip);
         if (pngs.length === 0) throw new Error('sequence ZIP contains no PNG frames');
 
         const sampled = sampleFrames(pngs, GRID_SEQ_PREVIEW_FRAMES);
@@ -219,7 +286,7 @@ function SequenceThumb({ asset, fps, log, playing }) {
         if (cancelled) return;
         const msg = e.message || String(e);
         setError(msg);
-        log(`Sequence thumbnail ${asset.slug}: ${msg}`, 'err');
+        logRef.current(`Sequence thumbnail ${asset.slug}: ${msg}`, 'err');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -231,7 +298,7 @@ function SequenceThumb({ asset, fps, log, playing }) {
       cancelled = true;
       cleanupUrls();
     };
-  }, [asset.file, asset.slug, inView, log]);
+  }, [asset.file, asset.slug, inView]);
 
   useEffect(() => {
     if (!inView || !playing || frameUrls.length < 2) return;
@@ -242,12 +309,16 @@ function SequenceThumb({ asset, fps, log, playing }) {
     return () => window.clearInterval(timer);
   }, [frameUrls, fps, inView, playing]);
 
+  useEffect(() => {
+    if (!playing) setFrameIdx(0);
+  }, [playing]);
+
   return (
     <div ref={hostRef} className="al-thumb al-thumb-seq" aria-label={asset.name}>
       {frameUrls.length > 0 && !error ? (
         <img src={frameUrls[frameIdx]} alt={asset.name} />
       ) : (
-        <div className="al-thumb-seq-placeholder">{loading ? 'loading…' : 'preview unavailable'}</div>
+        <div className="al-thumb-seq-placeholder">{error ? 'preview unavailable' : 'loading…'}</div>
       )}
     </div>
   );
@@ -264,13 +335,14 @@ function AssetCard({ asset, license, menuOpen, onToggleMenu, onCloseMenu, onOpen
 
   const downloadMain = (e) => {
     e.stopPropagation();
-    triggerDownload(LIB_BASE + asset.file, asset.file.split('/').pop());
+    triggerDownload(LIB_BASE + asset.file, pathBaseName(asset.file));
   };
 
   const downloadOriginal = (e) => {
     e.stopPropagation();
+    if (!asset.origFile) return;
     onCloseMenu();
-    triggerDownload(LIB_BASE + asset.origFile, asset.origFile.split('/').pop());
+    triggerDownload(LIB_BASE + asset.origFile, pathBaseName(asset.origFile));
   };
 
   const downloadAlt = async (e, fmt) => {
@@ -279,10 +351,25 @@ function AssetCard({ asset, license, menuOpen, onToggleMenu, onCloseMenu, onOpen
     setBusyFmt(fmt.id);
     try {
       const blob = await convertViaMagick(LIB_BASE + asset.file, `output.${fmt.id}`, fmt.args);
-      triggerDownload(URL.createObjectURL(blob), `${asset.slug}.${fmt.id}`);
+      triggerBlobDownload(blob, `${asset.slug}.${fmt.id}`);
       onCloseMenu();
     } catch (err) {
       log(`${asset.slug} → ${fmt.id}: ${err.message || err}`, 'err');
+    } finally {
+      setBusyFmt(null);
+    }
+  };
+
+  const downloadBlackAsAlpha = async (e) => {
+    e.stopPropagation();
+    if (busyFmt) return;
+    setBusyFmt('png-black-alpha');
+    try {
+      const blob = await convertPngBlackAsAlpha(LIB_BASE + asset.file);
+      triggerBlobDownload(blob, `${asset.slug}_black_as_alpha.png`);
+      onCloseMenu();
+    } catch (err) {
+      log(`${asset.slug} → png black as alpha: ${err.message || err}`, 'err');
     } finally {
       setBusyFmt(null);
     }
@@ -340,6 +427,14 @@ function AssetCard({ asset, license, menuOpen, onToggleMenu, onCloseMenu, onOpen
                     Original ({(asset.origFormat || '?').toUpperCase()} · {fmtBytes(asset.origBytes)})
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="al-menu-item"
+                  disabled={!!busyFmt}
+                  onClick={downloadBlackAsAlpha}
+                >
+                  {busyFmt === 'png-black-alpha' ? 'PNG black as alpha — converting…' : 'PNG black as alpha'}
+                </button>
                 {ALT_FORMATS.filter((f) => f.id !== (asset.origFormat || 'png')).map((fmt) => (
                   <button
                     key={fmt.id}
@@ -361,51 +456,221 @@ function AssetCard({ asset, license, menuOpen, onToggleMenu, onCloseMenu, onOpen
   );
 }
 
-function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChange, log }) {
+function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChange, log, magickReady }) {
+  const [busyFmt, setBusyFmt] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [frameIdx, setFrameIdx] = useState(0);
+  const safeAsset = asset || { slug: 'preview', type: 'texture', file: '', name: '', w: 0, h: 0, bytes: 0, fps: 0, frames: 0, source: '', tags: [] };
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  if (!asset) return null;
-  const seq = asset.type === 'sequence';
-  const imgSrc = LIB_BASE + asset.file;
+  useEffect(() => {
+    setMenuOpen(false);
+    setBusyFmt(null);
+    setFrameIdx(0);
+  }, [safeAsset.slug]);
+
+  const seq = safeAsset.type === 'sequence';
+  const imgSrc = LIB_BASE + safeAsset.file;
   const previewFps = clampSeqFps(seqPreviewFps);
-  const speedInputId = `al-seq-speed-${asset.slug || 'preview'}`;
+  const speedInputId = `al-seq-speed-${safeAsset.slug || 'preview'}`;
+  const { loading: seqLoading, error: seqError, frames } = useSequenceFrames(safeAsset, seq, log);
+
+  useEffect(() => {
+    if (seq && frameIdx >= frames.length && frames.length > 0) setFrameIdx(0);
+  }, [seq, frameIdx, frames.length]);
+
+  useEffect(() => {
+    if (!seq || frames.length < 2) return;
+    const hz = clampSeqFps(previewFps);
+    const timer = window.setInterval(() => {
+      setFrameIdx((i) => (i + 1) % frames.length);
+    }, 1000 / hz);
+    return () => window.clearInterval(timer);
+  }, [seq, frames, previewFps]);
+
+  const activeFrame = seq && frames.length > 0 ? frames[frameIdx % frames.length] : null;
+
+  const downloadMain = () => {
+    triggerDownload(LIB_BASE + safeAsset.file, pathBaseName(safeAsset.file));
+  };
+
+  const downloadOriginal = () => {
+    if (!safeAsset.origFile) return;
+    triggerDownload(LIB_BASE + safeAsset.origFile, pathBaseName(safeAsset.origFile));
+    setMenuOpen(false);
+  };
+
+  const downloadAlt = async (fmt) => {
+    if (busyFmt) return;
+    setBusyFmt(fmt.id);
+    try {
+      const blob = await convertViaMagick(LIB_BASE + safeAsset.file, `output.${fmt.id}`, fmt.args);
+      triggerBlobDownload(blob, `${safeAsset.slug}.${fmt.id}`);
+      setMenuOpen(false);
+    } catch (err) {
+      log(`${safeAsset.slug} → ${fmt.id}: ${err.message || err}`, 'err');
+    } finally {
+      setBusyFmt(null);
+    }
+  };
+
+  const downloadBlackAsAlpha = async () => {
+    if (busyFmt) return;
+    setBusyFmt('png-black-alpha');
+    try {
+      const blob = await convertPngBlackAsAlpha(LIB_BASE + safeAsset.file);
+      triggerBlobDownload(blob, `${safeAsset.slug}_black_as_alpha.png`);
+      setMenuOpen(false);
+    } catch (err) {
+      log(`${safeAsset.slug} → png black as alpha: ${err.message || err}`, 'err');
+    } finally {
+      setBusyFmt(null);
+    }
+  };
 
   return (
     <div className="al-lightbox" onClick={onClose}>
       <div className="al-lb-inner" onClick={(e) => e.stopPropagation()}>
-        {seq
-          ? <SequenceFramePlayer asset={asset} fps={previewFps} log={log} />
-          : <img className="al-lb-img" src={imgSrc} alt={asset.name} />}
+        <div className="al-lb-preview">
+          {seq ? (
+            seqLoading
+              ? <div className="al-lb-loading">Loading sequence frames…</div>
+              : seqError
+                ? <div className="al-lb-loading al-err">Sequence preview unavailable: {seqError}</div>
+                : activeFrame
+                  ? <img className="al-lb-img" src={activeFrame.url} alt={`${safeAsset.name} frame ${frameIdx + 1}`} />
+                  : <div className="al-lb-loading al-err">No frames found.</div>
+          ) : (
+            <img className="al-lb-img" src={imgSrc} alt={safeAsset.name} />
+          )}
+        </div>
         <div className="al-lb-meta">
-          <div className="al-lb-name">{asset.name}</div>
-          <div>{asset.w}×{asset.h}{seq ? ` · ${asset.frames} frames @ ${asset.fps}fps` : ''}</div>
-          {seq && (
-            <div className="al-speed-wrap">
-              <label className="al-speed-label" htmlFor={speedInputId}>Preview speed</label>
-              <div className="al-speed-row">
-                <input
-                  id={speedInputId}
-                  className="al-speed-input"
-                  type="number"
-                  min={MIN_SEQ_FPS}
-                  max={MAX_SEQ_FPS}
-                  step="0.1"
-                  value={previewFps}
-                  onChange={(e) => onSeqPreviewFpsChange(e.target.value)}
-                />
-                <span className="al-speed-unit">fps</span>
+          <div className="al-lb-name">{safeAsset.name}</div>
+          <div>{safeAsset.w}×{safeAsset.h}{seq ? ` · ${safeAsset.frames} frames @ ${safeAsset.fps}fps` : ''}</div>
+
+          {seq ? (
+            <>
+              <div className="al-lb-actions">
+                <button type="button" className="al-lb-action al-lb-action-main" onClick={downloadMain}>
+                  ⬇ ZIP
+                </button>
+                <button
+                  type="button"
+                  className="al-lb-action"
+                  disabled={!activeFrame}
+                  onClick={() => activeFrame && triggerDownload(activeFrame.url, activeFrame.name)}
+                >
+                  ⬇ current PNG
+                </button>
               </div>
-              <div className="al-speed-hint">Grid previews animate only on hover.</div>
+              <div className="al-speed-wrap">
+                <label className="al-speed-label" htmlFor={speedInputId}>Preview speed</label>
+                <div className="al-speed-row">
+                  <input
+                    id={speedInputId}
+                    className="al-speed-input"
+                    type="number"
+                    min={MIN_SEQ_FPS}
+                    max={MAX_SEQ_FPS}
+                    step="0.1"
+                    value={previewFps}
+                    onChange={(e) => onSeqPreviewFpsChange(e.target.value)}
+                  />
+                  <span className="al-speed-unit">fps</span>
+                </div>
+                <div className="al-speed-hint">Preview loads all frames on open so you can browse and download each frame below.</div>
+              </div>
+              <div className="al-seq-browser">
+                <div className="al-seq-frames-head">Sequence frames ({frames.length || safeAsset.frames || 0})</div>
+                {seqLoading && <div className="al-seq-frames-empty">Loading frames…</div>}
+                {!seqLoading && seqError && <div className="al-seq-frames-empty al-err">Sequence frames unavailable: {seqError}</div>}
+                {!seqLoading && !seqError && frames.length === 0 && <div className="al-seq-frames-empty al-err">No frames found.</div>}
+                {!seqLoading && !seqError && frames.length > 0 && (
+                  <div className="al-seq-frames-grid">
+                    {frames.map((frame, idx) => (
+                      <div key={`${frame.name}-${idx}`} className={`al-seq-frame-card ${idx === frameIdx ? 'al-seq-frame-card-on' : ''}`}>
+                        <button
+                          type="button"
+                          className="al-seq-frame-preview"
+                          onMouseEnter={() => setFrameIdx(idx)}
+                          onFocus={() => setFrameIdx(idx)}
+                          onClick={() => setFrameIdx(idx)}
+                        >
+                          <img src={frame.url} loading="lazy" alt={`${safeAsset.name} frame ${idx + 1}`} />
+                          <span className="al-seq-frame-idx">#{idx + 1}</span>
+                        </button>
+                        <div className="al-seq-frame-row">
+                          <span className="al-seq-frame-name" title={frame.name}>{frame.name}</span>
+                          <button
+                            type="button"
+                            className="al-seq-frame-dl"
+                            title={`Download ${frame.name}`}
+                            onClick={() => triggerDownload(frame.url, frame.name)}
+                          >
+                            PNG
+                          </button>
+                        </div>
+                        <div className="al-seq-frame-size">{fmtBytes(frame.bytes)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="al-lb-dl-wrap">
+              <div className="al-dl-row al-lb-dl-row">
+                <button type="button" className="al-dl-main" title="Download as PNG (max quality)" onClick={downloadMain}>
+                  ⬇ PNG
+                </button>
+                <button
+                  type="button"
+                  className="al-dl-caret"
+                  title="More formats"
+                  onClick={() => setMenuOpen((v) => !v)}
+                >▾</button>
+              </div>
+              {menuOpen && (
+                <div className="al-menu al-lb-menu">
+                  {safeAsset.origFile && (
+                    <button type="button" className="al-menu-item" onClick={downloadOriginal}>
+                      Original ({(safeAsset.origFormat || '?').toUpperCase()} · {fmtBytes(safeAsset.origBytes)})
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="al-menu-item"
+                    disabled={!!busyFmt}
+                    onClick={downloadBlackAsAlpha}
+                  >
+                    {busyFmt === 'png-black-alpha' ? 'PNG black as alpha — converting…' : 'PNG black as alpha'}
+                  </button>
+                  {ALT_FORMATS.filter((f) => f.id !== (safeAsset.origFormat || 'png')).map((fmt) => (
+                    <button
+                      key={fmt.id}
+                      type="button"
+                      className="al-menu-item"
+                      disabled={!magickReady || !!busyFmt}
+                      title={magickReady ? `Convert PNG → ${fmt.label} in your browser` : 'waiting for ImageMagick WASM…'}
+                      onClick={() => downloadAlt(fmt)}
+                    >
+                      {busyFmt === fmt.id ? `${fmt.label} — converting…` : fmt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-          <div>original format: {(asset.origFormat || 'png').toUpperCase()} · {fmtBytes(asset.origBytes ?? asset.bytes)}</div>
-          <div>download size: {fmtBytes(asset.bytes)}{seq ? ' (ZIP of PNG frames)' : ' (PNG)'}</div>
-          <div>source: {asset.source}</div>
-          {asset.tags?.length > 0 && <div>tags: {asset.tags.join(', ')}</div>}
+
+          <div>original format: {(safeAsset.origFormat || 'png').toUpperCase()} · {fmtBytes(safeAsset.origBytes ?? safeAsset.bytes)}</div>
+          <div>download size: {fmtBytes(safeAsset.bytes)}{seq ? ' (ZIP of PNG frames)' : ' (PNG)'}</div>
+          <div>source: {safeAsset.source}</div>
+          {safeAsset.tags?.length > 0 && <div>tags: {safeAsset.tags.join(', ')}</div>}
           {license && (
             <div className="al-lb-lic">
               license: {license.file
@@ -427,7 +692,7 @@ export function AssetLibraryTool() {
   const [loadErr, setLoadErr] = useState(null);
   const [cat, setCat] = useState('all');
   const [query, setQuery] = useState('');
-  const [openMenu, setOpenMenu] = useState(null); // slug of the tile with an open format menu
+  const [openMenu, setOpenMenu] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [seqPreviewFps, setSeqPreviewFps] = useState(DEFAULT_SEQ_FPS);
   const loggedRef = useRef(false);
@@ -442,19 +707,18 @@ export function AssetLibraryTool() {
       setManifest(m);
       setLoadState('ok');
       if (!loggedRef.current) {
-        log(`Asset Library: ${m.assets.length} assets in ${m.categories.length} categories.`, 'ok');
+        log(`Texture Library: ${m.assets.length} assets in ${m.categories.length} categories.`, 'ok');
         loggedRef.current = true;
       }
     } catch (e) {
       setLoadState('err');
       setLoadErr(e.message || String(e));
-      log(`Asset Library: ${e.message || e}`, 'err');
+      log(`Texture Library: ${e.message || e}`, 'err');
     }
   };
 
   useEffect(() => { loadAll(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
-  // Close any open format menu when clicking anywhere outside a tile.
   useEffect(() => {
     if (!openMenu) return;
     const close = () => setOpenMenu(null);
@@ -465,7 +729,7 @@ export function AssetLibraryTool() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      const saved = window.localStorage.getItem('assetLibrary.previewFps');
+      const saved = window.localStorage.getItem(PREVIEW_FPS_KEY) || window.localStorage.getItem(LEGACY_PREVIEW_FPS_KEY);
       if (saved != null) setSeqPreviewFps(clampSeqFps(Number(saved)));
     } catch {
       // ignore storage failures
@@ -475,7 +739,7 @@ export function AssetLibraryTool() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem('assetLibrary.previewFps', String(seqPreviewFps));
+      window.localStorage.setItem(PREVIEW_FPS_KEY, String(seqPreviewFps));
     } catch {
       // ignore storage failures
     }
@@ -502,8 +766,6 @@ export function AssetLibraryTool() {
     });
   }, [assets, cat, query]);
 
-  // Group into sections — one per category in manifest order ("All" view),
-  // or a single section when a category chip is active.
   const sections = useMemo(() => {
     const byCat = new Map();
     for (const a of visible) {
@@ -561,16 +823,16 @@ export function AssetLibraryTool() {
         <button className="btn" type="button" onClick={loadAll} title="Reload manifest">↻</button>
       </div>
 
-      {loadState === 'loading' && <div className="al-empty">loading library…</div>}
+      {loadState === 'loading' && <div className="al-empty">loading texture library…</div>}
       {loadState === 'err' && (
         <div className="al-empty al-err">
-          Failed to load library: {loadErr}. Did the first import run? (public/assetLibrary/manifest.json)
+          Failed to load texture library: {loadErr}. Did the first import run? (public/assetLibrary/manifest.json)
         </div>
       )}
       {loadState === 'ok' && visible.length === 0 && (
         <div className="al-empty">
           {assets.length === 0
-            ? 'Library is empty — run the import routine (docs/ASSET_LIBRARY_IMPORT.md).'
+            ? 'Texture library is empty — run the import routine (docs/ASSET_LIBRARY_IMPORT.md).'
             : 'Nothing matches the current filter.'}
         </div>
       )}
@@ -605,6 +867,7 @@ export function AssetLibraryTool() {
           seqPreviewFps={seqPreviewFps}
           onSeqPreviewFpsChange={(value) => setSeqPreviewFps(clampSeqFps(Number(value)))}
           log={log}
+          magickReady={magickReady}
         />
       )}
 
@@ -654,11 +917,21 @@ export function AssetLibraryTool() {
         .al-empty{padding:2rem;text-align:center;font-family:var(--font-mono);font-size:.74rem;color:var(--muted);border:1px dashed var(--border);border-radius:6px}
         .al-err{color:var(--accent3,#ff6b3d)}
         .al-lightbox{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.78);padding:2rem}
-        .al-lb-inner{display:flex;gap:1.2rem;max-width:min(1100px,92vw);max-height:86vh;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem;align-items:center}
-        .al-lb-img{max-width:60vw;max-height:80vh;object-fit:contain;background:repeating-conic-gradient(#262626 0% 25%,#1d1d1d 0% 50%) 0 0/16px 16px;border-radius:4px;min-width:0}
-        .al-lb-loading{display:flex;align-items:center;justify-content:center;max-width:60vw;max-height:80vh;min-width:280px;min-height:280px;background:repeating-conic-gradient(#262626 0% 25%,#1d1d1d 0% 50%) 0 0/16px 16px;border-radius:4px;font-family:var(--font-mono);font-size:.72rem;color:var(--muted);padding:1rem;text-align:center}
-        .al-lb-meta{display:flex;flex-direction:column;gap:.45rem;font-family:var(--font-mono);font-size:.7rem;color:var(--text);min-width:14rem;max-width:20rem}
+        .al-lb-inner{display:flex;gap:1.1rem;max-width:min(1280px,94vw);max-height:90vh;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1rem;align-items:stretch}
+        .al-lb-preview{flex:1 1 auto;display:flex;align-items:center;justify-content:center;min-width:0}
+        .al-lb-img{max-width:62vw;max-height:84vh;object-fit:contain;background:repeating-conic-gradient(#262626 0% 25%,#1d1d1d 0% 50%) 0 0/16px 16px;border-radius:4px;min-width:0}
+        .al-lb-loading{display:flex;align-items:center;justify-content:center;max-width:62vw;max-height:84vh;min-width:280px;min-height:280px;background:repeating-conic-gradient(#262626 0% 25%,#1d1d1d 0% 50%) 0 0/16px 16px;border-radius:4px;font-family:var(--font-mono);font-size:.72rem;color:var(--muted);padding:1rem;text-align:center}
+        .al-lb-meta{display:flex;flex-direction:column;gap:.45rem;font-family:var(--font-mono);font-size:.7rem;color:var(--text);width:min(450px,34vw);max-height:84vh;min-height:0}
         .al-lb-name{font-size:.85rem;font-weight:600;color:var(--accent2)}
+        .al-lb-actions{display:flex;gap:.45rem;flex-wrap:wrap}
+        .al-lb-action{font-family:var(--font-mono);font-size:.67rem;padding:.4rem .72rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer}
+        .al-lb-action:disabled{opacity:.5;cursor:default}
+        .al-lb-action:hover:not(:disabled){border-color:var(--accent2);color:var(--accent2)}
+        .al-lb-action-main{background:#2ea043;border-color:#2ea043;color:#fff}
+        .al-lb-action-main:hover{background:#3fb950;border-color:#3fb950;color:#fff}
+        .al-lb-dl-wrap{display:flex;flex-direction:column;gap:.4rem;align-self:flex-start;max-width:100%}
+        .al-lb-dl-row{align-self:flex-start}
+        .al-lb-menu{position:static;bottom:auto;left:auto;min-width:12rem;max-width:100%;box-shadow:none}
         .al-speed-wrap{display:flex;flex-direction:column;gap:.35rem;padding:.5rem .55rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px}
         .al-speed-label{font-size:.64rem;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
         .al-speed-row{display:flex;align-items:center;gap:.45rem}
@@ -666,13 +939,38 @@ export function AssetLibraryTool() {
         .al-speed-input:focus{outline:none;border-color:var(--accent)}
         .al-speed-unit{font-size:.64rem;color:var(--muted)}
         .al-speed-hint{font-size:.62rem;color:var(--muted)}
+        .al-seq-browser{display:flex;flex-direction:column;gap:.35rem;min-height:0}
+        .al-seq-frames-head{font-size:.64rem;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+        .al-seq-frames-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.45rem;max-height:35vh;overflow:auto;padding-right:.2rem}
+        .al-seq-frame-card{display:flex;flex-direction:column;gap:.32rem;padding:.34rem;background:var(--surface2);border:1px solid var(--border);border-radius:5px}
+        .al-seq-frame-card-on{border-color:var(--accent2)}
+        .al-seq-frame-preview{position:relative;display:block;border:1px solid var(--border);border-radius:4px;overflow:hidden;background:repeating-conic-gradient(#262626 0% 25%,#1d1d1d 0% 50%) 0 0/16px 16px;padding:0;cursor:pointer}
+        .al-seq-frame-preview img{width:100%;aspect-ratio:1/1;object-fit:contain;display:block}
+        .al-seq-frame-idx{position:absolute;left:.25rem;top:.25rem;font-size:.56rem;padding:.08rem .25rem;border-radius:3px;background:rgba(0,0,0,.72);color:#fff}
+        .al-seq-frame-row{display:flex;align-items:center;gap:.3rem}
+        .al-seq-frame-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.6rem;color:var(--muted)}
+        .al-seq-frame-dl{font-family:var(--font-mono);font-size:.58rem;padding:.18rem .4rem;background:#2ea043;border:0;border-radius:3px;color:#fff;cursor:pointer}
+        .al-seq-frame-dl:hover{background:#3fb950}
+        .al-seq-frame-size{font-size:.56rem;color:var(--muted)}
+        .al-seq-frames-empty{padding:.6rem .5rem;text-align:center;font-size:.64rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted)}
+        .al-lb-lic a{color:var(--accent2)}
+        .al-lb-close{margin-top:.4rem;align-self:flex-start;font-family:var(--font-mono);font-size:.68rem;padding:.4rem .8rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer}
+        .al-lb-close:hover{color:var(--text);border-color:var(--accent2)}
+        @media (max-width: 1100px){
+          .al-lb-inner{flex-direction:column;max-height:92vh;overflow:auto;padding:.85rem}
+          .al-lb-preview{width:100%}
+          .al-lb-img,.al-lb-loading{max-width:100%;max-height:44vh}
+          .al-lb-meta{width:100%;max-width:none;max-height:none;overflow:visible}
+          .al-seq-frames-grid{max-height:34vh;grid-template-columns:repeat(3,minmax(0,1fr))}
+        }
         @media (max-width: 980px){
           .al-bar{gap:.5rem}
           .al-seq-speed{width:100%;justify-content:flex-start}
+          .al-search{width:100%}
+          .al-search input{width:100%}
+          .al-lightbox{padding:1rem}
+          .al-seq-frames-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
         }
-        .al-lb-lic a{color:var(--accent2)}
-        .al-lb-close{margin-top:.6rem;align-self:flex-start;font-family:var(--font-mono);font-size:.68rem;padding:.4rem .8rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer}
-        .al-lb-close:hover{color:var(--text);border-color:var(--accent2)}
       `}</style>
     </div>
   );
