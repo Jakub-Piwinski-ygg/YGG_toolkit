@@ -67,6 +67,11 @@ function frameFileName(entryName, idx, slug) {
   return `${slug || 'sequence'}_${String(idx + 1).padStart(4, '0')}.png`;
 }
 
+function replaceExt(name, ext) {
+  const base = (name || '').replace(/\.[^./\\]+$/, '');
+  return `${base || 'output'}.${ext}`;
+}
+
 async function convertViaMagick(pngUrl, outName, extraArgs = []) {
   const res = await fetch(pngUrl);
   if (!res.ok) throw new Error(`fetch ${res.status}`);
@@ -459,7 +464,9 @@ function AssetCard({ asset, license, menuOpen, onToggleMenu, onCloseMenu, onOpen
 function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChange, log, magickReady }) {
   const [busyFmt, setBusyFmt] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [frameMenuIdx, setFrameMenuIdx] = useState(null);
   const [frameIdx, setFrameIdx] = useState(0);
+  const [frameGridHover, setFrameGridHover] = useState(false);
   const safeAsset = asset || { slug: 'preview', type: 'texture', file: '', name: '', w: 0, h: 0, bytes: 0, fps: 0, frames: 0, source: '', tags: [] };
 
   useEffect(() => {
@@ -471,7 +478,9 @@ function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChang
   useEffect(() => {
     setMenuOpen(false);
     setBusyFmt(null);
+    setFrameMenuIdx(null);
     setFrameIdx(0);
+    setFrameGridHover(false);
   }, [safeAsset.slug]);
 
   const seq = safeAsset.type === 'sequence';
@@ -485,13 +494,13 @@ function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChang
   }, [seq, frameIdx, frames.length]);
 
   useEffect(() => {
-    if (!seq || frames.length < 2) return;
+    if (!seq || frames.length < 2 || frameGridHover) return;
     const hz = clampSeqFps(previewFps);
     const timer = window.setInterval(() => {
       setFrameIdx((i) => (i + 1) % frames.length);
     }, 1000 / hz);
     return () => window.clearInterval(timer);
-  }, [seq, frames, previewFps]);
+  }, [seq, frames, previewFps, frameGridHover]);
 
   const activeFrame = seq && frames.length > 0 ? frames[frameIdx % frames.length] : null;
 
@@ -528,6 +537,36 @@ function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChang
       setMenuOpen(false);
     } catch (err) {
       log(`${safeAsset.slug} → png black as alpha: ${err.message || err}`, 'err');
+    } finally {
+      setBusyFmt(null);
+    }
+  };
+
+  const downloadFrameAlt = async (frame, fmt) => {
+    if (!frame || busyFmt) return;
+    const busyId = `frame-${frame.name}-${fmt.id}`;
+    setBusyFmt(busyId);
+    try {
+      const blob = await convertViaMagick(frame.url, `output.${fmt.id}`, fmt.args);
+      triggerBlobDownload(blob, replaceExt(frame.name, fmt.id));
+      setFrameMenuIdx(null);
+    } catch (err) {
+      log(`${safeAsset.slug}/${frame.name} → ${fmt.id}: ${err.message || err}`, 'err');
+    } finally {
+      setBusyFmt(null);
+    }
+  };
+
+  const downloadFrameBlackAsAlpha = async (frame) => {
+    if (!frame || busyFmt) return;
+    const busyId = `frame-${frame.name}-png-black-alpha`;
+    setBusyFmt(busyId);
+    try {
+      const blob = await convertPngBlackAsAlpha(frame.url);
+      triggerBlobDownload(blob, replaceExt(frame.name, 'png'));
+      setFrameMenuIdx(null);
+    } catch (err) {
+      log(`${safeAsset.slug}/${frame.name} → png black as alpha: ${err.message || err}`, 'err');
     } finally {
       setBusyFmt(null);
     }
@@ -591,7 +630,12 @@ function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChang
                 {!seqLoading && seqError && <div className="al-seq-frames-empty al-err">Sequence frames unavailable: {seqError}</div>}
                 {!seqLoading && !seqError && frames.length === 0 && <div className="al-seq-frames-empty al-err">No frames found.</div>}
                 {!seqLoading && !seqError && frames.length > 0 && (
-                  <div className="al-seq-frames-grid">
+                  <div
+                    className="al-seq-frames-grid"
+                    onMouseEnter={() => setFrameGridHover(true)}
+                    onMouseLeave={() => setFrameGridHover(false)}
+                    onClick={() => setFrameMenuIdx(null)}
+                  >
                     {frames.map((frame, idx) => (
                       <div key={`${frame.name}-${idx}`} className={`al-seq-frame-card ${idx === frameIdx ? 'al-seq-frame-card-on' : ''}`}>
                         <button
@@ -606,14 +650,48 @@ function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChang
                         </button>
                         <div className="al-seq-frame-row">
                           <span className="al-seq-frame-name" title={frame.name}>{frame.name}</span>
-                          <button
-                            type="button"
-                            className="al-seq-frame-dl"
-                            title={`Download ${frame.name}`}
-                            onClick={() => triggerDownload(frame.url, frame.name)}
-                          >
-                            PNG
-                          </button>
+                          <div className="al-seq-frame-actions" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className="al-seq-frame-dl"
+                              title={`Download ${frame.name}`}
+                              onClick={() => triggerDownload(frame.url, frame.name)}
+                            >
+                              PNG
+                            </button>
+                            <button
+                              type="button"
+                              className="al-seq-frame-caret"
+                              title="More frame formats"
+                              onClick={() => setFrameMenuIdx((cur) => (cur === idx ? null : idx))}
+                            >▾</button>
+                            {frameMenuIdx === idx && (
+                              <div className="al-seq-frame-menu">
+                                <button
+                                  type="button"
+                                  className="al-menu-item"
+                                  disabled={!!busyFmt}
+                                  onClick={() => downloadFrameBlackAsAlpha(frame)}
+                                >
+                                  {busyFmt === `frame-${frame.name}-png-black-alpha`
+                                    ? 'PNG black as alpha — converting…'
+                                    : 'PNG black as alpha'}
+                                </button>
+                                {ALT_FORMATS.map((fmt) => (
+                                  <button
+                                    key={`${frame.name}-${fmt.id}`}
+                                    type="button"
+                                    className="al-menu-item"
+                                    disabled={!magickReady || !!busyFmt}
+                                    title={magickReady ? `Convert PNG → ${fmt.label} in your browser` : 'waiting for ImageMagick WASM…'}
+                                    onClick={() => downloadFrameAlt(frame, fmt)}
+                                  >
+                                    {busyFmt === `frame-${frame.name}-${fmt.id}` ? `${fmt.label} — converting…` : fmt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </div>
                         <div className="al-seq-frame-size">{fmtBytes(frame.bytes)}</div>
                       </div>
@@ -949,8 +1027,12 @@ export function AssetLibraryTool() {
         .al-seq-frame-idx{position:absolute;left:.25rem;top:.25rem;font-size:.56rem;padding:.08rem .25rem;border-radius:3px;background:rgba(0,0,0,.72);color:#fff}
         .al-seq-frame-row{display:flex;align-items:center;gap:.3rem}
         .al-seq-frame-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.6rem;color:var(--muted)}
+        .al-seq-frame-actions{position:relative;display:flex;align-items:center;gap:1px}
         .al-seq-frame-dl{font-family:var(--font-mono);font-size:.58rem;padding:.18rem .4rem;background:#2ea043;border:0;border-radius:3px;color:#fff;cursor:pointer}
         .al-seq-frame-dl:hover{background:#3fb950}
+        .al-seq-frame-caret{font-family:var(--font-mono);font-size:.58rem;padding:.18rem .32rem;background:#26863a;border:0;border-radius:3px;color:#fff;cursor:pointer}
+        .al-seq-frame-caret:hover{background:#3fb950}
+        .al-seq-frame-menu{position:absolute;right:0;top:100%;margin-top:.25rem;z-index:8;display:flex;flex-direction:column;min-width:10.2rem;background:var(--surface);border:1px solid var(--border);border-radius:5px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.5)}
         .al-seq-frame-size{font-size:.56rem;color:var(--muted)}
         .al-seq-frames-empty{padding:.6rem .5rem;text-align:center;font-size:.64rem;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--muted)}
         .al-lb-lic a{color:var(--accent2)}
