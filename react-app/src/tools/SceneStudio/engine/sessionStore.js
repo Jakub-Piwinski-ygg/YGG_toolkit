@@ -3,7 +3,7 @@
 // (Chrome 86+: handles are structurally-cloneable and survive IDB round-trips).
 // A debounced write is triggered from SceneStudioInner on every scene change.
 
-import { SCHEMA } from './sceneModel.js';
+import { PROJECT_SCHEMA } from './projectModel.js';
 
 const DB_NAME = 'ygg-scene-studio';
 const DB_VERSION = 1;
@@ -26,13 +26,13 @@ function openDb() {
  * Write the current scene + root handle to IndexedDB (debounced by caller).
  * Silent on failure — autosave must never interrupt the user.
  */
-export async function saveSession(scene, rootHandle) {
+export async function saveSession(project, rootHandle) {
   try {
     const db = await openDb();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readwrite');
       tx.objectStore(STORE).put(
-        { scene, rootHandle: rootHandle ?? null, savedAt: new Date().toISOString(), schemaVersion: SCHEMA },
+        { project, rootHandle: rootHandle ?? null, savedAt: new Date().toISOString(), schemaVersion: PROJECT_SCHEMA },
         KEY
       );
       tx.oncomplete = resolve;
@@ -46,7 +46,7 @@ export async function saveSession(scene, rootHandle) {
 
 /**
  * Read the stored session record. Returns null when absent or on error.
- * Shape: { scene, rootHandle, savedAt, schemaVersion }
+ * Shape: { project, rootHandle, savedAt, schemaVersion }
  */
 export async function loadSession() {
   try {

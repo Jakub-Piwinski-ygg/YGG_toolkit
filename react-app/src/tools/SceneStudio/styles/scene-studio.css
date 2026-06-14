@@ -66,6 +66,33 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 }
 .scene-toolbar-name:focus { outline: none; border-color: var(--accent, #4f9eff); }
 .scene-toolbar-spacer { flex: 1; }
+.scene-toolbar-mode {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--bg-1, #13151a);
+  border: 1px solid var(--border, #2e3340);
+}
+.scene-mode-btn { min-width: 64px; }
+.scene-timeline-tl-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+}
+.scene-btn--sm { padding: 2px 6px; font-size: 11px; }
+.scene-setup-banner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-1, #a8afc0);
+  background: var(--bg-1, #13151a);
+  border-top: 1px solid var(--border, #2e3340);
+}
 .scene-toolbar-tag {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10px;
@@ -879,7 +906,10 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   flex: 0 0 auto;
 }
 .scene-timeline-controls,
-.scene-timeline-actions {
+.scene-timeline-actions,
+.scene-timeline-left,
+.scene-timeline-center,
+.scene-timeline-right {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -894,6 +924,21 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   flex: 1;
   min-width: 0;
 }
+
+/* Three-section timeline title bar: left (timeline picker + zoom), center
+   (transport), right (keyframe tools + length + fps). */
+.scene-timeline-left { flex: 0 0 auto; }
+.scene-timeline-center { flex: 0 0 auto; justify-content: center; }
+.scene-timeline-right { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; }
+.scene-timeline-length {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-1, #a8afc0);
+  white-space: nowrap;
+}
+.scene-timeline-length input { width: 56px; }
 
 .scene-timeline-zoom {
   display: inline-flex;
@@ -1123,6 +1168,19 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   background: rgba(255, 209, 102, 0.25);
   border-color: var(--yellow, #ffd166);
   box-shadow: 0 0 0 1px rgba(255, 209, 102, 0.4);
+}
+/* Primary (last-clicked) clip in a multi-selection — drives the inspector. */
+.scene-clip.selected.primary {
+  box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.85);
+}
+/* Marquee rubber-band rectangle over the timeline lanes. */
+.scene-marquee {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  background: rgba(79, 158, 255, 0.14);
+  border: 1px solid rgba(79, 158, 255, 0.8);
+  border-radius: 2px;
 }
 .scene-clip-edge {
   flex: 0 0 6px;

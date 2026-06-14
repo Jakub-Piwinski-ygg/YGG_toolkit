@@ -1,5 +1,40 @@
 # Scene Studio — status po sesji (2026-06-02, sesja 2)
 
+## Project / Scenes / Timelines + Setup-Animate (2026-06-14) ✅
+
+Spine-2D-style workflow + bogatszy model dokumentu (build + wszystkie testy zielone,
+nowe `engine/projectModel.test.mjs` + `unity/perTimeline.test.mjs`):
+
+- **Phase 1 — Timeline UX.** Scrub TYLKO na linijce (ruler), nie na ciele lane.
+  Multi-select klipów: zwykły klik = pojedynczy, ctrl/⌘ = toggle, shift = zakres w
+  obrębie tracka, marquee (rubber-band) na pustym lane. Grupowe przesuwanie zaznaczonych
+  klipów (wspólny deltaT, clamp per sąsiad). Usuwanie klipów klawiszem Delete (priorytet:
+  keyframe → klip[y]); przycisk ✕ na klipie usunięty. `TimelinePanel.jsx`,
+  `SceneStudioInner.jsx` (`selectedClipIds`).
+- **Phase 2 — Setup vs Animate.** Toggle w `StudioToolbar`. Setup: ukryta linijka,
+  playhead=0, edycja → poza domyślna (per orientacja), pixiViewport pomija `applyFlowAtTime`.
+  Animate: auto-key ON → keyframes; auto-key OFF → edycja ulotna (nic nie commituje,
+  obiekt wraca do wyliczonej pozy). Usunięty stary fall-through pisania bazowej pozy
+  gdy klip zaznaczony a auto-key OFF.
+- **Phase 3 — Project / Scenes / Variants + multi-timeline.** `ygg-project/1` + scena
+  `ygg-scene/2` z `timelines[]` zamiast `flow`. Wspólna pula assetów na poziomie projektu.
+  Wiele scen (przełączanie bez utraty edycji), warianty (`variantOf`, copy-as-variant).
+  `engine/projectModel.js`, model timeline w `engine/sceneModel.js` (`activeTimeline`,
+  `syncFlowToActiveTimeline`, `setActiveTimeline`, `addTimeline`…), `persist.js`
+  (`saveProject`/`loadProjectFromHandle`/`loadProjectFromFile`: manifest + plik-na-scenę
+  w trybie folderu, inline w trybie download). `SceneStudioInner` trzyma `project` i
+  materializuje scenę roboczą; `flow` = żywe lustro aktywnej osi. Migracja v1→v2 i
+  legacy `scene.json` → 1-scenowy projekt. Selektor osi czasu w `TimelinePanel`,
+  scena/wariant w `StudioToolbar`.
+- **Phase 4 — Unity export per timeline.** Jeden `.anim` na (canvas × timeline); seed
+  GUID zawiera `timelineId`, więc re-export zachowuje GUID-y istniejących osi (merge),
+  a nowa oś dodaje nowy klip (add). Deskryptor `ygg-unity-scene/2` z tablicą `timelines[]`
+  (per-oś `clipGuid` + spine/spinner cues); `spineCues`/`spinnerCues` na górze = oś
+  podstawowa (back-compat). `YggSceneTimelineBuilder.cs` dokłada `AnimationTrack` na każdą
+  dodatkową oś (ładuje klip po GUID, additive). `exportUnityPackage.js`, `csharp.js`.
+
+---
+
 ## Spinner Unity — Phase 5 round 5 (2026-06-14) ✅
 
 Trzy potwierdzone builds z `next phase spinner unity phase5.md` (build + 49 testów zielone):

@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import JSZip from 'jszip';
 import { useApp } from '../context/AppContext.jsx';
-import { useUnityExport } from '../context/UnityExportContext.jsx';
-import { UnityExportConfigPanel } from '../components/UnityExportConfigPanel.jsx';
-import { resolveTarget } from './AssetChecker/engine/exportToUnity.js';
 
 export const projectScaffoldMeta = {
   id: 'projectscaffold',
@@ -15,7 +12,7 @@ export const projectScaffoldMeta = {
   needsFiles: false,
   fullBleed: true,
   hideOutput: true,
-  desc: 'Design a new slot project as an editable folder tree. Add elements from the palette, expand any folder to nest more subfolders, and tick which leaf folders are required. Every folder in the tree is created AND recorded as mandatory for the Asset Checker. Download as a SharePoint template, a Unity-layout empty-folder template, or just the config JSON for reuse.'
+  desc: 'Design a new slot project as an editable folder tree. Add elements from the palette, expand any folder to nest more subfolders, and tick which leaf folders are required. The scaffold is emitted in the Unity delivery layout — every feature is split across _Game (runtime art), _Source (working files) and _Previews — so it matches what the Asset Checker exports. Download the empty-folder scaffold ZIP, or just the config JSON for reuse.'
 };
 
 // ── catalogue ───────────────────────────────────────────────────────────────
@@ -26,7 +23,7 @@ const BASE_ELEMENTS = [
 ];
 
 const COMMON_ELEMENTS = [
-  'Bonus_Game', 'Total_Win', 'Transition', 'Character',
+  'BonusGame', 'Total_Win', 'Transition', 'Character',
   'Free_Spin_Counter', 'Buttons', 'Special_Features', 'Coins'
 ];
 
@@ -48,17 +45,21 @@ const PRESET_DEFS = {
 };
 
 // The standard art substructure auto-attached to every leaf feature folder.
-// `def` = default spawn+mandatory state. Source folders are opt-in.
-// NOTE: preview is NOT here — it's a per-folder toggle (see node.preview) that
-// lives on the top-level element by default ("main preview"), so nested leaves
-// don't each get their own preview unless the user asks for one.
+// `path`   = display label / per-node toggle key (the conceptual Export/Source split).
+// `bucket` = top-level Unity delivery folder the leaf is routed into.
+// `suffix` = sub-folder placed after the feature path inside the bucket.
+// `def`    = default spawn+mandatory state. `source` flags the working-file rows.
+// NOTE: preview is NOT here — it's a per-folder toggle (see node.preview) routed
+// into _Previews/, on for top-level elements and off for nested ones by default.
 const ART_SUB_META = [
-  { path: 'Export/Animation',        rule: 'spineAtLeastOne', def: true,  source: false },
-  { path: 'Export/StaticArt',        rule: 'pngAtLeastOne',   def: true,  source: false },
-  { path: 'Source/AnimationSources', rule: 'anyFile',         def: false, source: true },
-  { path: 'Source/StaticArt',        rule: 'anyFile',         def: false, source: true }
+  { path: 'Export/Animation',        bucket: '_Game',   suffix: 'Animations',       rule: 'spineAtLeastOne', def: true, source: false },
+  { path: 'Export/StaticArt',        bucket: '_Game',   suffix: 'StaticArt',        rule: 'pngAtLeastOne',   def: true, source: false },
+  { path: 'Source/AnimationSources', bucket: '_Source', suffix: 'AnimationSources', rule: 'anyFile',         def: true, source: true },
+  { path: 'Source/StaticArt',        bucket: '_Source', suffix: 'StaticArt',        rule: 'anyFile',         def: true, source: true }
 ];
 
+const PREVIEW_BUCKET = '_Previews';
+const GAME_BUCKET = '_Game';
 const PREVIEW_RULE = 'landscapeAndPortraitPng';
 
 const RULE_DESC = {
@@ -164,33 +165,39 @@ function topLevelHasName(nodes, name) {
   return nodes.some((n) => n.name.toLowerCase() === lc);
 }
 
-// Walk the tree → flat list of { relPath, rule } leaves (relative to project
-// root, including NN_ numbering on top-level + nesting, trailing slash).
+// Walk the tree → flat list of { relPath, rule } leaves in the Unity delivery
+// layout. Each leaf carries its FULL feature path (NN_ numbering on top-level +
+// every nesting level) so a nested feature like 08_Intro_Outro/Free_Spins_Intro
+// keeps its parents — it is routed to _Game/08_Intro_Outro/Free_Spins_Intro/…,
+// never collapsed into a bare _Game/ bucket. relPath starts with a bucket
+// (_Game / _Source / _Previews) and keeps a trailing slash.
 function walkTree(tree) {
   const out = [];
-  const visit = (node, parentRel, autoInherited, depth, index) => {
+  const visit = (node, featureRel, autoInherited, depth, index) => {
     const name = depth === 0 ? `${pad2(index + 1)}_${node.name}` : node.name;
-    const base = parentRel ? `${parentRel}/${name}` : name;
+    const feature = featureRel ? `${featureRel}/${name}` : name;
     const eff = autoInherited && node.autoArt !== false;
     const before = out.length;
 
-    // Main preview: a preview/ folder directly on this node (any depth) when ticked.
-    if (node.preview) out.push({ relPath: `${base}/preview/`, rule: PREVIEW_RULE });
+    // Preview folder for this node (any depth) when ticked → _Previews/<feature>/.
+    if (node.preview) out.push({ relPath: `${PREVIEW_BUCKET}/${feature}/`, rule: PREVIEW_RULE });
 
     if (node.children && node.children.length) {
       // Group folder — no art substructure of its own; recurse into children.
-      node.children.forEach((c, i) => visit(c, base, eff, depth + 1, i));
+      // Its own bucket folders are created implicitly by descendant leaf paths.
+      node.children.forEach((c, i) => visit(c, feature, eff, depth + 1, i));
     } else if (eff) {
-      // Leaf feature folder — emit the ticked standard art subfolders.
+      // Leaf feature folder — emit the ticked standard art subfolders, each
+      // routed into its configured bucket while preserving the feature path.
       ART_SUB_META.filter((s) => node.artSubs?.[s.path]).forEach((s) =>
-        out.push({ relPath: `${base}/${s.path}/`, rule: s.rule }));
+        out.push({ relPath: `${s.bucket}/${feature}/${s.suffix}/`, rule: s.rule }));
     } else {
-      // Plain leaf folder (fonts variant child, png glyph folder, etc.).
-      out.push({ relPath: base + '/', rule: node.leafKind === 'png' ? 'pngAtLeastOne' : 'anyFile' });
+      // Plain leaf folder (fonts variant child, png glyph folder, etc.) → _Game/.
+      out.push({ relPath: `${GAME_BUCKET}/${feature}/`, rule: node.leafKind === 'png' ? 'pngAtLeastOne' : 'anyFile' });
     }
 
-    // Nothing emitted (leaf with no art subs and no preview) → bare folder.
-    if (out.length === before) out.push({ relPath: base + '/', rule: 'anyFile' });
+    // Nothing emitted (leaf with no art subs and no preview) → bare _Game folder.
+    if (out.length === before) out.push({ relPath: `${GAME_BUCKET}/${feature}/`, rule: 'anyFile' });
   };
   tree.forEach((n, i) => visit(n, '', true, 0, i));
   return out;
@@ -198,14 +205,13 @@ function walkTree(tree) {
 
 function computePaths(state) {
   const rootSlug = slugify(state.projectName) || 'NewSlot';
-  const prefix = state.includeUnityExport ? `${rootSlug}/unity_export` : rootSlug;
-  return walkTree(state.tree).map((l) => `${prefix}/${l.relPath}`);
+  return walkTree(state.tree).map((l) => `${rootSlug}/${l.relPath}`);
 }
 
 // ── config JSON ─────────────────────────────────────────────────────────────
 
 const CONFIG_FILENAME = '.ygg-scaffold.json';
-const CONFIG_VERSION = 2;
+const CONFIG_VERSION = 3;
 
 function serializeNode(n) {
   return {
@@ -241,7 +247,6 @@ function buildConfigJson(state) {
     version: CONFIG_VERSION,
     generatedAt: new Date().toISOString(),
     projectName: state.projectName,
-    includeUnityExport: state.includeUnityExport,
     tree: state.tree.map(serializeNode),
     mandatory,
     ruleLegend: RULE_DESC
@@ -276,64 +281,22 @@ function configToTree(cfg) {
   throw new Error('Config has no tree or elements.');
 }
 
-// ── empty-folder Unity routing ───────────────────────────────────────────────
+// ── scaffold zip builder ──────────────────────────────────────────────────────
 
-function syntheticEntriesFor(paths) {
-  return paths.map((p) => {
-    const clean = p.replace(/\/+$/, '') + '/.gitkeep';
-    const segments = clean.split('/').filter(Boolean);
-    return {
-      relPath: clean,
-      name: '.gitkeep',
-      ext: '',
-      dir: segments.slice(0, -1).join('/'),
-      segments,
-      file: null
-    };
-  });
-}
-
-function planUnityFolders(scaffoldPaths, unitySettings) {
-  const entries = syntheticEntriesFor(scaffoldPaths);
-  const first = entries[0]?.segments?.[0];
-  const rootDepth = first && entries.every((e) => e.segments[0] === first) ? 1 : 0;
-  const atlasMap = new Map();
-  const folders = new Set();
-  for (const entry of entries) {
-    const target = resolveTarget(entry, unitySettings.mappings, unitySettings.fallbackFolder, rootDepth, atlasMap);
-    const folder = target.replace(/\/?[^/]+$/, '');
-    if (folder) folders.add(folder);
-  }
-  return [...folders].sort();
-}
-
-// ── zip builders ─────────────────────────────────────────────────────────────
-
-async function buildSharepointZip(state) {
+// One scaffold, one layout: <project>/{_Game,_Source,_Previews}/… plus the
+// .ygg-scaffold.json config at the project root. Empty folders are stored as
+// plain ZIP entries (or seeded with a .gitkeep when requested).
+async function buildScaffoldZip(state) {
   if (!state.tree.length) return null;
   const paths = computePaths(state);
   const zip = new JSZip();
   for (const p of paths) {
-    if (state.addGitkeep) zip.file(p + '.gitkeep', '');
-    else zip.folder(p.replace(/\/$/, ''));
+    const folder = p.replace(/\/+$/, '');
+    if (state.addGitkeep) zip.file(folder + '/.gitkeep', '');
+    else zip.folder(folder);
   }
   const rootSlug = slugify(state.projectName) || 'NewSlot';
   zip.file(`${rootSlug}/${CONFIG_FILENAME}`, buildConfigJson(state));
-  return zip.generateAsync({ type: 'blob', compression: 'STORE' });
-}
-
-async function buildUnityTemplateZip(state, unitySettings) {
-  if (!state.tree.length) return null;
-  const scaffoldPaths = computePaths(state);
-  const unityFolders = planUnityFolders(scaffoldPaths, unitySettings);
-  const zip = new JSZip();
-  const rootName = unitySettings.projectName || 'UnityExport';
-  const root = zip.folder(rootName);
-  for (const f of unityFolders) {
-    if (state.addGitkeep) root.file(f + '/.gitkeep', '');
-    else root.folder(f);
-  }
-  root.file(CONFIG_FILENAME, buildConfigJson(state));
   return zip.generateAsync({ type: 'blob', compression: 'STORE' });
 }
 
@@ -489,13 +452,10 @@ function TreeRow({ node, depth, index, autoInherited, underFont, ops }) {
 
 export function ProjectScaffoldTool() {
   const { log, registerRunner } = useApp();
-  const { settings: unitySettings } = useUnityExport();
 
   const [projectName, setProjectName] = useState('NewSlot');
-  const [includeUnityExport, setIncludeUnityExport] = useState(true);
   const [tree, setTree] = useState(defaultTree);
   const [customDraft, setCustomDraft] = useState('');
-  const [showUnityFoldout, setShowUnityFoldout] = useState(false);
   const [addGitkeep, setAddGitkeep] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -506,8 +466,8 @@ export function ProjectScaffoldTool() {
   const [openAdd, setOpenAdd] = useState(() => new Set());
   const [addDraft, setAddDraftMap] = useState({});
 
-  const folderCount = useMemo(() => computePaths({ projectName, tree, includeUnityExport }).length,
-    [projectName, tree, includeUnityExport]);
+  const folderCount = useMemo(() => computePaths({ projectName, tree }).length,
+    [projectName, tree]);
 
   // ----- palette adds -----
 
@@ -571,7 +531,6 @@ export function ProjectScaffoldTool() {
 
   const applyConfig = useCallback((cfg) => {
     if (typeof cfg.projectName === 'string') setProjectName(cfg.projectName);
-    if (typeof cfg.includeUnityExport === 'boolean') setIncludeUnityExport(cfg.includeUnityExport);
     try {
       const t = configToTree(cfg);
       setTree(t);
@@ -619,31 +578,18 @@ export function ProjectScaffoldTool() {
 
   // ----- downloads -----
 
-  const stateForBuild = () => ({ projectName, tree, includeUnityExport, addGitkeep });
+  const stateForBuild = () => ({ projectName, tree, addGitkeep });
 
-  const downloadSharepoint = async () => {
+  const downloadScaffold = async () => {
     if (!tree.length) { log('Add at least one element first.', 'err'); return; }
     setBusy(true);
     try {
-      const blob = await buildSharepointZip(stateForBuild());
+      const blob = await buildScaffoldZip(stateForBuild());
       const rootSlug = slugify(projectName) || 'NewSlot';
-      triggerBlobDownload(blob, `${rootSlug}_sharepoint_template.zip`);
-      log(`SharePoint template: ${folderCount} folder(s).`, 'ok');
+      triggerBlobDownload(blob, `${rootSlug}_scaffold.zip`);
+      log(`Scaffold built: ${folderCount} folder(s).`, 'ok');
     } catch (e) {
-      log(`SharePoint build failed: ${e.message || e}`, 'err');
-    } finally { setBusy(false); }
-  };
-
-  const downloadUnity = async () => {
-    if (!tree.length) { log('Add at least one element first.', 'err'); return; }
-    setBusy(true);
-    try {
-      const blob = await buildUnityTemplateZip(stateForBuild(), unitySettings);
-      const rootSlug = slugify(unitySettings.projectName || projectName) || 'UnityExport';
-      triggerBlobDownload(blob, `${rootSlug}_unity_template.zip`);
-      log('Unity template built using current Export-to-Unity settings.', 'ok');
-    } catch (e) {
-      log(`Unity build failed: ${e.message || e}`, 'err');
+      log(`Scaffold build failed: ${e.message || e}`, 'err');
     } finally { setBusy(false); }
   };
 
@@ -656,13 +602,13 @@ export function ProjectScaffoldTool() {
     log('Config saved.', 'ok');
   };
 
-  // Toolbar RUN → SharePoint template.
+  // Toolbar RUN → scaffold ZIP.
   const settingsRef = useRef({});
   settingsRef.current = stateForBuild();
   useEffect(() => {
     registerRunner(projectScaffoldMeta.id, {
-      outName: () => `${slugify(settingsRef.current.projectName) || 'NewSlot'}_sharepoint_template.zip`,
-      run: async () => buildSharepointZip(settingsRef.current)
+      outName: () => `${slugify(settingsRef.current.projectName) || 'NewSlot'}_scaffold.zip`,
+      run: async () => buildScaffoldZip(settingsRef.current)
     });
     return () => registerRunner(projectScaffoldMeta.id, null);
   }, [registerRunner]);
@@ -684,11 +630,10 @@ export function ProjectScaffoldTool() {
           <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="NewSlot" />
         </div>
         <div className="field">
-          <label>Wrap in unity_export/</label>
-          <label className="ps-inline-check">
-            <input type="checkbox" checked={includeUnityExport} onChange={(e) => setIncludeUnityExport(e.target.checked)} />
-            <span>Yes — root the elements under <code>unity_export/</code></span>
-          </label>
+          <label>Layout</label>
+          <div className="ps-inline-check" style={{ cursor: 'default' }}>
+            <span><code>{slugify(projectName) || 'NewSlot'}/</code> → <code>_Game</code> · <code>_Previews</code> · <code>_Source</code> · <code>{CONFIG_FILENAME}</code></span>
+          </div>
         </div>
       </div>
 
@@ -718,7 +663,7 @@ export function ProjectScaffoldTool() {
           />
           <button className="btn" type="button" onClick={addCustomTop}>+ Add</button>
         </div>
-        <div className="ps-hint">Expand any folder (▾) to nest subfolders inside it. Leaf folders get the standard <code>Export / Source</code> set — tick which ones are required. The <b>preview</b> toggle is on by default for top-level elements (main preview) and off for nested ones — enable it only when an individual sub-element needs its own preview. Folders with children become pure groups. Every ticked folder is created <b>and</b> recorded as mandatory.</div>
+        <div className="ps-hint">Expand any folder (▾) to nest subfolders inside it. Leaf folders get the standard <code>Export / Source</code> set — tick which ones are required; <code>Export</code> routes to <code>_Game</code>, <code>Source</code> to <code>_Source</code>, and they keep the full feature path. The <b>preview</b> toggle (→ <code>_Previews</code>) is on by default for top-level elements and off for nested ones — enable it only when an individual sub-element needs its own preview. Folders with children become pure groups. Every ticked folder is created <b>and</b> recorded as mandatory.</div>
       </div>
 
       <div className="ps-section">
@@ -746,22 +691,6 @@ export function ProjectScaffoldTool() {
       </div>
 
       <div className="ps-section">
-        <button className="ps-toggle" type="button" onClick={() => setShowUnityFoldout((v) => !v)}>
-          {showUnityFoldout ? '▼' : '▶'} 📦 Export to Unity (shared with Asset Checker)
-        </button>
-        {showUnityFoldout && (
-          <div className="ac-export-panel ps-export-panel">
-            <div className="ps-hint" style={{ marginBottom: '.4rem' }}>
-              Drives the <b>Download Unity Template</b> button below — empty folders are routed
-              through these mappings exactly like real files during Asset Checker exports.
-              Changes here also apply in the Asset Checker tool.
-            </div>
-            <UnityExportConfigPanel />
-          </div>
-        )}
-      </div>
-
-      <div className="ps-section">
         <label className="ps-check">
           <input type="checkbox" checked={addGitkeep} onChange={(e) => setAddGitkeep(e.target.checked)} />
           <span>Add <code>.gitkeep</code> placeholders in every leaf folder</span>
@@ -770,11 +699,8 @@ export function ProjectScaffoldTool() {
       </div>
 
       <div className="action-row">
-        <button className="btn btn-primary" type="button" disabled={busy || !tree.length} onClick={downloadSharepoint}>
-          {busy ? 'building…' : '📦 Download SharePoint Template'}
-        </button>
-        <button className="btn" type="button" disabled={busy || !tree.length} onClick={downloadUnity}>
-          {busy ? 'building…' : '🎮 Download Unity Template'}
+        <button className="btn btn-primary" type="button" disabled={busy || !tree.length} onClick={downloadScaffold}>
+          {busy ? 'building…' : '📦 Download Scaffold'}
         </button>
         <button className="btn" type="button" disabled={!tree.length} onClick={downloadConfig}>
           💾 Download Config
@@ -839,9 +765,6 @@ export function ProjectScaffoldTool() {
         .ps-add-input{background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:.7rem;padding:.25rem .5rem;border-radius:3px;outline:none;min-width:160px}
         .ps-add-input:focus{border-color:var(--accent2)}
         .ps-quick-chips{display:flex;gap:.3rem;flex-wrap:wrap}
-        .ps-toggle{background:transparent;border:none;color:var(--muted);font-family:var(--font-mono);font-size:.7rem;cursor:pointer;padding:.2rem 0;text-align:left}
-        .ps-toggle:hover{color:var(--text)}
-        .ps-export-panel{margin-top:.4rem}
       `}</style>
     </div>
   );

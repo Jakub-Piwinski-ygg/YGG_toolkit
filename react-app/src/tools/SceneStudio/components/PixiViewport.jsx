@@ -15,7 +15,7 @@ import {
 } from '../engine/pixiApp.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 
-export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind' }, ref) {
+export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate' }, ref) {
   const hostRef = useRef(null);
   const appRef = useRef(null);
   const viewportRef = useRef(null);
@@ -266,7 +266,8 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   // dragging Spine sprites and scrubbing scale sliders not crash.
   useEffect(() => {
     syncTransforms(appRef.current, handlesRef.current, scene);
-    applyFlowAtTime(handlesRef.current, scene, flowTime);
+    // Setup mode shows the base pose only — no timeline overrides applied.
+    if (studioMode !== 'setup') applyFlowAtTime(handlesRef.current, scene, flowTime);
     if (selectionOverlayRef.current) {
       const ctx = selectedClipRef.current;
       const selClip = ctx?.clip || ctx || null;
@@ -289,7 +290,7 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       pathHandlesRef.current = selResult.pathHandles || [];
       appRef.current?.render();
     }
-  }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime]);
+  }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime, studioMode]);
 
   // Reorder stageFrame and redraw it when overlay mode changes.
   useEffect(() => {

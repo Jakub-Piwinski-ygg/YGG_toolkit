@@ -3,7 +3,7 @@ type: design
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-06-12
+updated: 2026-06-14
 source: react-app/SCENE_STUDIO.md
 tags: [design, scene-studio, pixi]
 ---
@@ -34,6 +34,20 @@ its own Art Tool; its PNG-sequence output imports as a `pngSequence` asset.
    tint) with bezier/Hermite curves.
 3. **Flow** — timeline sequencing (wait/signal/emit).
 
+## Document model — v2 (2026-06-14)
+
+The document is now a **Project** (`ygg-project/1`) with a **shared asset pool**
+that references **multiple scenes**; each scene bumped to `ygg-scene/2`, replacing
+the single `flow` with a **`timelines[]`** array + `activeTimelineId`. A live `flow`
+mirrors the active timeline and is committed via `syncFlowToActiveTimeline()` before
+save / switch / export. Scenes can be **duplicated as variants** (`variantOf`).
+Legacy `ygg-scene/1` files still open (flow → "Timeline 1", lone scene → 1-scene
+project). The toolbar also adds a **Setup vs Animate** mode toggle — Setup edits the
+default pose (no timeline), Animate edits keyframes (auto-key ON) or is transient
+(auto-key OFF). Engine: `engine/projectModel.js` + `engine/sceneModel.js`; Unity
+export bakes **one `.anim` per timeline** (descriptor `ygg-unity-scene/2`). Full
+detail in [[Scene Studio Phase Status]] and source §4.
+
 ## Section map (anchors in the source)
 
 | § | Topic |
@@ -42,7 +56,7 @@ its own Art Tool; its PNG-sequence output imports as a `pngSequence` asset.
 | 1 | Goals and non-goals |
 | 2 | Real-world scaffold context |
 | 3 | Architecture — three orthogonal layers |
-| 4 | `scene.json` schema |
+| 4 | Project + scene schema (`ygg-project/1` + `ygg-scene/2` timelines; Setup vs Animate) |
 | 5 | Flow timeline — MVP UI, future-proof model |
 | 6 | Multi-orientation — copy-on-write transforms |
 | 7 | Layer types |

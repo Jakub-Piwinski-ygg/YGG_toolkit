@@ -88,8 +88,8 @@ import { SPINNER_ACTIONS, normalizeSpinnerClipPayload } from './spinner/spinnerM
  * @property {Object} meta
  */
 
-export const SCHEMA = 'ygg-scene/1';
-export const VERSION = 1;
+export const SCHEMA = 'ygg-scene/2';
+export const VERSION = 2;
 
 export const DEFAULT_STAGE = {
   fps: 60,
@@ -102,9 +102,15 @@ export const DEFAULT_STAGE = {
   background: { type: 'checker' }
 };
 
+/** A fresh, empty timeline (the v2 replacement for the single `flow`). */
+export function createTimeline(name = 'Timeline 1') {
+  return { id: uid('TL'), name, tracks: [], markers: [], nodes: [], edges: [] };
+}
+
 /** @returns {Scene} */
 export function createEmptyScene(name = 'Untitled scene') {
   const rootCanvasId = uid('canvas');
+  const timeline = createTimeline('Timeline 1');
   return {
     $schema: SCHEMA,
     version: VERSION,
@@ -116,7 +122,13 @@ export function createEmptyScene(name = 'Untitled scene') {
     assets: [],
     layers: [],
     effects: [],
-    flow: { tracks: [], markers: [], nodes: [], edges: [] },
+    // v2 multi-timeline store. `flow` is the LIVE working copy of the
+    // active timeline (kept for backward compatibility with every consumer
+    // that reads scene.flow.tracks). `timelines[]` is the canonical store;
+    // call syncFlowToActiveTimeline() before persistence / timeline switch.
+    timelines: [timeline],
+    activeTimelineId: timeline.id,
+    flow: deriveFlowGraph({ tracks: [], markers: [], nodes: [], edges: [] }),
     exports: {
       heroFrame: { landscape: 0, portrait: 0 },
       pngSequence: { padDigits: 4, renumber: true, destSubdir: 'Preview/' },
@@ -239,20 +251,109 @@ export function validateScene(parsed) {
     ? parsed.layers.map((l) => normalizeLayer(l, defaultCanvasId)).filter(Boolean)
     : [];
   scene.effects = Array.isArray(parsed.effects) ? parsed.effects : [];
-  scene.flow = parsed.flow && typeof parsed.flow === 'object'
-    ? {
-        tracks: Array.isArray(parsed.flow.tracks)
-          ? parsed.flow.tracks.map(normalizeTrack).filter(Boolean)
-          : [],
-        markers: parsed.flow.markers || [],
-        nodes: parsed.flow.nodes || [],
-        edges: parsed.flow.edges || []
-      }
-    : scene.flow;
+  // Timelines (v2). Prefer parsed.timelines; otherwise migrate the legacy
+  // single `flow` into "Timeline 1". Tolerates a v1 file with no timelines.
+  let timelines;
+  if (Array.isArray(parsed.timelines) && parsed.timelines.length) {
+    timelines = parsed.timelines.map(normalizeTimeline).filter(Boolean);
+  } else {
+    const flow = parsed.flow && typeof parsed.flow === 'object' ? parsed.flow : { tracks: [], markers: [] };
+    timelines = [normalizeTimeline({ id: uid('TL'), name: 'Timeline 1', tracks: flow.tracks, markers: flow.markers })];
+  }
+  if (!timelines.length) timelines = [createTimeline('Timeline 1')];
+  const activeTimelineId = parsed.activeTimelineId && timelines.some((t) => t.id === parsed.activeTimelineId)
+    ? parsed.activeTimelineId
+    : timelines[0].id;
+  scene.timelines = timelines;
+  scene.activeTimelineId = activeTimelineId;
+  const active = timelines.find((t) => t.id === activeTimelineId) || timelines[0];
+  scene.flow = deriveFlowGraph({ tracks: active.tracks, markers: active.markers, nodes: [], edges: [] });
   scene.exports = { ...scene.exports, ...(parsed.exports || {}) };
   scene.meta = { ...scene.meta, ...(parsed.meta || {}) };
-  scene.flow = deriveFlowGraph(scene.flow);
   return scene;
+}
+
+/** Normalize one timeline entry (same internal shape as the legacy flow). */
+export function normalizeTimeline(tl) {
+  if (!tl || typeof tl !== 'object') return null;
+  const tracks = Array.isArray(tl.tracks) ? tl.tracks.map(normalizeTrack).filter(Boolean) : [];
+  const markers = Array.isArray(tl.markers) ? tl.markers : [];
+  const derived = deriveFlowGraph({ tracks, markers, nodes: [], edges: [] });
+  return {
+    id: tl.id || uid('TL'),
+    name: typeof tl.name === 'string' && tl.name ? tl.name : 'Timeline',
+    tracks: derived.tracks,
+    markers: derived.markers,
+    nodes: derived.nodes,
+    edges: derived.edges
+  };
+}
+
+/** The currently-active timeline object (canonical store, may be stale vs flow). */
+export function activeTimeline(scene) {
+  const list = scene?.timelines || [];
+  return list.find((t) => t.id === scene.activeTimelineId) || list[0] || null;
+}
+
+/**
+ * Write the live `flow` back into the active timeline entry. Call this before
+ * saving, switching timelines, or exporting so `timelines[]` is current.
+ */
+export function syncFlowToActiveTimeline(scene) {
+  if (!scene?.timelines?.length) return scene;
+  const flow = scene.flow || { tracks: [], markers: [] };
+  const activeId = scene.activeTimelineId || scene.timelines[0].id;
+  const timelines = scene.timelines.map((t) => (t.id === activeId
+    ? { ...t, tracks: flow.tracks || [], markers: flow.markers || [], nodes: flow.nodes || [], edges: flow.edges || [] }
+    : t));
+  return { ...scene, timelines };
+}
+
+/** Switch the active timeline: commit current flow, load the target into flow. */
+export function setActiveTimeline(scene, timelineId) {
+  const synced = syncFlowToActiveTimeline(scene);
+  const target = (synced.timelines || []).find((t) => t.id === timelineId);
+  if (!target) return synced;
+  return {
+    ...synced,
+    activeTimelineId: timelineId,
+    flow: deriveFlowGraph({ tracks: target.tracks, markers: target.markers, nodes: [], edges: [] })
+  };
+}
+
+/** Add a new empty timeline and make it active. */
+export function addTimeline(scene, name) {
+  const synced = syncFlowToActiveTimeline(scene);
+  const tl = createTimeline(name || `Timeline ${(synced.timelines?.length || 0) + 1}`);
+  return {
+    ...synced,
+    timelines: [...(synced.timelines || []), tl],
+    activeTimelineId: tl.id,
+    flow: deriveFlowGraph({ tracks: [], markers: [], nodes: [], edges: [] })
+  };
+}
+
+/** Rename a timeline by id. */
+export function renameTimeline(scene, timelineId, name) {
+  return {
+    ...scene,
+    timelines: (scene.timelines || []).map((t) => (t.id === timelineId ? { ...t, name: name || t.name } : t))
+  };
+}
+
+/** Remove a timeline. Never leaves a scene with zero timelines. */
+export function removeTimeline(scene, timelineId) {
+  const synced = syncFlowToActiveTimeline(scene);
+  let timelines = (synced.timelines || []).filter((t) => t.id !== timelineId);
+  if (!timelines.length) timelines = [createTimeline('Timeline 1')];
+  const activeId = synced.activeTimelineId === timelineId ? timelines[0].id : synced.activeTimelineId;
+  const active = timelines.find((t) => t.id === activeId) || timelines[0];
+  return {
+    ...synced,
+    timelines,
+    activeTimelineId: activeId,
+    flow: deriveFlowGraph({ tracks: active.tracks, markers: active.markers, nodes: [], edges: [] })
+  };
 }
 
 function normalizeLayer(layer, defaultCanvasId) {

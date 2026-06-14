@@ -72,19 +72,20 @@ Unity-structured ZIP.
 
 ---
 
-## ⭐ Focus area 3 — Project Scaffold (`ProjectScaffoldTool.jsx`, 848 lines)
+## ⭐ Focus area 3 — Project Scaffold (`ProjectScaffoldTool.jsx`, ~770 lines)
 
 Editable folder-structure tree designer; presets, leaf rules
-(spineAtLeastOne, pngAtLeastOne…), exports SharePoint ZIP / Unity tree /
-config JSON.
+(spineAtLeastOne, pngAtLeastOne…), exports a **single empty-folder scaffold ZIP**
+in the Unity delivery layout + a reusable config JSON.
 
 **Good**
 1. Leaf rules align 1:1 with Asset Checker coverage — single source of truth for "what a project must contain".
-2. JSON roundtrip enables template reuse.
-3. Slug-safe naming, preset subtrees (Intro_Outro, Fonts) reduce setup time.
+2. JSON roundtrip (v3 config; loads legacy v1/v2) enables template reuse.
+3. Slug-safe naming, preset subtrees (Intro_Outro, Fonts, BonusGame) reduce setup time.
+4. **Single deterministic builder (2026-06-14)** — `<Project>/{_Game,_Source,_Previews}` + `.ygg-scaffold.json`, no `Art/` wrapper. Replaced the old dual SharePoint-ZIP / Unity-tree export; the Unity path re-used Asset Checker `resolveTarget` mappings and mis-nested subfolders (intro leaves collapsed into bare `_Game/`, fonts got a stray `unity_export/` segment). Routing is now built in-tool so nested features keep their full path; `Export/*`→`_Game`, `Source/*`→`_Source` (both on by default), `preview`→`_Previews`.
 
 **Bad / wanted**
-1. 848-line monolith — needs decomposition (tree, palette, export, rules as modules).
+1. ~770-line monolith — needs decomposition (tree, palette, export, rules as modules).
 2. Dense tree UI: no drag-reorder between parents, no inline rule explanations/hover hints.
 3. No team sharing/versioning of templates (a template library — like TemplatesTool — is the obvious expansion).
 4. Font handling special-cased via `fontVariant` flag instead of a generic variant mechanism.

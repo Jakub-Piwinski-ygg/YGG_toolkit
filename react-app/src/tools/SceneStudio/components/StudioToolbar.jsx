@@ -13,10 +13,11 @@ export function StudioToolbar({
   onSave,
   onLoad,
   onNewProject,
-  scenes = [],
-  currentSceneRel = null,
+  projectScenes = [],
+  activeSceneId = null,
   onSelectScene,
   onNewScene,
+  onNewVariant,
   onToggleOrientation,
   overlayMode = 'behind',
   onSetOverlayMode,
@@ -24,6 +25,8 @@ export function StudioToolbar({
   onSetDefaultEase,
   livePreview = true,
   onToggleLivePreview,
+  studioMode = 'animate',
+  onSetStudioMode,
   busy,
   rootDropSupported = false,
   rootDropHover = false,
@@ -52,6 +55,43 @@ export function StudioToolbar({
         onChange={(e) => onRename(e.target.value)}
         placeholder="scene name"
       />
+      <select
+        className="scene-toolbar-select scene-scene-picker"
+        value={activeSceneId && projectScenes.some((s) => s.id === activeSceneId) ? activeSceneId : ''}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === '__new__') onNewScene?.();
+          else if (v === '__variant__') onNewVariant?.();
+          else if (v) onSelectScene?.(v);
+        }}
+        disabled={busy}
+        title="Switch scene within the project"
+      >
+        {projectScenes.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.variantOf ? '↳ ' : ''}{s.name}
+          </option>
+        ))}
+        <option value="__new__">＋ new scene…</option>
+        <option value="__variant__">⎘ duplicate as variant…</option>
+      </select>
+      <div className="scene-toolbar-mode" role="group" aria-label="Studio mode">
+        <button
+          className={'scene-btn scene-mode-btn' + (studioMode === 'setup' ? ' scene-btn--primary' : '')}
+          onClick={() => onSetStudioMode?.('setup')}
+          title="Setup mode — position each object's default pose per orientation. No timeline."
+        >
+          ⚙ setup
+        </button>
+        <button
+          className={'scene-btn scene-mode-btn' + (studioMode === 'animate' ? ' scene-btn--primary' : '')}
+          onClick={() => onSetStudioMode?.('animate')}
+          title="Animate mode — create timelines and keyframe objects over time."
+        >
+          ▶ animate
+        </button>
+      </div>
+
       <div className="scene-toolbar-spacer" />
 
       <span className="scene-toolbar-tag">
@@ -161,30 +201,6 @@ export function StudioToolbar({
         disabled={!canRedo}
         title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
       >↷</button>
-
-      {scenes.length > 0 && (
-        <select
-          className="scene-toolbar-select scene-scene-picker"
-          value={currentSceneRel && scenes.some((s) => s.relPath === currentSceneRel) ? currentSceneRel : ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === '__new__') onNewScene?.();
-            else if (v) onSelectScene?.(v);
-          }}
-          disabled={busy}
-          title="Switch scene (scanned from project .json files)"
-        >
-          {(!currentSceneRel || !scenes.some((s) => s.relPath === currentSceneRel)) && (
-            <option value="">— scene —</option>
-          )}
-          {scenes.map((s) => (
-            <option key={s.relPath} value={s.relPath}>
-              {s.name}{s.dirPath ? ` · ${s.dirPath}` : ''}
-            </option>
-          ))}
-          <option value="__new__">＋ new scene…</option>
-        </select>
-      )}
 
       <button className="scene-btn scene-btn--ghost" onClick={onNewProject} disabled={busy} title="New project (will prompt to save)">new</button>
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>

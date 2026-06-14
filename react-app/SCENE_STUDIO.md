@@ -187,25 +187,74 @@ effect doesn't invalidate the asset list. Etc.
 
 ---
 
-## 4. `scene.json` schema
+## 4. Project + scene schema
 
-### Top-level
+> **v2 (2026-06-14):** the document is now a **Project** (`ygg-project/1`) that
+> owns a **shared asset pool** and references **multiple scenes**. Each scene
+> bumped to `ygg-scene/2`, replacing the single `flow` with a **`timelines[]`**
+> array + `activeTimelineId`. Legacy `ygg-scene/1` files (inline `flow` +
+> `assets`) still open: the flow migrates to `timelines[0]` ("Timeline 1") and
+> a lone scene loads as a 1-scene project. See `engine/projectModel.js` +
+> `engine/sceneModel.js`; migration is covered by `engine/projectModel.test.mjs`.
+
+### `project.json` (top-level document, schema `ygg-project/1`)
 
 ```json
 {
-  "$schema": "ygg-scene/1",
+  "$schema": "ygg-project/1",
   "version": 1,
+  "name": "Big Win Project",
+  "assets":  [ /* SceneAsset[] — shared pool, moved out of scenes */ ],
+  "scenes":  [ { "id": "...", "name": "...", "variantOf": null, "data": { /* scene */ } } ],
+  "activeSceneId": "...",
+  "exports": { ... },
+  "meta":    { ... }
+}
+```
+
+`project.json` is a **single source of truth** — every scene is stored inline as
+`data` (scenes aren't shared between projects, so there's no file-per-scene
+split). Scaffold mode writes `project.json` into the linked folder; quick mode
+downloads it. `duplicateSceneAsVariant` records `variantOf` = the source scene id
+(Unity-prefab-variant style). A `file` ref on a `scenes[]` entry is still
+tolerated on load for back-compat, but the editor always writes inline `data`.
+
+### Scene file (schema `ygg-scene/2`)
+
+```json
+{
+  "$schema": "ygg-scene/2",
+  "version": 2,
   "name": "Win Sequence Big Win Preview",
+  "variantOf": null,
   "projectRoot": "<absolute or relative — see §10>",
   "stage":   { ... },
-  "assets":  [ ... ],
-  "layers":  [ ... ],
+  "canvases": [ ... ],
+  "activeCanvasId": "...",
+  "layers":  [ ... ],          // layer.assetId -> project.assets pool
   "effects": [ ... ],
-  "flow":    { ... },
+  "timelines": [               // was `flow` — one entry per timeline
+    { "id": "...", "name": "Timeline 1", "tracks": [ ... ], "markers": [ ... ], "nodes": [], "edges": [] }
+  ],
+  "activeTimelineId": "...",
   "exports": { ... },
   "meta":    { "createdAt": "...", "author": "...", "toolkitVersion": "..." }
 }
 ```
+
+Each timeline keeps the exact shape of the legacy `flow` so `deriveFlowGraph`,
+`normalizeTrack`, `normalizeClip` are reused unchanged. In the running editor a
+live `flow` mirror = the active timeline; `syncFlowToActiveTimeline()` commits
+it back into `timelines[]` before save / timeline-switch / export. Scene assets
+are **not** written into scene files (the project pool owns them); inline
+`assets[]` on a legacy file are tolerated and folded into the pool on load.
+
+### Setup vs Animate modes
+
+The studio toolbar toggles **Setup** (no timeline — drag objects to set the
+default pose per orientation; edits route to the base pose) and **Animate**
+(timelines visible; with auto-key ON edits write keyframes, with auto-key OFF
+edits are transient and snap back). Base-pose editing only happens in Setup.
 
 ### `stage`
 

@@ -15,6 +15,47 @@ tags: [session, scene-studio, changelog, spinner, unity]
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
 
+## Project / Scenes / Timelines + Setup-Animate (2026-06-14) ✅
+
+Spine-2D-style workflow + a richer document model (build + all tests green, new
+`engine/projectModel.test.mjs` + `unity/perTimeline.test.mjs`):
+
+- **Phase 1 — Timeline UX.** Scrub **only** on the ruler, not on the lane body.
+  Multi-select clips: plain click = single, ctrl/⌘ = toggle, shift = range within a
+  track, marquee (rubber-band) on empty lane. Group-move selected clips (shared
+  `deltaT`, clamped per neighbour). Delete key removes clips (priority: keyframe →
+  clip[s]); the per-clip ✕ button is gone. `TimelinePanel.jsx`, `SceneStudioInner.jsx`
+  (`selectedClipIds`).
+- **Phase 2 — Setup vs Animate.** Toggle in `StudioToolbar`. **Setup**: ruler hidden,
+  playhead = 0, edits write the **default pose** (per orientation); `PixiViewport`
+  skips `applyFlowAtTime`. **Animate**: auto-key ON → keyframes; auto-key OFF → edits
+  are transient (commit nothing, object snaps back to the evaluated pose). Removed the
+  old fall-through that wrote the base pose when a clip was selected with auto-key OFF.
+- **Phase 3 — Project / Scenes / Variants + multi-timeline.** New `ygg-project/1`
+  document wrapping scenes bumped to `ygg-scene/2` (`timelines[]` replaces the single
+  `flow`). Shared **asset pool** at the project level. Multiple scenes (switch without
+  losing edits), **variants** (`variantOf`, duplicate-as-variant, Unity-prefab style).
+  `engine/projectModel.js` (`createEmptyProject`, `validateProject`, `deriveWorkingScene`,
+  `foldSceneIntoProject`, `addScene`/`removeScene`/`renameScene`/`setActiveScene`,
+  `duplicateSceneAsVariant`, `mergeAssets`); timeline model in `engine/sceneModel.js`
+  (`activeTimeline`, `syncFlowToActiveTimeline`, `setActiveTimeline`, `addTimeline`,
+  `renameTimeline`, `removeTimeline`). `persist.js` gains `saveProject` /
+  `loadProjectFromHandle` / `loadProjectFromFile` (one `project.json`, scenes inline).
+  `SceneStudioInner` holds the `project` and materializes a working scene; `flow` is a
+  **live mirror** of the active timeline, committed via `syncFlowToActiveTimeline`
+  before save / switch / export. v1→v2 migration + legacy `scene.json` → 1-scene
+  project. Timeline selector in `TimelinePanel`, scene/variant picker in `StudioToolbar`.
+- **Phase 4 — Unity export per timeline.** One `.anim` per (canvas × timeline); the
+  GUID seed includes `timelineId`, so re-export keeps existing timelines' clip GUIDs
+  (merge) while a new timeline adds a fresh clip. Descriptor bumped to
+  `ygg-unity-scene/2` with a `timelines[]` array (per-axis `clipGuid` + spine/spinner
+  cues); top-level `spineCues`/`spinnerCues` mirror the primary timeline (back-compat).
+  `YggSceneTimelineBuilder.cs` adds an `AnimationTrack` per extra timeline (loads the
+  clip by GUID, additive). `exportUnityPackage.js` (`timelinesOf`, `sceneForTimeline`,
+  `bakeTimelineForCanvas`), `csharp.js`.
+
+---
+
 ## Spinner → Unity — Phase 5, round 5 (2026-06-14) ✅
 
 Three confirmed builds from [[Spinner Unity Phase 5]] (build + 49 tests green):

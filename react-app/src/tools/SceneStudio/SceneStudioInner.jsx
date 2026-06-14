@@ -18,10 +18,25 @@ import {
   deriveFlowGraph,
   getWorldPosition,
   isDescendantOf,
-  SCHEMA,
   uid,
-  validateScene
+  addTimeline,
+  setActiveTimeline,
+  renameTimeline,
+  removeTimeline,
+  syncFlowToActiveTimeline
 } from './engine/sceneModel.js';
+import {
+  PROJECT_SCHEMA,
+  createEmptyProject,
+  deriveWorkingScene,
+  foldSceneIntoProject,
+  projectFromScene,
+  validateProject,
+  addScene as addProjectScene,
+  duplicateSceneAsVariant,
+  setActiveScene,
+  renameScene
+} from './engine/projectModel.js';
 import { clearSession, loadSession, saveSession } from './engine/sessionStore.js';
 import {
   createInitialFlowState,
@@ -37,13 +52,11 @@ import {
   fileToDataUrl,
   getDroppedDirectoryHandle,
   isDropDirectorySupported,
-  loadSceneByRelPath,
-  loadSceneFromFile,
-  loadSceneFromHandle,
+  loadProjectFromFile,
+  loadProjectFromHandle,
   pickProjectRoot,
   repairSceneSpineAssets,
-  saveScene,
-  scanProjectScenes
+  saveProject
 } from './engine/persist.js';
 import { makeVirtualRootHandle, readFolderDropAsFiles } from './engine/virtualHandle.js';
 import { patchTransform, resetPortrait } from './engine/orientationManager.js';
@@ -64,6 +77,24 @@ import { insertOrUpdatePathPoint, resolvePointHandles } from './engine/animation
 import './styles/scene-studio.css';
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
+
+/** Total layer count across all scenes in a session-draft project. */
+function sessionLayerCount(project) {
+  if (!project?.scenes) return 0;
+  return project.scenes.reduce((sum, s) => sum + (s?.data?.layers?.length || 0), 0);
+}
+
+/**
+ * Commit the active scene's LIVE `flow` into its active timeline, then fold it
+ * back into the project. Call this before any project-level change (scene
+ * switch / add / variant) so the outgoing scene's `timelines[]` is current and
+ * doesn't lose edits when it becomes inactive.
+ */
+function commitCurrentSceneFlow(project) {
+  const curScene = deriveWorkingScene(project);
+  const synced = syncFlowToActiveTimeline(curScene);
+  return foldSceneIntoProject(project, synced);
+}
 
 /** Build a scene asset from an asset-browser item (mirrors addAssetItemFromBrowser). */
 function assetFromBrowserItem(item) {
@@ -132,12 +163,21 @@ function shiftAllChannelKeys(channels, delta) {
 
 export default function SceneStudioInner() {
   const { log } = useApp();
-  const [scene, setSceneInternal] = useState(() => createEmptyScene('Untitled scene'));
+  // The document is a Project (shared asset pool + multiple scenes). The
+  // working `scene` is materialized from the active scene's data + the shared
+  // pool, so every existing scene.* / scene.flow consumer keeps working.
+  const [project, setProjectInternal] = useState(() => createEmptyProject());
+  const scene = useMemo(() => deriveWorkingScene(project), [project]);
   const [rootHandle, setRootHandle] = useState(null);
   const [showUnityExport, setShowUnityExport] = useState(false);
   const [showSpinnerWizard, setShowSpinnerWizard] = useState(false);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const [selectedClipId, setSelectedClipId] = useState(null);
+  // Multi-selection of timeline clips (ctrl/shift-click + marquee). The
+  // primary `selectedClipId` is kept as the last-clicked clip and drives the
+  // inspector + auto-key target. `selectedClipIds` is the full set for group
+  // move + group delete.
+  const [selectedClipIds, setSelectedClipIds] = useState([]);
   const [selectedKey, setSelectedKey] = useState(null);   // { clipId, name, idx } | null
   const [clipboardKey, setClipboardKey] = useState(null); // { name, v, out } | null
   const [busy, setBusy] = useState(false);
@@ -154,21 +194,35 @@ export default function SceneStudioInner() {
   const [defaultEase, setDefaultEase] = useState('auto');
   const defaultEaseRef = useRef(defaultEase);
   defaultEaseRef.current = defaultEase;
-  // Scenes discovered in the linked project root (all valid *.json scenes),
-  // the relPath of the one currently open, and a pending scene-switch target
-  // ('__new__' = create a new scene) awaiting the save/discard prompt.
-  const [availableScenes, setAvailableScenes] = useState([]);
-  const [currentSceneRel, setCurrentSceneRel] = useState(null);
-  const [sceneSwitchPending, setSceneSwitchPending] = useState(null);
-  // handleSave is defined far below; reference it through a ref so the
-  // scene-switch handlers (defined earlier) can call it.
-  const handleSaveRef = useRef(null);
   // Auto-key: when ON, editing a transform while a clip is selected and
   // the playhead is inside it records a keyframe. When OFF, edits always
   // go to the base pose. Read through a ref by handlePatchTransform.
   const [autoKey, setAutoKey] = useState(true);
   const autoKeyRef = useRef(autoKey);
   autoKeyRef.current = autoKey;
+
+  // Studio mode: 'setup' = position default poses per orientation (no timeline,
+  // no keyframes); 'animate' = create timelines + keyframe over time. Read
+  // through a ref by the imperative handlePatchTransform path.
+  const [studioMode, setStudioMode] = useState('animate');
+  const studioModeRef = useRef(studioMode);
+  studioModeRef.current = studioMode;
+
+  /**
+   * Switch studio mode. Entering setup mode pins the playhead to 0, stops
+   * playback, and clears any clip / keyframe selection so transform edits
+   * unambiguously route to the base pose.
+   */
+  const handleSetStudioMode = useCallback((mode) => {
+    if (mode !== 'setup' && mode !== 'animate') return;
+    setStudioMode(mode);
+    if (mode === 'setup') {
+      setSelectedClipId(null);
+      setSelectedClipIds([]);
+      setSelectedKey(null);
+      setFlowState((prev) => flowSeek(sceneRef.current, flowStop(prev), 0));
+    }
+  }, []);
 
   // Session persistence: draft shown to user on mount if IDB has a saved scene.
   // Shape: { scene, rootHandle, savedAt, schemaVersion } | null
@@ -192,10 +246,14 @@ export default function SceneStudioInner() {
   const [historyDepth, setHistoryDepth] = useState({ undo: 0, redo: 0 });
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const rootHandleRef = useRef(rootHandle);
   rootHandleRef.current = rootHandle;
   const selectedClipIdRef = useRef(selectedClipId);
   selectedClipIdRef.current = selectedClipId;
+  const selectedClipIdsRef = useRef(selectedClipIds);
+  selectedClipIdsRef.current = selectedClipIds;
   const selectedKeyRef = useRef(selectedKey);
   selectedKeyRef.current = selectedKey;
   const clipboardKeyRef = useRef(clipboardKey);
@@ -214,46 +272,53 @@ export default function SceneStudioInner() {
    * drag becomes one undo step.
    */
   const setScene = useCallback((updater) => {
-    setSceneInternal((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (next === prev) return prev;
+    setProjectInternal((prevProj) => {
+      const prevScene = deriveWorkingScene(prevProj);
+      const next = typeof updater === 'function' ? updater(prevScene) : updater;
+      if (next === prevScene) return prevProj;
+      const nextProj = foldSceneIntoProject(prevProj, next);
       const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
       const coalesce = now < historyCoalesceUntilRef.current;
       historyCoalesceUntilRef.current = now + 250;
       if (!coalesce) {
-        undoStackRef.current.push(prev);
+        undoStackRef.current.push(prevProj);
         if (undoStackRef.current.length > 100) undoStackRef.current.shift();
         redoStackRef.current.length = 0;
         setHistoryDepth({ undo: undoStackRef.current.length, redo: 0 });
       }
-      return next;
+      return nextProj;
     });
   }, []);
 
-  /** Replace the scene WITHOUT pushing a history entry — used by load / reset. */
-  const replaceSceneNoHistory = useCallback((next) => {
+  /** Apply a project-level change (scene/timeline switch) without history. */
+  const replaceProjectNoHistory = useCallback((next) => {
     undoStackRef.current.length = 0;
     redoStackRef.current.length = 0;
     historyCoalesceUntilRef.current = 0;
     setHistoryDepth({ undo: 0, redo: 0 });
-    setSceneInternal(next);
+    setProjectInternal(next);
   }, []);
+
+  /** Replace the whole document with a 1-scene project wrapping `next`. */
+  const replaceSceneNoHistory = useCallback((next) => {
+    replaceProjectNoHistory(projectFromScene(next));
+  }, [replaceProjectNoHistory]);
 
   const undo = useCallback(() => {
     const prev = undoStackRef.current.pop();
     if (!prev) return;
-    redoStackRef.current.push(sceneRef.current);
+    redoStackRef.current.push(projectRef.current);
     historyCoalesceUntilRef.current = 0;
-    setSceneInternal(prev);
+    setProjectInternal(prev);
     setHistoryDepth({ undo: undoStackRef.current.length, redo: redoStackRef.current.length });
   }, []);
 
   const redo = useCallback(() => {
     const next = redoStackRef.current.pop();
     if (!next) return;
-    undoStackRef.current.push(sceneRef.current);
+    undoStackRef.current.push(projectRef.current);
     historyCoalesceUntilRef.current = 0;
-    setSceneInternal(next);
+    setProjectInternal(next);
     setHistoryDepth({ undo: undoStackRef.current.length, redo: redoStackRef.current.length });
   }, []);
 
@@ -486,7 +551,8 @@ export default function SceneStudioInner() {
   // ── Session restore: on mount, check IDB for a saved scene ────────────
   useEffect(() => {
     loadSession().then((draft) => {
-      if (draft?.scene?.layers?.length > 0) {
+      const layerCount = sessionLayerCount(draft?.project);
+      if (layerCount > 0) {
         setSessionDraft(draft);
       } else {
         // No meaningful session — safe to start autosaving immediately.
@@ -497,16 +563,18 @@ export default function SceneStudioInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Autosave: debounced 1 s after every scene / rootHandle change ─────
+  // ── Autosave: debounced 1 s after every project / rootHandle change ───
   useEffect(() => {
     if (!autosaveEnabledRef.current) return;
     clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => {
-      saveSession(sceneRef.current, rootHandleRef.current);
+      // Sync the live flow into the active timeline before snapshotting.
+      const synced = syncFlowToActiveTimeline(sceneRef.current);
+      saveSession(foldSceneIntoProject(projectRef.current, synced), rootHandleRef.current);
     }, 1000);
-  // We intentionally re-run on every `scene` and `rootHandle` change.
+  // We intentionally re-run on every `project` and `rootHandle` change.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, rootHandle]);
+  }, [project, rootHandle]);
 
   // ── Self-heal: recover lost spine atlas/texture references ────────────
   // Spine assets picked through the Spinner wizard (before the fix) lost their
@@ -524,15 +592,17 @@ export default function SceneStudioInner() {
     pending.forEach((a) => spineRepairAttempted.current.add(a.src));
     let cancelled = false;
     (async () => {
-      const baseDir = currentSceneRel ? currentSceneRel.split('/').slice(0, -1).join('/') : null;
+      const baseDir = sceneRef.current.projectRoot || null;
       const { scene: fixed, repaired } = await repairSceneSpineAssets(sceneRef.current, rootHandle, baseDir);
       if (cancelled || !repaired.length) return;
-      replaceSceneNoHistory(fixed);
+      // Repaired assets live in the shared pool — patch it without history and
+      // without disturbing the multi-scene project structure.
+      setProjectInternal((prev) => ({ ...prev, assets: fixed.assets }));
       log(`Scene Studio: recovered atlas+texture for ${repaired.length} spine asset(s) — ${repaired.join(', ')}`);
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, rootHandle, currentSceneRel]);
+  }, [scene, rootHandle]);
 
   const handlePatchLayer = useCallback((layerId, patch) => {
     setScene((prev) => ({
@@ -625,6 +695,18 @@ export default function SceneStudioInner() {
     const flowNow = flowRef.current;
     const tracks = sceneNow.flow?.tracks || [];
 
+    // Setup mode: edits always update the layer's default pose for the
+    // active orientation. No timeline, no keyframes.
+    if (studioModeRef.current === 'setup') {
+      setScene((prev) => ({
+        ...prev,
+        layers: prev.layers.map((l) =>
+          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch) : l
+        )
+      }));
+      return;
+    }
+
     // Find the active recording target — only if the user has explicitly
     // selected a clip on this layer and the playhead sits inside it.
     // Read selectedClipId from the ref so this callback never goes stale
@@ -656,12 +738,10 @@ export default function SceneStudioInner() {
     }
 
     if (!targetClip) {
-      setScene((prev) => ({
-        ...prev,
-        layers: prev.layers.map((l) =>
-          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch) : l
-        )
-      }));
+      // Animate mode with no recording target (autokey off, or no clip
+      // selected / playhead outside any selected clip): the edit is
+      // transient — commit nothing so the object snaps back to its
+      // evaluated pose on release. Base-pose edits belong to setup mode.
       return;
     }
 
@@ -1019,11 +1099,18 @@ export default function SceneStudioInner() {
     setScene((prev) => {
       const layer = prev.layers.find((l) => l.id === layerId);
       const assetId = layer?.assetId;
-      const stillUsed = prev.layers.some((l) => l.id !== layerId && l.assetId === assetId);
+      const remaining = prev.layers.filter((l) => l.id !== layerId);
+      const usedHere = remaining.some((l) => l.assetId === assetId);
+      // Assets are a project-level shared pool — only prune when NO other
+      // scene references the asset either, or we'd break those scenes.
+      const usedElsewhere = (projectRef.current.scenes || []).some((s) =>
+        s.id !== projectRef.current.activeSceneId
+        && (s.data?.layers || []).some((l) => l.assetId === assetId)
+      );
       return {
         ...prev,
-        layers: prev.layers.filter((l) => l.id !== layerId),
-        assets: stillUsed ? prev.assets : prev.assets.filter((a) => a.id !== assetId)
+        layers: remaining,
+        assets: (usedHere || usedElsewhere) ? prev.assets : prev.assets.filter((a) => a.id !== assetId)
       };
     });
     setSelectedLayerId((cur) => (cur === layerId ? null : cur));
@@ -1054,93 +1141,96 @@ export default function SceneStudioInner() {
     }
   }, [log]);
 
+  // Reset transient editor state when the working scene changes underneath us
+  // (scene switch, timeline switch, project load).
+  const resetEditorStateForScene = useCallback(() => {
+    setSelectedLayerId(null);
+    setSelectedClipId(null);
+    setSelectedClipIds([]);
+    setSelectedKey(null);
+    setFlowState(createInitialFlowState());
+  }, []);
+
   const linkProjectRoot = useCallback(async (handle) => {
     if (!handle || handle.kind !== 'directory') return;
     setRootHandle(handle);
     await refreshAssetBrowser(handle);
     log(`Scene Studio: project root = ${handle.name}`, 'ok');
     try {
-      const existing = await loadSceneFromHandle(handle);
-      if (existing) {
-        replaceSceneNoHistory(existing);
-        setSelectedLayerId(null);
-        setFlowState(createInitialFlowState());
-        const rel = existing.projectRoot ? `${existing.projectRoot}/scene.json` : 'scene.json';
-        setCurrentSceneRel(rel);
-        log(`Scene Studio: loaded ${rel}`, 'ok');
+      const loadedProject = await loadProjectFromHandle(handle);
+      if (loadedProject) {
+        replaceProjectNoHistory(loadedProject);
+        resetEditorStateForScene();
+        setAssetDescriptors({});
+        log(`Scene Studio: loaded project "${loadedProject.name}" (${loadedProject.scenes.length} scene(s))`, 'ok');
       }
     } catch (e) {
       log(`Scene Studio: ${e.message || e}`, 'err');
     }
-    // Discover all scenes in the project for the switch dropdown.
-    try {
-      const scenes = await scanProjectScenes(handle);
-      setAvailableScenes(scenes);
-    } catch (e) {
-      log(`Scene Studio: scene scan failed: ${e.message || e}`, 'err');
-    }
-  }, [log, refreshAssetBrowser]);
+  }, [log, refreshAssetBrowser, replaceProjectNoHistory, resetEditorStateForScene]);
 
-  const rescanScenes = useCallback(async () => {
-    if (!rootHandle) return;
-    try { setAvailableScenes(await scanProjectScenes(rootHandle)); } catch { /* ignore */ }
-  }, [rootHandle]);
-
-  // Load a discovered scene by relPath (keeps the project root linked).
-  const doSwitchScene = useCallback(async (relPath) => {
-    if (!rootHandle) return;
-    setBusy(true);
-    try {
-      const scene = await loadSceneByRelPath(rootHandle, relPath);
-      if (!scene) { log(`Scene Studio: could not load ${relPath}`, 'err'); return; }
-      replaceSceneNoHistory(scene);
-      setSelectedLayerId(null);
-      setSelectedClipId(null);
-      setSelectedKey(null);
-      setAssetDescriptors({});
-      setFlowState(createInitialFlowState());
-      setCurrentSceneRel(relPath);
-      log(`Scene Studio: switched to ${relPath}`, 'ok');
-    } catch (e) {
-      log(`Scene Studio: switch failed: ${e.message || e}`, 'err');
-    } finally {
-      setBusy(false);
-    }
-  }, [rootHandle, replaceSceneNoHistory, log]);
-
-  // New empty scene WITHIN the current project (keeps the root + asset list).
-  const doNewSceneInProject = useCallback(() => {
-    replaceSceneNoHistory(createEmptyScene('Untitled scene'));
-    setSelectedLayerId(null);
-    setSelectedClipId(null);
-    setSelectedKey(null);
+  // Switch the active scene WITHIN the loaded project (non-destructive; the
+  // previous scene's edits are already folded into the project).
+  const handleSelectScene = useCallback((sceneId) => {
+    if (sceneId === projectRef.current.activeSceneId) return;
+    setProjectInternal((prev) => setActiveScene(commitCurrentSceneFlow(prev), sceneId));
+    resetEditorStateForScene();
     setAssetDescriptors({});
-    setFlowState(createInitialFlowState());
-    setCurrentSceneRel(null);
-    log('Scene Studio: new scene', 'info');
-  }, [replaceSceneNoHistory, log]);
+    log('Scene Studio: switched scene', 'ok');
+  }, [resetEditorStateForScene, log]);
 
-  // Requested a scene switch from the dropdown — prompt to save if dirty.
-  const handleSelectScene = useCallback((relPath) => {
-    if (relPath === currentSceneRel) return;
-    if (sceneRef.current.layers.length > 0) setSceneSwitchPending(relPath);
-    else doSwitchScene(relPath);
-  }, [currentSceneRel, doSwitchScene]);
-
+  // Add a fresh empty scene to the project and make it active.
   const handleNewSceneRequest = useCallback(() => {
-    if (sceneRef.current.layers.length > 0) setSceneSwitchPending('__new__');
-    else doNewSceneInProject();
-  }, [doNewSceneInProject]);
+    setProjectInternal((prev) => {
+      const committed = commitCurrentSceneFlow(prev);
+      return addProjectScene(committed, `Scene ${(committed.scenes?.length || 0) + 1}`).project;
+    });
+    resetEditorStateForScene();
+    log('Scene Studio: new scene added to project', 'info');
+  }, [resetEditorStateForScene, log]);
 
-  // Resolve the pending switch (after the save/discard prompt).
-  const resolveSceneSwitch = useCallback(async (save) => {
-    const target = sceneSwitchPending;
-    setSceneSwitchPending(null);
-    if (!target) return;
-    if (save) { await handleSaveRef.current?.(); await rescanScenes(); }
-    if (target === '__new__') doNewSceneInProject();
-    else await doSwitchScene(target);
-  }, [sceneSwitchPending, doNewSceneInProject, doSwitchScene, rescanScenes]);
+  // Duplicate the active scene as a variant (records variantOf, makes it active).
+  const handleNewVariant = useCallback(() => {
+    setProjectInternal((prev) => {
+      const committed = commitCurrentSceneFlow(prev);
+      const src = committed.scenes.find((s) => s.id === committed.activeSceneId) || committed.scenes[0];
+      return duplicateSceneAsVariant(committed, committed.activeSceneId, `${src?.name || 'Scene'} variant`).project;
+    });
+    resetEditorStateForScene();
+    setAssetDescriptors({});
+    log('Scene Studio: created scene variant', 'ok');
+  }, [resetEditorStateForScene, log]);
+
+  // ── Timeline management (within the active scene) ──────────────────────
+  const handleSelectTimeline = useCallback((timelineId) => {
+    if (timelineId === sceneRef.current.activeTimelineId) return;
+    setScene((prev) => setActiveTimeline(prev, timelineId));
+    setSelectedClipId(null);
+    setSelectedClipIds([]);
+    setSelectedKey(null);
+    setFlowState((prev) => flowStop(prev));
+  }, [setScene]);
+
+  const handleAddTimeline = useCallback(() => {
+    setScene((prev) => addTimeline(prev));
+    setSelectedClipId(null);
+    setSelectedClipIds([]);
+    setSelectedKey(null);
+    setFlowState((prev) => flowStop(prev));
+    log('Scene Studio: new timeline', 'ok');
+  }, [setScene, log]);
+
+  const handleRenameTimeline = useCallback((timelineId, name) => {
+    setScene((prev) => renameTimeline(prev, timelineId, name));
+  }, [setScene]);
+
+  const handleRemoveTimeline = useCallback((timelineId) => {
+    setScene((prev) => removeTimeline(prev, timelineId));
+    setSelectedClipId(null);
+    setSelectedClipIds([]);
+    setSelectedKey(null);
+    setFlowState((prev) => flowStop(prev));
+  }, [setScene]);
 
   const handlePickRoot = useCallback(async () => {
     setPickError(null);
@@ -1210,13 +1300,13 @@ export default function SceneStudioInner() {
 
   const handleDownloadOldSession = useCallback(async () => {
     const draft = sessionDraftRef.current;
-    if (draft?.scene) {
-      const text = JSON.stringify(draft.scene, null, 2);
+    if (draft?.project) {
+      const text = JSON.stringify(draft.project, null, 2);
       const blob = new Blob([text], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${(draft.scene.name || 'scene').replace(/[\\/:*?"<>|]/g, '_')}_backup.json`;
+      a.download = `${(draft.project.name || 'project').replace(/[\\/:*?"<>|]/g, '_')}_backup.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1227,15 +1317,12 @@ export default function SceneStudioInner() {
 
   const handleRestoreSession = useCallback(async () => {
     const draft = sessionDraftRef.current;
-    if (!draft?.scene) return;
-    replaceSceneNoHistory(validateScene(draft.scene));
-    setFlowState(createInitialFlowState());
-    setSelectedLayerId(null);
-    setSelectedClipId(null);
-    setSelectedKey(null);
+    if (!draft?.project) return;
+    replaceProjectNoHistory(validateProject(draft.project));
+    resetEditorStateForScene();
     setSessionDraft(null);
     autosaveEnabledRef.current = true;
-    log(`Scene Studio: session restored (${draft.scene.layers?.length || 0} layers)`, 'ok');
+    log(`Scene Studio: session restored (${sessionLayerCount(draft.project)} layers)`, 'ok');
     if (draft.rootHandle) {
       try {
         const perm = await draft.rootHandle.requestPermission({ mode: 'readwrite' });
@@ -1248,28 +1335,25 @@ export default function SceneStudioInner() {
         log(`Scene Studio: could not restore project folder: ${e.message || e}`, 'info');
       }
     }
-  }, [replaceSceneNoHistory, log, linkProjectRoot]);
+  }, [replaceProjectNoHistory, resetEditorStateForScene, log, linkProjectRoot]);
 
   // ── New project ───────────────────────────────────────────────────────
 
   const handleConfirmNewProject = useCallback(async () => {
     setNewProjectPending(false);
     await clearSession();
-    replaceSceneNoHistory(createEmptyScene('Untitled scene'));
-    setSelectedLayerId(null);
-    setSelectedClipId(null);
-    setSelectedKey(null);
+    replaceProjectNoHistory(createEmptyProject());
+    resetEditorStateForScene();
     setAssetDescriptors({});
-    setFlowState(createInitialFlowState());
     setRootHandle(null);
     setAssetItems([]);
     setSessionDraft(null);
     autosaveEnabledRef.current = true;
     log('Scene Studio: new project', 'info');
-  }, [replaceSceneNoHistory, log]);
+  }, [replaceProjectNoHistory, resetEditorStateForScene, log]);
 
   const handleNewProject = useCallback(() => {
-    if (sceneRef.current.layers.length > 0) {
+    if (sessionLayerCount(projectRef.current) > 0) {
       setNewProjectPending(true);
     } else {
       handleConfirmNewProject();
@@ -1368,6 +1452,18 @@ export default function SceneStudioInner() {
     if (selectedClipId && !selectedClipContext) setSelectedClipId(null);
   }, [selectedClipId, selectedClipContext]);
 
+  // Prune the multi-selection of clips that no longer exist (e.g. after a
+  // track / clip removal or scene switch).
+  useEffect(() => {
+    if (!selectedClipIds.length) return;
+    const live = new Set();
+    for (const track of scene.flow?.tracks || []) {
+      for (const c of track.clips || []) live.add(c.id);
+    }
+    const next = selectedClipIds.filter((id) => live.has(id));
+    if (next.length !== selectedClipIds.length) setSelectedClipIds(next);
+  }, [scene.flow, selectedClipIds]);
+
   /**
    * Selecting a clip also focuses the layer it lives on so the
    * inspector / hierarchy stay in sync. Selecting a different layer
@@ -1376,6 +1472,7 @@ export default function SceneStudioInner() {
    */
   const handleSelectClip = useCallback((clipId) => {
     setSelectedClipId(clipId);
+    setSelectedClipIds(clipId ? [clipId] : []);
     setSelectedKey(null);
     if (!clipId) return;
     for (const track of sceneRef.current.flow?.tracks || []) {
@@ -1383,6 +1480,42 @@ export default function SceneStudioInner() {
       if (clip) { setSelectedLayerId(track.layerId); return; }
     }
   }, []);
+
+  /**
+   * Multi-select entrypoint used by the timeline (ctrl/shift-click +
+   * marquee). `ids` is the full selected set; `primaryId` is the
+   * last-clicked clip that drives the inspector / auto-key. Selecting the
+   * primary also focuses the layer it lives on.
+   */
+  const handleSelectClips = useCallback((ids, primaryId) => {
+    const list = Array.isArray(ids) ? ids : [];
+    const primary = primaryId ?? (list.length ? list[list.length - 1] : null);
+    setSelectedClipIds(list);
+    setSelectedClipId(primary);
+    setSelectedKey(null);
+    if (!primary) return;
+    for (const track of sceneRef.current.flow?.tracks || []) {
+      const clip = track.clips?.find((c) => c.id === primary);
+      if (clip) { setSelectedLayerId(track.layerId); return; }
+    }
+  }, []);
+
+  /** Delete every clip in the multi-selection from its track. */
+  const handleDeleteSelectedClips = useCallback(() => {
+    const ids = selectedClipIdsRef.current;
+    if (!ids || !ids.length) return false;
+    const idSet = new Set(ids);
+    setScene((prev) => {
+      const tracks = (prev.flow?.tracks || []).map((tr) => ({
+        ...tr,
+        clips: (tr.clips || []).filter((c) => !idSet.has(c.id))
+      }));
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks }) };
+    });
+    setSelectedClipId(null);
+    setSelectedClipIds([]);
+    return true;
+  }, [setScene]);
 
   // ── Timeline keyframe selection + clipboard ─────────────────────────
 
@@ -1701,7 +1834,9 @@ export default function SceneStudioInner() {
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (handleDeleteSelectedKey()) e.preventDefault();
+        // Priority: a selected keyframe wins; otherwise delete selected clip(s).
+        if (handleDeleteSelectedKey()) { e.preventDefault(); return; }
+        if (handleDeleteSelectedClips()) { e.preventDefault(); return; }
         return;
       }
       // Space = play / pause toggle
@@ -1725,7 +1860,7 @@ export default function SceneStudioInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo, handleDuplicateSelectedKey, handleCopySelectedKey, handlePasteKey, handleDeleteSelectedKey]);
+  }, [undo, redo, handleDuplicateSelectedKey, handleCopySelectedKey, handlePasteKey, handleDeleteSelectedKey, handleDeleteSelectedClips]);
 
   /**
    * Selecting a layer (via hierarchy, viewport click, or timeline label)
@@ -1737,18 +1872,20 @@ export default function SceneStudioInner() {
   const handleSelectLayer = useCallback((layerId) => {
     setSelectedLayerId(layerId);
     setSelectedClipId((curClipId) => {
-      if (!curClipId) return null;
+      if (!curClipId) { setSelectedClipIds([]); return null; }
       const tracks = sceneRef.current.flow?.tracks || [];
       for (const tr of tracks) {
         if (tr.clips?.some((c) => c.id === curClipId)) {
           if (tr.layerId !== layerId) {
             setSelectedKey(null);
+            setSelectedClipIds([]);
             return null;
           }
           return curClipId;
         }
       }
       setSelectedKey(null);
+      setSelectedClipIds([]);
       return null;
     });
   }, []);
@@ -1756,11 +1893,15 @@ export default function SceneStudioInner() {
   const handleSave = useCallback(async () => {
     setBusy(true);
     try {
-      const result = await saveScene(scene, rootHandle);
+      // Commit the live flow into the active timeline, fold the working scene
+      // back into the project, then persist the whole project.
+      const synced = syncFlowToActiveTimeline(sceneRef.current);
+      const projToSave = foldSceneIntoProject(projectRef.current, synced);
+      const result = await saveProject(projToSave, rootHandle);
       log(
         result.mode === 'scaffold'
           ? `Scene Studio: saved to ${rootHandle.name}/${result.path}`
-          : 'Scene Studio: scene.json downloaded',
+          : 'Scene Studio: project.json downloaded',
         'ok'
       );
     } catch (e) {
@@ -1768,24 +1909,23 @@ export default function SceneStudioInner() {
     } finally {
       setBusy(false);
     }
-  }, [scene, rootHandle, log]);
-  handleSaveRef.current = handleSave;
+  }, [rootHandle, log]);
 
   const handleLoad = useCallback(async () => {
     setBusy(true);
     try {
-      const loaded = await loadSceneFromFile();
+      const loaded = await loadProjectFromFile();
       if (!loaded) return;
-      replaceSceneNoHistory(loaded);
-      setSelectedLayerId(null);
-      setFlowState(createInitialFlowState());
-      log('Scene Studio: scene loaded', 'ok');
+      replaceProjectNoHistory(loaded);
+      resetEditorStateForScene();
+      setAssetDescriptors({});
+      log('Scene Studio: project loaded', 'ok');
     } catch (e) {
       log(`Scene Studio load failed: ${e.message || e}`, 'err');
     } finally {
       setBusy(false);
     }
-  }, [log]);
+  }, [log, replaceProjectNoHistory, resetEditorStateForScene]);
 
   useEffect(() => {
     const api = {
@@ -1936,32 +2076,6 @@ export default function SceneStudioInner() {
         </div>
       )}
 
-      {sceneSwitchPending && (
-        <div className="scene-confirm-overlay">
-          <div className="scene-confirm-card">
-            <div className="scene-confirm-title">
-              {sceneSwitchPending === '__new__' ? 'Nowa scena' : 'Zmiana sceny'}
-            </div>
-            <div className="scene-confirm-body">Zapisać obecną scenę przed przełączeniem?</div>
-            <div className="scene-confirm-actions">
-              <button
-                className="scene-btn scene-btn--primary"
-                onClick={() => resolveSceneSwitch(true)}
-                disabled={busy}
-              >
-                Zapisz i przełącz
-              </button>
-              <button className="scene-btn" onClick={() => resolveSceneSwitch(false)} disabled={busy}>
-                Odrzuć zmiany
-              </button>
-              <button className="scene-btn scene-btn--ghost" onClick={() => setSceneSwitchPending(null)} disabled={busy}>
-                Anuluj
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <StudioToolbar
         scene={scene}
         onRename={handleRename}
@@ -1972,10 +2086,11 @@ export default function SceneStudioInner() {
         onSave={handleSave}
         onLoad={handleLoad}
         onNewProject={handleNewProject}
-        scenes={availableScenes}
-        currentSceneRel={currentSceneRel}
+        projectScenes={project.scenes}
+        activeSceneId={project.activeSceneId}
         onSelectScene={handleSelectScene}
         onNewScene={handleNewSceneRequest}
+        onNewVariant={handleNewVariant}
         onToggleOrientation={handleToggleOrientation}
         overlayMode={overlayMode}
         onSetOverlayMode={setOverlayMode}
@@ -1983,6 +2098,8 @@ export default function SceneStudioInner() {
         onSetDefaultEase={setDefaultEase}
         livePreview={livePreview}
         onToggleLivePreview={() => setLivePreview((v) => !v)}
+        studioMode={studioMode}
+        onSetStudioMode={handleSetStudioMode}
         busy={busy}
         rootDropSupported
         rootDropHover={rootDropHover}
@@ -2011,7 +2128,7 @@ export default function SceneStudioInner() {
         <UnityExportDialog
           scene={scene}
           rootHandle={rootHandle}
-          sceneBasePath={currentSceneRel ? currentSceneRel.split('/').slice(0, -1).join('/') : null}
+          sceneBasePath={scene.projectRoot || null}
           onClose={() => setShowUnityExport(false)}
           log={log}
         />
@@ -2060,6 +2177,7 @@ export default function SceneStudioInner() {
                 flowTime={flowState.time}
                 livePreview={livePreview}
                 overlayMode={overlayMode}
+                studioMode={studioMode}
                 onViewportClick={() => handleFlowAction('clickResume')}
                 onSeekToKey={(t) => handleFlowAction('seek', t)}
                 onPathEdit={handlePathEdit}
@@ -2074,12 +2192,20 @@ export default function SceneStudioInner() {
             )}
           </div>
 
+          {studioMode === 'animate' ? (
           <TimelinePanel
             scene={scene}
             flowState={flowState}
+            timelines={scene.timelines || []}
+            activeTimelineId={scene.activeTimelineId}
+            onSelectTimeline={handleSelectTimeline}
+            onAddTimeline={handleAddTimeline}
+            onRenameTimeline={handleRenameTimeline}
+            onRemoveTimeline={handleRemoveTimeline}
             selectedLayerId={selectedLayerId}
             selectedLayerAssetType={selectedLayerAssetType}
             selectedClipId={selectedClipId}
+            selectedClipIds={selectedClipIds}
             selectedKey={selectedKey}
             assetDescriptors={assetDescriptors}
             autoKey={autoKey}
@@ -2087,6 +2213,7 @@ export default function SceneStudioInner() {
             onAddKeys={handleAddKeys}
             onSelectLayer={handleSelectLayer}
             onSelectClip={handleSelectClip}
+            onSelectClips={handleSelectClips}
             onSelectKey={handleSelectKey}
             onMoveKey={handleMoveKey}
             onDeleteKey={handleDeleteSelectedKey}
@@ -2094,6 +2221,12 @@ export default function SceneStudioInner() {
             onPatchFlow={patchFlow}
             onFlowAction={handleFlowAction}
           />
+          ) : (
+            <div className="scene-setup-banner">
+              ⚙ Setup mode — drag objects to set their default pose for{' '}
+              <strong>{scene.stage.activeOrientation}</strong>. Switch to Animate to keyframe over time.
+            </div>
+          )}
         </div>
 
         <InspectorPanel

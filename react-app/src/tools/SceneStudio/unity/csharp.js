@@ -812,15 +812,21 @@ namespace Ygg.SceneStudio
             timeline.fixedDuration = player.durationSeconds;
             timeline.durationMode = TimelineAsset.DurationMode.FixedLength;
 
+            var animator0 = player.GetComponent<Animator>();
             if (player.transformClip != null)
             {
                 var track = timeline.CreateTrack<AnimationTrack>(null, "Baked transforms");
                 var clip = track.CreateClip(player.transformClip);
                 clip.start = 0;
                 clip.duration = Math.Max(0.05f, player.transformClip.length);
-                var animator = player.GetComponent<Animator>();
-                if (animator != null) director.SetGenericBinding(track, animator);
+                if (animator0 != null) director.SetGenericBinding(track, animator0);
             }
+
+            // Multi-timeline: build one AnimationTrack per EXTRA timeline named in
+            // the descriptor (the primary one is the transformClip above). Each
+            // extra clip is loaded by its GUID — re-export keeps GUIDs stable so
+            // this stays additive.
+            TryBuildExtraTimelineTracks(player, timeline, director, animator0);
 
             TryBuildSpineTracks(player, timeline, director, basePath.Replace('\\\\', '/'));
             TryBuildSpinnerTrack(player, timeline, director);
@@ -842,6 +848,35 @@ namespace Ygg.SceneStudio
             if (string.IsNullOrEmpty(src) && player.transformClip != null) src = AssetDatabase.GetAssetPath(player.transformClip);
             if (string.IsNullOrEmpty(src)) src = "Assets";
             return Path.GetDirectoryName(src);
+        }
+
+        // Descriptor shapes for parsing the per-timeline clip GUIDs (schema
+        // ygg-unity-scene/2). JsonUtility ignores fields it doesn't know about.
+        [Serializable] class DescTl { public string id; public string name; public string clipGuid; }
+        [Serializable] class DescTimelines { public DescTl[] timelines; }
+
+        static void TryBuildExtraTimelineTracks(YggScenePlayer player, TimelineAsset timeline, PlayableDirector director, Animator animator)
+        {
+            if (player.descriptor == null) return;
+            DescTimelines desc = null;
+            try { desc = JsonUtility.FromJson<DescTimelines>(player.descriptor.text); }
+            catch { return; }
+            if (desc == null || desc.timelines == null || desc.timelines.Length <= 1) return;
+            // Index 0 is the primary timeline — already built from transformClip.
+            for (int i = 1; i < desc.timelines.Length; i++)
+            {
+                var tl = desc.timelines[i];
+                if (tl == null || string.IsNullOrEmpty(tl.clipGuid)) continue;
+                string path = AssetDatabase.GUIDToAssetPath(tl.clipGuid);
+                if (string.IsNullOrEmpty(path)) continue;
+                var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+                if (clip == null) continue;
+                var track = timeline.CreateTrack<AnimationTrack>(null, string.IsNullOrEmpty(tl.name) ? ("Timeline " + i) : tl.name);
+                var c = track.CreateClip(clip);
+                c.start = 0;
+                c.duration = Math.Max(0.05f, clip.length);
+                if (animator != null) director.SetGenericBinding(track, animator);
+            }
         }
 
         static void TryBuildSpineTracks(YggScenePlayer player, TimelineAsset timeline, PlayableDirector director, string assetFolder)

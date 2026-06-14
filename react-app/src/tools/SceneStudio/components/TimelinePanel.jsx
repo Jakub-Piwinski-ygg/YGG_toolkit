@@ -123,9 +123,16 @@ function trackRowHeight(track) {
 export function TimelinePanel({
   scene,
   flowState,
+  timelines = [],
+  activeTimelineId = null,
+  onSelectTimeline,
+  onAddTimeline,
+  onRenameTimeline,
+  onRemoveTimeline,
   selectedLayerId,
   selectedLayerAssetType,
   selectedClipId,
+  selectedClipIds = [],
   selectedKey,
   assetDescriptors = {},
   autoKey = true,
@@ -133,6 +140,7 @@ export function TimelinePanel({
   onAddKeys,
   onSelectLayer,
   onSelectClip,
+  onSelectClips,
   onSelectKey,
   onMoveKey,
   onDeleteKey,
@@ -510,13 +518,6 @@ export function TimelinePanel({
     if (changed) setFlow({ ...(scene.flow || {}), tracks: nextTracks });
   }, [tracks, scene.layers, scene.assets, scene.flow, assetDescriptors, duration, setFlow]);
 
-  const removeClip = (trackId, clipId) => {
-    const nextTracks = tracks.map((t) =>
-      t.id === trackId ? { ...t, clips: t.clips.filter((c) => c.id !== clipId) } : t
-    );
-    setFlow({ ...(scene.flow || {}), tracks: nextTracks });
-  };
-
   const insertAdjacentClip = (track, clip, side) => {
     const siblings = [...(track.clips || [])].sort((a, b) => a.start - b.start);
     const idx = siblings.findIndex((c) => c.id === clip.id);
@@ -668,10 +669,168 @@ export function TimelinePanel({
     try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
   }, []);
 
-  // Note: Delete / Backspace no longer removes the selected CLIP — that was
-  // too destructive and collided with keyframe deletion. Clips are removed
-  // only via the explicit ✕ button on the clip. Delete now only targets the
-  // selected keyframe (handled in SceneStudioInner / the progress editor).
+  // ── Clip multi-selection ────────────────────────────────────────────
+  const selectedSet = useMemo(() => new Set(selectedClipIds || []), [selectedClipIds]);
+
+  /**
+   * Resolve a clip click (with modifiers) into a new selection.
+   *   - plain click  → single select
+   *   - ctrl/⌘ click → toggle membership
+   *   - shift click  → range within the same track as the current primary
+   */
+  const handleClipClick = (track, clip, e) => {
+    const additive = e?.ctrlKey || e?.metaKey;
+    const range = e?.shiftKey;
+    if (range && selectedClipId) {
+      const primaryTrack = tracks.find((t) => t.clips?.some((c) => c.id === selectedClipId));
+      if (primaryTrack && primaryTrack.id === track.id) {
+        const sorted = [...track.clips].sort((a, b) => a.start - b.start);
+        const i1 = sorted.findIndex((c) => c.id === selectedClipId);
+        const i2 = sorted.findIndex((c) => c.id === clip.id);
+        if (i1 >= 0 && i2 >= 0) {
+          const [lo, hi] = i1 < i2 ? [i1, i2] : [i2, i1];
+          onSelectClips?.(sorted.slice(lo, hi + 1).map((c) => c.id), clip.id);
+          return;
+        }
+      }
+      onSelectClips?.([clip.id], clip.id);
+      return;
+    }
+    if (additive) {
+      const set = new Set(selectedSet);
+      if (set.has(clip.id)) set.delete(clip.id);
+      else set.add(clip.id);
+      const ids = [...set];
+      onSelectClips?.(ids, set.has(clip.id) ? clip.id : (ids.length ? ids[ids.length - 1] : null));
+      return;
+    }
+    onSelectClips?.([clip.id], clip.id);
+  };
+
+  // ── Group move: drag any selected clip to translate the whole set ────
+  const groupDragRef = useRef(null);
+  const beginGroupMove = useCallback(() => {
+    const idSet = new Set(selectedClipIds || []);
+    const snap = [];
+    for (const track of tracks) {
+      for (const c of track.clips || []) {
+        if (idSet.has(c.id)) snap.push({ trackId: track.id, id: c.id, start: c.start, duration: c.duration });
+      }
+    }
+    groupDragRef.current = { snap, idSet };
+  }, [selectedClipIds, tracks]);
+
+  const updateGroupMove = useCallback((deltaT) => {
+    const g = groupDragRef.current;
+    if (!g) return;
+    // Tightest common delta so no selected clip overlaps a non-selected sibling.
+    let minDelta = -Infinity;
+    let maxDelta = Infinity;
+    for (const track of tracks) {
+      const others = (track.clips || []).filter((c) => !g.idSet.has(c.id));
+      for (const item of g.snap) {
+        if (item.trackId !== track.id) continue;
+        const cs = item.start;
+        const ce = item.start + item.duration;
+        let minStart = 0;
+        let maxEnd = duration;
+        for (const s of others) {
+          const sEnd = s.start + s.duration;
+          if (sEnd <= cs) minStart = Math.max(minStart, sEnd);
+          else if (s.start >= ce) maxEnd = Math.min(maxEnd, s.start);
+        }
+        minDelta = Math.max(minDelta, minStart - cs);
+        maxDelta = Math.min(maxDelta, maxEnd - ce);
+      }
+    }
+    const d = Math.max(minDelta, Math.min(maxDelta, deltaT));
+    const startMap = new Map(g.snap.map((it) => [it.id, it.start]));
+    const nextTracks = tracks.map((track) => {
+      if (!(track.clips || []).some((c) => g.idSet.has(c.id))) return track;
+      return {
+        ...track,
+        clips: track.clips
+          .map((c) => (startMap.has(c.id) ? { ...c, start: clamp(startMap.get(c.id) + d, 0, duration) } : c))
+          .sort((a, b) => a.start - b.start)
+      };
+    });
+    setFlow({ ...(scene.flow || {}), tracks: nextTracks });
+  }, [tracks, duration, scene.flow, setFlow]);
+
+  const endGroupMove = useCallback(() => { groupDragRef.current = null; }, []);
+
+  // ── Marquee selection on empty lane body ────────────────────────────
+  const marqueeRef = useRef(null);
+  const [marquee, setMarquee] = useState(null); // { x0, y0, x1, y1 } in lanes content px
+
+  const lanesContentPoint = (clientX, clientY) => {
+    const wrap = lanesScrollRef.current;
+    const rect = wrap.getBoundingClientRect();
+    return {
+      x: (clientX - rect.left) + wrap.scrollLeft,
+      y: (clientY - rect.top) + wrap.scrollTop
+    };
+  };
+
+  const onLanesPointerDown = useCallback((e) => {
+    if (e.button !== 0) return;
+    // Clips own their pointers; ignore presses that land on one.
+    if (e.target.closest('.scene-clip')) return;
+    const p = lanesContentPoint(e.clientX, e.clientY);
+    marqueeRef.current = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false, pointerId: e.pointerId };
+    setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+    try { lanesScrollRef.current.setPointerCapture(e.pointerId); } catch {}
+  }, []);
+
+  const onLanesPointerMove = useCallback((e) => {
+    const st = marqueeRef.current;
+    if (!st) return;
+    const p = lanesContentPoint(e.clientX, e.clientY);
+    if (!st.moved && (Math.abs(p.x - st.x0) > 3 || Math.abs(p.y - st.y0) > 3)) st.moved = true;
+    st.x1 = p.x; st.y1 = p.y;
+    setMarquee({ x0: st.x0, y0: st.y0, x1: p.x, y1: p.y });
+  }, []);
+
+  const onLanesPointerUp = useCallback((e) => {
+    const st = marqueeRef.current;
+    if (!st) return;
+    marqueeRef.current = null;
+    try { lanesScrollRef.current.releasePointerCapture(e.pointerId); } catch {}
+    setMarquee(null);
+    if (!st.moved) {
+      // Bare click on empty space clears the selection.
+      onSelectClips?.([], null);
+      return;
+    }
+    const minX = Math.min(st.x0, st.x1);
+    const maxX = Math.max(st.x0, st.x1);
+    const minY = Math.min(st.y0, st.y1);
+    const maxY = Math.max(st.y0, st.y1);
+    const minT = minX / pxPerSec;
+    const maxT = maxX / pxPerSec;
+    const hits = [];
+    let top = 0;
+    for (const track of tracks) {
+      const h = heightOf(track);
+      const tTop = top;
+      const tBot = top + h;
+      top += h;
+      if (tBot < minY || tTop > maxY) continue;
+      for (const c of track.clips || []) {
+        const cs = c.start;
+        const ce = c.start + c.duration;
+        if (ce < minT || cs > maxT) continue;
+        hits.push(c.id);
+      }
+    }
+    onSelectClips?.(hits, hits.length ? hits[hits.length - 1] : null);
+  // heightOf reads trackHeights which is derived from tracks; deps cover it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks, pxPerSec, onSelectClips]);
+
+  // Note: clips are deleted via the Delete / Backspace key (handled in
+  // SceneStudioInner) — single or multi-selected. The old per-clip ✕ button
+  // was removed in favour of keyboard delete + marquee selection.
 
   useEffect(() => {
     const onEnd = () => clearDragPreview();
@@ -733,14 +892,42 @@ export function TimelinePanel({
   return (
     <div className="scene-timeline">
       <div className="scene-timeline-head">
-        <div className="scene-timeline-controls">
-          <button className="scene-btn" onClick={() => onFlowAction?.('play')}>▶</button>
-          <button className="scene-btn" onClick={() => onFlowAction?.('pause')}>⏸</button>
-          <button className="scene-btn" onClick={() => onFlowAction?.('stop')}>⏹</button>
-          <span className="scene-toolbar-tag">{fmtTime(flowState.time, fps)} / {fmtTime(duration, fps)}</span>
-          {flowState.hold && <span className="scene-pill">hold: {flowState.hold.type}</span>}
-        </div>
-        <div className="scene-timeline-actions">
+        {/* Left: timeline picker + controls, then zoom. */}
+        <div className="scene-timeline-left">
+          <div className="scene-timeline-tl-picker">
+            <select
+              className="scene-toolbar-select"
+              value={activeTimelineId || ''}
+              onChange={(e) => onSelectTimeline?.(e.target.value)}
+              title="Active timeline"
+            >
+              {timelines.map((tl) => (
+                <option key={tl.id} value={tl.id}>{tl.name}</option>
+              ))}
+            </select>
+            <button
+              className="scene-btn scene-btn--sm"
+              onClick={() => onAddTimeline?.()}
+              title="Add a new timeline to this scene"
+            >＋ tl</button>
+            <button
+              className="scene-btn scene-btn--sm"
+              onClick={() => {
+                const cur = timelines.find((t) => t.id === activeTimelineId);
+                const name = window.prompt('Rename timeline', cur?.name || 'Timeline');
+                if (name) onRenameTimeline?.(activeTimelineId, name);
+              }}
+              title="Rename active timeline"
+            >✎</button>
+            <button
+              className="scene-btn scene-btn--sm"
+              disabled={timelines.length <= 1}
+              onClick={() => {
+                if (window.confirm('Remove this timeline and all its clips?')) onRemoveTimeline?.(activeTimelineId);
+              }}
+              title={timelines.length <= 1 ? 'Cannot remove the only timeline' : 'Remove active timeline'}
+            >🗑</button>
+          </div>
           <label className="scene-timeline-zoom">
             <span>zoom</span>
             <input
@@ -754,16 +941,19 @@ export function TimelinePanel({
             />
             <em>{Math.round((pxPerSec / DEFAULT_PX_PER_SEC) * 100)}%</em>
           </label>
-          <input
-            className="scene-duration-input"
-            type="number"
-            step={0.5}
-            min={0.5}
-            max={300}
-            value={Number(duration.toFixed(2))}
-            onChange={(e) => onFlowAction?.('setDuration', Number(e.target.value))}
-            title="Scene duration (seconds)"
-          />
+        </div>
+
+        {/* Center: playback transport + time readout. */}
+        <div className="scene-timeline-center">
+          <button className="scene-btn" onClick={() => onFlowAction?.('play')}>▶</button>
+          <button className="scene-btn" onClick={() => onFlowAction?.('pause')}>⏸</button>
+          <button className="scene-btn" onClick={() => onFlowAction?.('stop')}>⏹</button>
+          <span className="scene-toolbar-tag">{fmtTime(flowState.time, fps)} / {fmtTime(duration, fps)}</span>
+          {flowState.hold && <span className="scene-pill">hold: {flowState.hold.type}</span>}
+        </div>
+
+        {/* Right: keyframe tools, then timeline length + fps at the far right. */}
+        <div className="scene-timeline-right">
           <button
             className={'scene-btn' + (autoKey ? ' scene-btn--primary' : '')}
             onClick={onToggleAutoKey}
@@ -818,6 +1008,21 @@ export function TimelinePanel({
           >
             del key
           </button>
+          {selectedLayerId && (
+            <button className="scene-btn" onClick={addClipOnSelected}>+ clip on selected</button>
+          )}
+          <label className="scene-timeline-length" title="Timeline length (seconds)">
+            <span>length</span>
+            <input
+              className="scene-duration-input"
+              type="number"
+              step={0.5}
+              min={0.5}
+              max={300}
+              value={Number(duration.toFixed(2))}
+              onChange={(e) => onFlowAction?.('setDuration', Number(e.target.value))}
+            />
+          </label>
           <label className="scene-timeline-fps" title="Frames per second — affects keyframe snap and move-by-frame">
             <span>fps</span>
             <input
@@ -832,9 +1037,6 @@ export function TimelinePanel({
               }}
             />
           </label>
-          {selectedLayerId && (
-            <button className="scene-btn" onClick={addClipOnSelected}>+ clip on selected</button>
-          )}
         </div>
       </div>
 
@@ -911,12 +1113,23 @@ export function TimelinePanel({
         <div
           ref={lanesScrollRef}
           className="scene-timeline-lanes-scroll"
-          onPointerDown={onScrubPointerDown}
-          onPointerMove={onScrubPointerMove}
-          onPointerUp={onScrubPointerUp}
-          onPointerCancel={onScrubPointerUp}
+          onPointerDown={onLanesPointerDown}
+          onPointerMove={onLanesPointerMove}
+          onPointerUp={onLanesPointerUp}
+          onPointerCancel={onLanesPointerUp}
         >
           <div className="scene-timeline-lanes" style={{ width: totalW }}>
+            {marquee && (
+              <div
+                className="scene-marquee"
+                style={{
+                  left: Math.min(marquee.x0, marquee.x1),
+                  top: Math.min(marquee.y0, marquee.y1),
+                  width: Math.abs(marquee.x1 - marquee.x0),
+                  height: Math.abs(marquee.y1 - marquee.y0)
+                }}
+              />
+            )}
             {tracks.length === 0 ? (
               <div
                 className={'scene-timeline-empty-row' + (dragPreview?.kind === 'newTrack' ? ' drag-over' : '')}
@@ -964,13 +1177,17 @@ export function TimelinePanel({
                       isSpine={isSpine}
                       isSpinner={isSpinner}
                       spineAnimations={spineAnimations}
-                      selected={c.id === selectedClipId}
+                      selected={selectedSet.has(c.id)}
+                      primary={c.id === selectedClipId}
+                      inMultiSelection={selectedSet.has(c.id) && selectedSet.size > 1}
                       duration={duration}
                       pxPerSec={pxPerSec}
                       siblings={track.clips.filter((other) => other.id !== c.id)}
-                      onSelect={() => onSelectClip?.(c.id)}
+                      onSelect={(e) => handleClipClick(track, c, e)}
                       onPatch={(patch) => patchClip(track.id, c.id, patch)}
-                      onRemove={() => { onSelectClip?.(null); removeClip(track.id, c.id); }}
+                      onGroupMoveBegin={beginGroupMove}
+                      onGroupMoveUpdate={updateGroupMove}
+                      onGroupMoveEnd={endGroupMove}
                       snapTime={(value, disable) => snapTime(value, c.id, track.id, disable)}
                       onAddLeft={() => insertAdjacentClip(track, c, 'left')}
                       onAddRight={() => insertAdjacentClip(track, c, 'right')}
@@ -1034,7 +1251,7 @@ const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', t
 
 const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', presentWin: '#c5a', holdResult: '#88a' };
 
-function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, duration, siblings = [], pxPerSec, onSelect, onPatch, onRemove, snapTime, onAddLeft, onAddRight, selectedKey, onSelectKey, onMoveKey }) {
+function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, onSelectKey, onMoveKey }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -1069,7 +1286,6 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    onSelect?.();
     const rect = ref.current?.getBoundingClientRect();
     if (!rect) return;
     const px = e.clientX - rect.left;
@@ -1077,20 +1293,33 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
     if (px <= EDGE_HIT_PX + EDGE_GUARD_PX) mode = 'resizeStart';
     else if (px >= rect.width - (EDGE_HIT_PX + EDGE_GUARD_PX)) mode = 'resizeEnd';
     else mode = 'move';
+    const plain = !(e.ctrlKey || e.metaKey || e.shiftKey);
+    // Group move: dragging a clip that's part of a multi-selection (plain
+    // click, move zone) translates the whole set. Selection is DEFERRED to
+    // pointer-up so a plain click on an already-selected clip doesn't collapse
+    // the set before the drag can start.
+    const willGroup = plain && inMultiSelection && mode === 'move';
+    if (!willGroup) onSelect?.(e);
     dragRef.current = {
       mode,
       startClientX: e.clientX,
       origStart: clip.start,
       origDuration: clip.duration,
-      pointerId: e.pointerId
+      pointerId: e.pointerId,
+      group: willGroup,
+      deferredSelect: willGroup,
+      moved: false
     };
+    if (willGroup) onGroupMoveBegin?.();
     try { ref.current.setPointerCapture(e.pointerId); } catch {}
-  }, [clip.start, clip.duration, onSelect]);
+  }, [clip.start, clip.duration, onSelect, inMultiSelection, onGroupMoveBegin]);
 
   const onPointerMove = useCallback((e) => {
     const st = dragRef.current;
     if (!st) return;
     const deltaT = (e.clientX - st.startClientX) / pxPerSec;
+    if (!st.moved && Math.abs(e.clientX - st.startClientX) > 3) st.moved = true;
+    if (st.group) { onGroupMoveUpdate?.(deltaT); return; }
     const altDisableSnap = e.altKey;
     const origEnd = st.origStart + st.origDuration;
     const { minStart, maxEnd } = neighbourBounds(st.origStart, origEnd);
@@ -1118,13 +1347,19 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
     }
 
     onPatch?.({ start: nextStart, duration: nextDuration });
-  }, [duration, onPatch, snapTime, siblings]);
+  }, [duration, onPatch, snapTime, siblings, pxPerSec, onGroupMoveUpdate]);
 
   const onPointerUp = useCallback((e) => {
-    if (!dragRef.current) return;
+    const st = dragRef.current;
+    if (!st) return;
     try { ref.current?.releasePointerCapture(e.pointerId); } catch {}
+    if (st.group) {
+      onGroupMoveEnd?.();
+      // No drag happened → collapse the multi-selection to this clip.
+      if (!st.moved && st.deferredSelect) onSelect?.({ ctrlKey: false, metaKey: false, shiftKey: false });
+    }
     dragRef.current = null;
-  }, []);
+  }, [onGroupMoveEnd, onSelect]);
 
   // Cursor changes by hover zone so users see the resize affordance
   const onPointerMoveHover = useCallback((e) => {
@@ -1140,7 +1375,7 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
   return (
     <div
       ref={ref}
-      className={'scene-clip' + (selected ? ' selected' : '') + (isSpinner && clip.action ? ` scene-clip--spinner-${clip.action}` : '')}
+      className={'scene-clip' + (selected ? ' selected' : '') + (primary ? ' primary' : '') + (isSpinner && clip.action ? ` scene-clip--spinner-${clip.action}` : '')}
       style={{
         left: clip.start * pxPerSec,
         width: Math.max(8, clip.duration * pxPerSec),
@@ -1191,14 +1426,6 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
         )}
         {/* channel abbreviations are rendered inside ClipKeyframeDots at the Y level of each channel's first keyframe */}
       </div>
-      <button
-        className="scene-icon-btn scene-clip-remove"
-        title="Remove clip"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => { e.stopPropagation(); onRemove?.(); }}
-      >
-        ✕
-      </button>
       <ClipKeyframeDots
         clip={clip}
         pxPerSec={pxPerSec}

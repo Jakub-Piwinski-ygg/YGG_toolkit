@@ -93,6 +93,95 @@ function whiteMaskPngBytes() {
   return dataUrlToBytes(c.toDataURL('image/png'));
 }
 
+/** A scene view whose live `flow` is one specific timeline (for baking). */
+export function sceneForTimeline(scene, tl) {
+  return {
+    ...scene,
+    flow: { tracks: tl?.tracks || [], markers: tl?.markers || [], nodes: [], edges: [] }
+  };
+}
+
+/** The scene's timelines, with a back-compat fallback to its legacy flow. */
+export function timelinesOf(scene) {
+  if (Array.isArray(scene.timelines) && scene.timelines.length) return scene.timelines;
+  return [{
+    id: scene.activeTimelineId || 'timeline_0',
+    name: 'Timeline 1',
+    tracks: scene.flow?.tracks || [],
+    markers: scene.flow?.markers || []
+  }];
+}
+
+/**
+ * Build one Unity AnimationClip track from a layer's bake. Pure transform of
+ * the baked key arrays into Unity attribute curves (UI vs world variant).
+ * Returns null when nothing animates.
+ */
+function buildLayerAnimTrack(bake, { path, isRoot, ui, info, stage, ppu, spineGraphicGuid, warnings }) {
+  if (!bake.animated) return null;
+  const k = ui ? 1 : 1 / ppu;
+  const offX = isRoot ? stage.w / 2 : 0;
+  const offY = isRoot ? stage.h / 2 : 0;
+  const track = { path, floats: [] };
+  const posKeys = mergeVec(bake.props.x, bake.props.y, bake.base.x, bake.base.y);
+  if (posKeys) {
+    const conv2 = posKeys.map((kf) => ({ t: kf.t, v: { x: (kf.v.x - offX) * k, y: -(kf.v.y - offY) * k } }));
+    if (ui) {
+      track.floats.push({ attribute: 'm_AnchoredPosition.x', classID: 224, keys: conv2.map((kf) => ({ t: kf.t, v: kf.v.x })) });
+      track.floats.push({ attribute: 'm_AnchoredPosition.y', classID: 224, keys: conv2.map((kf) => ({ t: kf.t, v: kf.v.y })) });
+    } else {
+      track.position = conv2;
+    }
+  }
+  const scaleKeys = mergeVec(bake.props.scaleX, bake.props.scaleY, bake.base.scaleX, bake.base.scaleY);
+  if (scaleKeys) track.scale = scaleKeys;
+  if (bake.props.rotation.length) track.euler = bake.props.rotation.map((kf) => ({ t: kf.t, v: radToDeg(kf.v) }));
+  if (bake.props.alpha.length) {
+    track.floats.push(ui
+      ? { attribute: 'm_Alpha', classID: 225, keys: bake.props.alpha }
+      : { attribute: 'm_Color.a', classID: 212, keys: bake.props.alpha });
+  }
+  const tintAnimated = bake.props.tintR.length || bake.props.tintG.length || bake.props.tintB.length;
+  if (tintAnimated) {
+    if (!ui && info.kind === 'spine') {
+      warnings.push(`"${path}": tint animation on a spine layer is not supported in the world variant — skipped.`);
+    } else {
+      const colorClassId = ui ? 114 : 212;
+      const scriptGuid = ui ? (info.kind === 'spine' ? spineGraphicGuid : UI_IMAGE_GUID) : null;
+      for (const [prop, comp] of [['tintR', 'r'], ['tintG', 'g'], ['tintB', 'b']]) {
+        const keys = bake.props[prop].length ? bake.props[prop] : [{ t: 0, v: bake.base[prop] }];
+        track.floats.push({ attribute: `m_Color.${comp}`, classID: colorClassId, scriptGuid, keys });
+      }
+    }
+  }
+  return (track.position || track.scale || track.euler || track.floats.length) ? track : null;
+}
+
+/**
+ * Bake every layer for one timeline. `flatInfos` is the geometry-built list of
+ * { layer, isRoot, path, info } captured once from the node tree. Returns the
+ * per-timeline { animTracks, spineCues, spinnerCues }.
+ */
+export function bakeTimelineForCanvas(tlScene, flatInfos, { orientation, bakeFps, ui, stage, settings, warnings }) {
+  const animTracks = [];
+  const spineCues = [];
+  const spinnerCues = [];
+  for (const { layer, isRoot, path, info } of flatInfos) {
+    const bake = bakeLayer(tlScene, layer, orientation, bakeFps);
+    const track = buildLayerAnimTrack(bake, {
+      path, isRoot, ui, info, stage, ppu: settings.pixelsPerUnit,
+      spineGraphicGuid: settings.spineGraphicGuid, warnings
+    });
+    if (track) animTracks.push(track);
+    for (const cue of spineCuesForLayer(tlScene, layer)) spineCues.push({ ...cue, target: path });
+    if (info.kind === 'spinner') {
+      const sc = spinnerCuesForLayer(tlScene, layer);
+      if (sc) spinnerCues.push({ target: path, ...sc });
+    }
+  }
+  return { animTracks, spineCues, spinnerCues };
+}
+
 /** Convert a scene transform to Unity space for prefab placement. */
 function convertTransform(t, { isRoot, stage, ui, ppu }) {
   const x = (t?.x ?? 0) - (isRoot ? stage.w / 2 : 0);
@@ -293,11 +382,25 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
     }
   }
 
-  // ── 3. Per-canvas: bake → anim, descriptor, prefab ────────────────────
+  // ── 3. Per-canvas: bake → anim (one per timeline), descriptor, prefab ──
   const tree = buildLayerTree(scene);
   const canvases = scene.canvases?.length ? scene.canvases : [{ id: '__all', name: 'Canvas' }];
   const sceneFolder = `${base}/Scenes/${sceneName}`;
   let exportedCanvases = 0;
+
+  const timelines = timelinesOf(scene);
+  const primaryTl = timelines[0];
+  const primaryScene = sceneForTimeline(scene, primaryTl);
+
+  // A layer is "spine-cue driven" if ANY timeline animates its spine state —
+  // such a layer must not carry a starting animation in the prefab (§E).
+  const layersWithSpineCues = new Set();
+  for (const tl of timelines) {
+    const tlScene = sceneForTimeline(scene, tl);
+    for (const layer of scene.layers) {
+      if (spineCuesForLayer(tlScene, layer).length) layersWithSpineCues.add(layer.id);
+    }
+  }
 
   for (const canvas of canvases) {
     const rootNodes = tree.get(canvas.id) || [];
@@ -306,11 +409,11 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
     const canvasName = safeName(canvas.name || 'Canvas', 'Canvas');
     progress(`baking canvas "${canvasName}"…`);
 
-    // Build node tree + per-layer bakes, with unique sibling names.
-    const animTracks = [];
-    const spineCues = [];
-    const spinnerCues = [];
+    // Geometry pass — build the node tree + descriptor nodes + spinner payload
+    // ONCE (timeline-independent), and record a flat { layer, isRoot, path,
+    // info } list for the per-timeline bake passes below.
     const descriptorNodes = [];
+    const flatInfos = [];
 
     const buildNodes = (treeNodes, isRoot, pathPrefix, usedNames) => {
       const out = [];
@@ -322,6 +425,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
         while (usedNames.has(name)) name = `${safeName(layer.name, 'Layer')}_${n++}`;
         usedNames.add(name);
         const path = pathPrefix ? `${pathPrefix}/${name}` : name;
+        flatInfos.push({ layer, isRoot, path, info });
 
         const t = orientation === 'portrait'
           ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
@@ -331,69 +435,19 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           warnings.push(`"${name}": non-center anchor approximated in world variant (sprite pivot stays centered).`);
         }
 
-        // Bake animation
-        const bake = bakeLayer(scene, layer, orientation, settings.bakeFps);
-        if (bake.animated) {
-          const k = ui ? 1 : 1 / settings.pixelsPerUnit;
-          const offX = isRoot ? stage.w / 2 : 0;
-          const offY = isRoot ? stage.h / 2 : 0;
-          const track = { path, floats: [] };
-          const posKeys = mergeVec(bake.props.x, bake.props.y, bake.base.x, bake.base.y);
-          if (posKeys) {
-            const conv2 = posKeys.map((kf) => ({ t: kf.t, v: { x: (kf.v.x - offX) * k, y: -(kf.v.y - offY) * k } }));
-            if (ui) {
-              track.floats.push({ attribute: 'm_AnchoredPosition.x', classID: 224, keys: conv2.map((kf) => ({ t: kf.t, v: kf.v.x })) });
-              track.floats.push({ attribute: 'm_AnchoredPosition.y', classID: 224, keys: conv2.map((kf) => ({ t: kf.t, v: kf.v.y })) });
-            } else {
-              track.position = conv2;
-            }
-          }
-          const scaleKeys = mergeVec(bake.props.scaleX, bake.props.scaleY, bake.base.scaleX, bake.base.scaleY);
-          if (scaleKeys) track.scale = scaleKeys;
-          if (bake.props.rotation.length) track.euler = bake.props.rotation.map((kf) => ({ t: kf.t, v: radToDeg(kf.v) }));
-          if (bake.props.alpha.length) {
-            track.floats.push(ui
-              ? { attribute: 'm_Alpha', classID: 225, keys: bake.props.alpha }
-              : { attribute: 'm_Color.a', classID: 212, keys: bake.props.alpha });
-          }
-          // Tint (vertex color) — Image.m_Color / SkeletonGraphic.m_Color in
-          // the UI variant, SpriteRenderer.m_Color in world. All three RGB
-          // components are emitted together so the color stays consistent.
-          const tintAnimated = bake.props.tintR.length || bake.props.tintG.length || bake.props.tintB.length;
-          if (tintAnimated) {
-            if (!ui && info.kind === 'spine') {
-              warnings.push(`"${name}": tint animation on a spine layer is not supported in the world variant — skipped.`);
-            } else {
-              const colorClassId = ui ? 114 : 212;
-              const scriptGuid = ui
-                ? (info.kind === 'spine' ? settings.spineGraphicGuid : UI_IMAGE_GUID)
-                : null;
-              for (const [prop, comp] of [['tintR', 'r'], ['tintG', 'g'], ['tintB', 'b']]) {
-                const keys = bake.props[prop].length ? bake.props[prop] : [{ t: 0, v: bake.base[prop] }];
-                track.floats.push({ attribute: `m_Color.${comp}`, classID: colorClassId, scriptGuid, keys });
-              }
-            }
-          }
-          if (track.position || track.scale || track.euler || track.floats.length) animTracks.push(track);
-        }
+        // §E: a spine layer driven by ANY timeline must NOT carry a starting
+        // animation (it would play before the first clip and re-trigger on scrub).
+        const spineHasCues = info.kind === 'spine' && layersWithSpineCues.has(layer.id);
 
-        // Spine cues
-        const layerSpineCues = spineCuesForLayer(scene, layer);
-        for (const cue of layerSpineCues) {
-          spineCues.push({ ...cue, target: path });
-        }
-        // §E: a spine layer driven by the timeline must NOT carry a starting
-        // animation (it would play before the first clip and re-trigger on
-        // scrub-back). The timeline (or its leading "hold" clip) drives it.
-        const spineHasCues = info.kind === 'spine' && layerSpineCues.length > 0;
-
-        // Spinner: descriptor cues + serialized component payload for the prefab
+        // Spinner: serialized component payload for the prefab (timeline-
+        // independent config + bindings; the prefab's runtime clips come from
+        // the PRIMARY timeline — extra timelines' action cues live in the
+        // descriptor's timelines[] array).
         let spinnerData = null;
         let spinnerSize = null;
         if (info.kind === 'spinner') {
-          const sc = spinnerCuesForLayer(scene, layer);
+          const sc = spinnerCuesForLayer(primaryScene, layer);
           if (sc) {
-            spinnerCues.push({ target: path, ...sc });
             const spinnerAsset = (scene.assets || []).find((a) => a.id === layer.assetId);
             const size2 = (i) => (i?.size ? { w: i.size.width, h: i.size.height } : null);
             const bindings = (spinnerAsset?.spinner?.symbols || []).map((sym) => {
@@ -407,9 +461,6 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
                 blurSize: size2(bInfo)
               };
             });
-            // §A3: per-symbol land/win Spine overlay bindings. The spine triplet
-            // ships (usedAssetIds above); the SkeletonDataAsset reference is wired
-            // after import by name (YggSpineAutoWire). offset = §B timing offset.
             const animOf = (an, kind, symId) => {
               if (!an || an.kind !== 'spine' || !an.assetId || !an.anim) return null;
               const aInfo = assetInfo.get(an.assetId);
@@ -425,9 +476,6 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
               const l = animOf(sym.landAnim, 'land', sym.id); if (l) animBindings.push(l);
               const w = animOf(sym.winAnim, 'win', sym.id); if (w) animBindings.push(w);
             }
-            // Register each baked overlay as a descriptor node so the normal
-            // YggSpineAutoWire pass assigns its SkeletonDataAsset (by spineName).
-            // Overlays are now PER REEL: <spinner>/Board/Fx/Reel_<r>/Anim_<sym>_<kind>.
             const reelCount = normalizeSpinnerConfig(spinnerAsset?.spinner)?.grid?.reels || 0;
             for (let r = 0; r < reelCount; r++) {
               for (const b of animBindings) {
@@ -449,8 +497,6 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
               clipsJson: JSON.stringify({ clips: sc.clips }),
               bindings,
               animBindings,
-              // Normalized config for prefab.js to bake the reel hierarchy
-              // (grid, strips, initialBoard, direction).
               config: normalizeSpinnerConfig(spinnerAsset?.spinner)
             };
             const g = spinnerAsset?.spinner?.grid;
@@ -496,27 +542,57 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
 
     const nodes = buildNodes(rootNodes, true, '', new Set());
 
-    // .anim
-    const animPath = `${sceneFolder}/${canvasName}_Bake.anim`;
-    const animYaml = buildAnimationClip({
-      name: `${canvasName}_Bake`,
-      duration,
-      sampleRate: scene.stage?.fps || 60,
-      tracks: animTracks
-    });
-    const animItem = await pushItem(animPath, animYaml, (g) => nativeMeta(g, 7400000));
+    // Bake one .anim per timeline. The GUID seed includes the timeline id so a
+    // re-export keeps prior timelines' clip GUIDs (Unity merges) while a newly
+    // added timeline gets a fresh GUID (added, not clobbered).
+    const timelineEntries = [];
+    for (let i = 0; i < timelines.length; i++) {
+      const tl = timelines[i];
+      const isPrimary = i === 0;
+      const tlScene = sceneForTimeline(scene, tl);
+      const { animTracks, spineCues, spinnerCues } = bakeTimelineForCanvas(tlScene, flatInfos, {
+        orientation, bakeFps: settings.bakeFps, ui, stage, settings,
+        warnings: isPrimary ? warnings : []
+      });
+      const tlSafe = safeName(tl.name, `Timeline${i + 1}`);
+      const animName = `${canvasName}_${tlSafe}_Bake`;
+      const animYaml = buildAnimationClip({
+        name: animName,
+        duration,
+        sampleRate: scene.stage?.fps || 60,
+        tracks: animTracks
+      });
+      const animItem = await pushItem(
+        `${sceneFolder}/${animName}.anim`,
+        animYaml,
+        (g) => nativeMeta(g, 7400000),
+        `${pkg}:${sceneFolder}/${canvasName}_${tl.id}_Bake.anim`
+      );
+      timelineEntries.push({
+        id: tl.id,
+        name: tl.name,
+        clipGuid: animItem.guid,
+        spineCues,
+        spinnerCues
+      });
+    }
+    const primary = timelineEntries[0];
 
-    // descriptor JSON (drives the editor Timeline builder + future tooling)
+    // descriptor JSON (drives the editor Timeline builder + future tooling).
+    // Schema v2: a `timelines[]` array (per-timeline clipGuid + cues). The
+    // top-level spineCues/spinnerCues mirror the primary timeline for
+    // back-compat with the runtime player / spinner track.
     const descriptor = {
-      schema: 'ygg-unity-scene/1',
+      schema: 'ygg-unity-scene/2',
       scene: scene.name,
       canvas: canvasName,
       orientation,
       stage: { ...stage, fps: scene.stage?.fps || 60, duration },
       variant: settings.variant,
       nodes: descriptorNodes,
-      spineCues,
-      spinnerCues,
+      timelines: timelineEntries,
+      spineCues: primary.spineCues,
+      spinnerCues: primary.spinnerCues,
       bakeFps: settings.bakeFps
     };
     const descPath = `${sceneFolder}/${canvasName}_timeline.json`;
@@ -535,10 +611,10 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
       spinnerMaskSpriteGuid,
       player: {
         scriptGuid: playerScriptGuid,
-        clipGuid: animItem.guid,
+        clipGuid: primary.clipGuid,
         descriptorGuid: descItem.guid,
         durationSeconds: duration,
-        spineCues,
+        spineCues: primary.spineCues,
         autoBuildTimeline: settings.autoBuildTimeline === true
       }
     });

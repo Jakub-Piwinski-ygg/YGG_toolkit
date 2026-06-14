@@ -9,6 +9,13 @@
 // only feature backed by IndexedDB and is deferred to a later phase.
 
 import { validateScene } from './sceneModel.js';
+import {
+  validateProject,
+  projectFromScene,
+  mergeAssets,
+  PROJECT_SCHEMA,
+  PROJECT_VERSION
+} from './projectModel.js';
 import { bakePathToKeys, isPathChannel } from './animation/keyframes.js';
 
 const PRETTY_JSON_INDENT = 2;
@@ -479,6 +486,218 @@ async function collectSceneCandidates(dirHandle, relDir, depth, out) {
   } catch {
     /* ignore transient read failures */
   }
+}
+
+// ── Project persistence (schema ygg-project/1) ───────────────────────────
+
+/** Bake path-mode position channels to plain keys for one track list. */
+function bakeTracksPaths(tracks) {
+  if (!Array.isArray(tracks)) return tracks;
+  let changed = false;
+  const out = tracks.map((tr) => {
+    if (!tr.clips?.length) return tr;
+    const clips = tr.clips.map((c) => {
+      const pos = c.channels?.position;
+      if (!isPathChannel(pos)) return c;
+      const baked = bakePathToKeys(pos, c.duration, pos.path?.bakeFps || 30);
+      if (!baked?.keys?.length) return c;
+      changed = true;
+      return { ...c, channels: { ...c.channels, position: { ...pos, keys: baked.keys } } };
+    });
+    return { ...tr, clips };
+  });
+  return changed ? out : tracks;
+}
+
+/** Prepare a scene's `.data` for writing: bake paths in every timeline, drop
+ *  the live `flow` mirror (rebuilt on load from the active timeline). */
+function bakeSceneDataForExport(data) {
+  const timelines = Array.isArray(data.timelines)
+    ? data.timelines.map((tl) => ({ ...tl, tracks: bakeTracksPaths(tl.tracks) }))
+    : data.timelines;
+  const { flow, ...rest } = data; // eslint-disable-line no-unused-vars
+  return { ...rest, timelines };
+}
+
+function sanitizeFileName(name) {
+  return String(name || 'scene').replace(/[\\/:*?"<>|]/g, '_').trim() || 'scene';
+}
+
+function downloadJson(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, PRETTY_JSON_INDENT)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Save a project as a SINGLE source-of-truth `project.json` — every scene
+ * inline, plus the shared asset pool. Scaffold mode (writable folder) writes
+ * it into the folder; quick mode downloads it. (Scenes aren't shared between
+ * projects, so there's no file-per-scene split.)
+ *
+ * @returns {Promise<{mode:'scaffold'|'download', path?:string}>}
+ */
+export async function saveProject(project, rootHandle) {
+  const scenes = project.scenes || [];
+  const active = scenes.find((s) => s.id === project.activeSceneId) || scenes[0];
+  const base = normalizeRelPath(active?.data?.projectRoot || '');
+
+  const doc = {
+    $schema: PROJECT_SCHEMA,
+    version: PROJECT_VERSION,
+    name: project.name,
+    assets: project.assets || [],
+    scenes: scenes.map((s) => ({
+      id: s.id,
+      name: s.name,
+      variantOf: s.variantOf || null,
+      data: bakeSceneDataForExport(s.data || {})
+    })),
+    activeSceneId: project.activeSceneId,
+    exports: project.exports || {},
+    meta: project.meta || {}
+  };
+  const text = JSON.stringify(doc, null, PRETTY_JSON_INDENT);
+
+  const canWrite = rootHandle
+    && isFsAccessSupported()
+    && rootHandle.writable !== false
+    && typeof rootHandle.getFileHandle === 'function';
+
+  if (canWrite) {
+    try {
+      const baseDir = await resolveSceneDirectory(rootHandle, base || null, true);
+      const pfh = await baseDir.getFileHandle('project.json', { create: true });
+      const pw = await pfh.createWritable();
+      await pw.write(text);
+      await pw.close();
+      return { mode: 'scaffold', path: base ? `${base}/project.json` : 'project.json' };
+    } catch (e) {
+      console.warn('[SceneStudio] project save failed, falling back to download', e);
+    }
+  }
+
+  downloadJson(doc, `${sanitizeFileName(project.name)}.project.json`);
+  return { mode: 'download' };
+}
+
+async function tryReadFileAt(rootHandle, relDir, fileName) {
+  try {
+    const dir = await resolveSceneDirectory(rootHandle, relDir, false);
+    const fh = await dir.getFileHandle(fileName);
+    const file = await fh.getFile();
+    return await file.text();
+  } catch { return null; }
+}
+
+async function collectProjectJson(dirHandle, relDir, depth, out) {
+  if (!dirHandle || depth > SCENE_SCAN_MAX_DEPTH) return;
+  let iter;
+  try { iter = dirHandle.entries(); } catch { return; }
+  try {
+    for await (const [name, h] of iter) {
+      if (name.startsWith('.')) continue;
+      if (h.kind === 'file') {
+        if (name.toLowerCase() !== 'project.json') continue;
+        try {
+          const file = await h.getFile();
+          out.push({ dirPath: normalizeRelPath(relDir), text: await file.text() });
+        } catch { /* unreadable */ }
+        continue;
+      }
+      if (h.kind === 'directory') {
+        if (SCENE_SCAN_SKIP_DIRS.has(name)) continue;
+        const child = relDir ? `${relDir}/${name}` : name;
+        await collectProjectJson(h, child, depth + 1, out);
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+/** Find the best project.json under the root (root first, then shallowest). */
+async function findProjectJson(rootHandle) {
+  const direct = await tryReadFileAt(rootHandle, '', 'project.json');
+  if (direct != null) return { dirPath: '', text: direct };
+  const out = [];
+  await collectProjectJson(rootHandle, '', 0, out);
+  if (!out.length) return null;
+  out.sort((a, b) => splitRelPath(a.dirPath).length - splitRelPath(b.dirPath).length
+    || a.dirPath.localeCompare(b.dirPath));
+  return out[0];
+}
+
+/**
+ * Load a project from a directory handle. Reads project.json (manifest), then
+ * resolves any scene entries that are file refs. Falls back to a legacy single
+ * scene.json wrapped as a 1-scene project.
+ */
+export async function loadProjectFromHandle(rootHandle) {
+  if (!rootHandle) return null;
+  const found = await findProjectJson(rootHandle);
+  if (found) {
+    const project = validateProject(JSON.parse(found.text));
+    const baseDir = found.dirPath || '';
+    for (const entry of project.scenes) {
+      if (!entry.data && entry.file) {
+        const rel = baseDir ? `${baseDir}/${entry.file}` : entry.file;
+        try {
+          const fileScene = await loadSceneByRelPath(rootHandle, rel);
+          if (fileScene) {
+            const { assets, ...rest } = fileScene;
+            mergeAssets(project.assets, assets || []);
+            entry.data = rest;
+          }
+        } catch (e) { console.warn('[SceneStudio] scene file load failed', entry.file, e); }
+      }
+      if (entry.data) entry.data.projectRoot = baseDir || null;
+    }
+    // Drop scenes that never resolved data.
+    project.scenes = project.scenes.filter((s) => s.data);
+    if (!project.scenes.length) return null;
+    if (!project.scenes.some((s) => s.id === project.activeSceneId)) {
+      project.activeSceneId = project.scenes[0].id;
+    }
+    project.__baseDir = baseDir || null;
+    return project;
+  }
+  // Legacy: a lone scene.json → 1-scene project.
+  const scene = await loadSceneFromHandle(rootHandle);
+  if (scene) return projectFromScene(scene);
+  return null;
+}
+
+/** Load a project (or scene wrapped as one) from a user-picked JSON file. */
+export async function loadProjectFromFile() {
+  const parse = (text) => validateProject(JSON.parse(text));
+  if (isFilePickerSupported()) {
+    let handles;
+    try {
+      handles = await window.showOpenFilePicker({
+        types: [{ description: 'Project / Scene JSON', accept: { 'application/json': ['.json'] } }],
+        multiple: false
+      });
+    } catch { return null; }
+    const file = await handles[0].getFile();
+    return parse(await file.text());
+  }
+  return await new Promise((resolve) => {
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.json,application/json';
+    inp.onchange = async () => {
+      const file = inp.files?.[0];
+      if (!file) return resolve(null);
+      try { resolve(parse(await file.text())); }
+      catch (e) { alert(`Failed to load: ${e.message || e}`); resolve(null); }
+    };
+    inp.click();
+  });
 }
 
 function pickBestSceneCandidate(candidates) {
