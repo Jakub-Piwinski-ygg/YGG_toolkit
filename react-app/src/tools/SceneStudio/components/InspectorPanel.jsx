@@ -525,57 +525,19 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
         />
       </label>
 
-      <DragNumberField label="start" value={clip.start} step={0.01} min={0}
-        onChange={(v) => patchClip({ start: Math.max(0, v) })} />
-      <DragNumberField label="duration" value={clip.duration} step={0.01} min={0.05}
-        onChange={(v) => patchClip({ duration: Math.max(0.05, v), autoFitDuration: false })} />
-
-      {!isSpinner && (
-        <DragNumberField label="speed" value={speed} step={0.01} min={0.01}
-          onChange={(v) => patchClip({ speed: Math.max(0.01, v) })} />
-      )}
-
-      {isSpine && (
-        <label className="scene-field">
-          <span>mix (s)</span>
-          <input
-            type="number"
-            step={0.01}
-            min={0}
-            placeholder="auto"
-            value={mixDuration == null ? '' : Number(mixDuration.toFixed(3))}
-            onChange={(e) => {
-              const raw = e.target.value;
-              if (raw === '') { patchClip({ mixDuration: null }); return; }
-              const n = Number(raw);
-              if (Number.isFinite(n) && n >= 0) patchClip({ mixDuration: n });
-            }}
-          />
-        </label>
-      )}
-
-      {!isSpinner && (
-        <label className="scene-field scene-field--check">
-          <input
-            type="checkbox"
-            checked={clip.loop !== false}
-            onChange={(e) => patchClip({ loop: e.target.checked })}
-          />
-          <span>loop</span>
-        </label>
-      )}
-
-      {isSpine && (
-        <label className="scene-field">
-          <span>time curve</span>
-          <select
-            value={clip.curve || 'linear'}
-            onChange={(e) => patchClip({ curve: e.target.value })}
-            title="Master time-remap curve for the Spine animation track time"
-          >
-            {CURVES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
+      {/* Non-spine clips: start/duration/speed inline (spine renders them inside
+          its grouped "Clip Timing" below, to mirror the Unity inspector order). */}
+      {!isSpine && (
+        <>
+          <DragNumberField label="start" value={clip.start} step={0.01} min={0}
+            onChange={(v) => patchClip({ start: Math.max(0, v) })} />
+          <DragNumberField label="duration" value={clip.duration} step={0.01} min={0.05}
+            onChange={(v) => patchClip({ duration: Math.max(0.05, v), autoFitDuration: false })} />
+          {!isSpinner && (
+            <DragNumberField label="speed" value={speed} step={0.01} min={0.01}
+              onChange={(v) => patchClip({ speed: Math.max(0.01, v) })} />
+          )}
+        </>
       )}
 
       {supportsChannels && (
@@ -591,14 +553,64 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
         />
       )}
 
-      {isSpine ? (
+      {!isSpinner && !isSpine && (
+        <label className="scene-field scene-field--check">
+          <input
+            type="checkbox"
+            checked={clip.loop !== false}
+            onChange={(e) => patchClip({ loop: e.target.checked })}
+          />
+          <span>loop</span>
+        </label>
+      )}
+
+      {/* Spine clip — grouped to mirror the Unity "Spine Animation State Clip"
+          inspector: Clip Timing → Spine Animation State Clip → Mixing Settings. */}
+      {isSpine && (
         <>
+          <div className="scene-field-group-sub">Clip Timing</div>
+          <DragNumberField label="start" value={clip.start} step={0.01} min={0}
+            onChange={(v) => patchClip({ start: Math.max(0, v) })} />
+          <DragNumberField label="duration" value={clip.duration} step={0.01} min={0.05}
+            onChange={(v) => patchClip({ duration: Math.max(0.05, v), autoFitDuration: false })} />
+          <label className="scene-field">
+            <span>blend in (s)</span>
+            <input type="number" step={0.01} min={0}
+              value={Number((clip.easeIn || 0).toFixed(3))}
+              title="Timeline clip blend-in (ease in) duration"
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ easeIn: n }); }} />
+          </label>
+          <label className="scene-field">
+            <span>ease out (s)</span>
+            <input type="number" step={0.01} min={0}
+              value={Number((clip.easeOut || 0).toFixed(3))}
+              title="Timeline clip blend-out (ease out) duration"
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ easeOut: n }); }} />
+          </label>
+          <label className="scene-field">
+            <span>clip in (s)</span>
+            <input type="number" step={0.01} min={0}
+              value={Number((clip.clipIn || 0).toFixed(3))}
+              title="Start the animation this many seconds in (skip the head)"
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ clipIn: n }); }} />
+          </label>
+          <DragNumberField label="speed multiplier" value={speed} step={0.01} min={0.01}
+            onChange={(v) => patchClip({ speed: Math.max(0.01, v) })} />
+          <label className="scene-field">
+            <span>time curve</span>
+            <select
+              value={clip.curve || 'linear'}
+              onChange={(e) => patchClip({ curve: e.target.value })}
+              title="Master time-remap curve for the Spine animation track time (Scene Studio extra)"
+            >
+              {CURVES.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+
+          <div className="scene-field-group-sub">Spine Animation State Clip</div>
           <label className="scene-field">
             <span>animation</span>
-            <select
-              value={clip.anim ?? ''}
-              onChange={(e) => setClipAnimation(e.target.value)}
-            >
+            <select value={clip.anim ?? ''} onChange={(e) => setClipAnimation(e.target.value)}>
               <option value="">— layer default —</option>
               {animations.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
@@ -621,8 +633,86 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
               animation duration unavailable — run the scene once so Spine metadata can load
             </div>
           )}
+          <label className="scene-field scene-field--check">
+            <input type="checkbox" checked={clip.loop !== false}
+              onChange={(e) => patchClip({ loop: e.target.checked })} />
+            <span>loop</span>
+          </label>
+          <label className="scene-field scene-field--check">
+            <input type="checkbox" checked={clip.dontPause === true}
+              onChange={(e) => patchClip({ dontPause: e.target.checked })} />
+            <span title="Keep playing when the PlayableDirector pauses">don't pause with director</span>
+          </label>
+          <label className="scene-field scene-field--check">
+            <input type="checkbox" checked={clip.dontEnd === true}
+              onChange={(e) => patchClip({ dontEnd: e.target.checked })} />
+            <span title="Don't clear the animation when the clip ends">don't end with clip</span>
+          </label>
+          <label className="scene-field">
+            <span>clip end mix out (s)</span>
+            <input type="number" step={0.01} min={0}
+              value={Number((clip.clipEndMixOut || 0).toFixed(3))}
+              title="Mix-out duration at the clip's end (Clip End Mix Out Duration)"
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ clipEndMixOut: n }); }} />
+          </label>
+
+          <div className="scene-field-group-sub">Mixing Settings</div>
+          <label className="scene-field scene-field--check">
+            <input type="checkbox" checked={clip.defaultMixDuration === true}
+              onChange={(e) => patchClip({ defaultMixDuration: e.target.checked })} />
+            <span title="Use the skeleton's setup-pose mix (overrides mix (s))">default mix duration</span>
+          </label>
+          <label className="scene-field scene-field--check">
+            <input type="checkbox" checked={clip.useBlendDuration === true}
+              onChange={(e) => patchClip({ useBlendDuration: e.target.checked })} />
+            <span title="Use the Timeline clip blend for the mix instead of the mix (s) value">use blend duration</span>
+          </label>
+          <label className="scene-field">
+            <span>mix duration (s)</span>
+            <input
+              type="number" step={0.01} min={0} placeholder="auto"
+              disabled={clip.useBlendDuration === true || clip.defaultMixDuration === true}
+              value={mixDuration == null ? '' : Number(mixDuration.toFixed(3))}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === '') { patchClip({ mixDuration: null }); return; }
+                const n = Number(raw);
+                if (Number.isFinite(n) && n >= 0) patchClip({ mixDuration: n });
+              }}
+            />
+          </label>
+          <label className="scene-field scene-field--check">
+            <input type="checkbox" checked={clip.holdPrevious === true}
+              onChange={(e) => patchClip({ holdPrevious: e.target.checked })} />
+            <span title="Blend on top of the previous animation instead of resetting the mix">hold previous</span>
+          </label>
+          <label className="scene-field">
+            <span>event threshold</span>
+            <input type="number" step={0.05} min={0} max={1}
+              value={Number((clip.eventThreshold || 0).toFixed(3))}
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ eventThreshold: Math.min(1, Math.max(0, n)) }); }} />
+          </label>
+          <label className="scene-field">
+            <span>attachment threshold</span>
+            <input type="number" step={0.05} min={0} max={1}
+              value={Number((clip.attachmentThreshold || 0).toFixed(3))}
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ attachmentThreshold: Math.min(1, Math.max(0, n)) }); }} />
+          </label>
+          <label className="scene-field">
+            <span>draw order threshold</span>
+            <input type="number" step={0.05} min={0} max={1}
+              value={Number((clip.drawOrderThreshold || 0).toFixed(3))}
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ drawOrderThreshold: Math.min(1, Math.max(0, n)) }); }} />
+          </label>
+          <label className="scene-field">
+            <span>alpha</span>
+            <input type="number" step={0.05} min={0} max={1}
+              value={Number((clip.alpha == null ? 1 : clip.alpha).toFixed(3))}
+              title="Track entry alpha (1 = full strength)"
+              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ alpha: Math.min(1, Math.max(0, n)) }); }} />
+          </label>
         </>
-      ) : null}
+      )}
 
       {isSpinner && (
         <SpinnerClipSection config={spinnerConfig} clip={clip} patchClip={patchClip} />

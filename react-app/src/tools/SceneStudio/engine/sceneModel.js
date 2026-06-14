@@ -844,6 +844,35 @@ export function normalizeClip(c) {
     mixDuration: !hasMixDuration
       ? null
       : (Number.isFinite(mixDuration) && mixDuration >= 0 ? mixDuration : 0),
+    /**
+     * Spine clip parity with Spine Animation State (Timeline) clips:
+     * - holdPrevious: don't reset the mix — blend on top of whatever is playing.
+     * - useBlendDuration: clip's mix follows the Timeline blend, not mixDuration.
+     * - clipIn: start the animation this many seconds in (skips the head).
+     * - alpha: track entry alpha (1 = full).
+     */
+    holdPrevious: c.holdPrevious === true,
+    useBlendDuration: c.useBlendDuration === true,
+    clipIn: Number.isFinite(Number(c.clipIn)) && Number(c.clipIn) >= 0 ? Number(c.clipIn) : 0,
+    alpha: Number.isFinite(Number(c.alpha)) ? Math.min(1, Math.max(0, Number(c.alpha))) : 1,
+    /**
+     * Spine clip parity round 2 — remaining Spine Animation State Clip fields.
+     * - easeIn/easeOut: Timeline clip blend in/out durations (seconds).
+     * - defaultMixDuration: use the skeleton's setup-pose mix (overrides mix).
+     * - dontPause: keep playing when the director pauses (Don't Pause with Director).
+     * - dontEnd: don't end the animation when the clip ends (Don't End with Clip).
+     * - clipEndMixOut: mix-out duration at the clip's end.
+     * - event/attachment/drawOrder threshold: Spine track-entry thresholds.
+     */
+    easeIn: Number.isFinite(Number(c.easeIn)) && Number(c.easeIn) >= 0 ? Number(c.easeIn) : 0,
+    easeOut: Number.isFinite(Number(c.easeOut)) && Number(c.easeOut) >= 0 ? Number(c.easeOut) : 0,
+    defaultMixDuration: c.defaultMixDuration === true,
+    dontPause: c.dontPause === true,
+    dontEnd: c.dontEnd === true,
+    clipEndMixOut: Number.isFinite(Number(c.clipEndMixOut)) && Number(c.clipEndMixOut) >= 0 ? Number(c.clipEndMixOut) : 0,
+    eventThreshold: Number.isFinite(Number(c.eventThreshold)) ? Math.min(1, Math.max(0, Number(c.eventThreshold))) : 0,
+    attachmentThreshold: Number.isFinite(Number(c.attachmentThreshold)) ? Math.min(1, Math.max(0, Number(c.attachmentThreshold))) : 0,
+    drawOrderThreshold: Number.isFinite(Number(c.drawOrderThreshold)) ? Math.min(1, Math.max(0, Number(c.drawOrderThreshold))) : 0,
     /** Helper flag: auto-fit duration on first resolved animation. */
     autoFitDuration: c.autoFitDuration === true,
     channels,

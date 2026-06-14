@@ -11,7 +11,7 @@
 
 import { evalChannel, clipLocalSeconds } from '../engine/animation/keyframes.js';
 import { tracksForLayer } from '../engine/sceneModel.js';
-import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
+import { normalizeSpinnerConfig, SPINNER_ACTIONS } from '../engine/spinner/spinnerModel.js';
 
 const PROPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'alpha', 'tintR', 'tintG', 'tintB'];
 
@@ -138,10 +138,10 @@ export function spinnerCuesForLayer(scene, layer) {
   const cfg = normalizeSpinnerConfig(asset.spinner);
   if (!cfg) return null;
 
-  const SPINNER_ACTIONS = new Set(['startSpin', 'spin', 'stopSpin', 'holdResult']);
+  const actionSet = new Set(SPINNER_ACTIONS);
   const clips = tracksForLayer(scene, layer.id)
     .flatMap((tr) => tr.clips || [])
-    .filter((c) => SPINNER_ACTIONS.has(c.action))
+    .filter((c) => actionSet.has(c.action))
     .sort((a, b) => a.start - b.start);
 
   // Wrap string[] rows with { cells } so Unity JsonUtility can deserialize them
@@ -149,7 +149,14 @@ export function spinnerCuesForLayer(scene, layer) {
   const row = (arr) => ({ cells: Array.isArray(arr) ? arr : [] });
 
   const configJson = JSON.stringify({
-    symbols: cfg.symbols.map((s) => ({ id: s.id, name: s.name, assetId: s.assetId || '', blurAssetId: s.blurAssetId || '' })),
+    symbols: cfg.symbols.map((s) => ({
+      id: s.id, name: s.name, assetId: s.assetId || '', blurAssetId: s.blurAssetId || '',
+      // Real per-symbol Spine anim lengths (seconds, 0 = unknown). Resolved in
+      // the web runtime and persisted on the model; the C# evaluator uses them
+      // (when > 0) so each win/land plays its full length, not a fixed default.
+      winDur: s.winAnim?.duration > 0 ? s.winAnim.duration : 0,
+      landDur: s.landAnim?.duration > 0 ? s.landAnim.duration : 0
+    })),
     reels: cfg.grid.reels, rows: cfg.grid.rows,
     cellW: cfg.grid.cellW, cellH: cfg.grid.cellH, spacingX: cfg.grid.spacingX, spacingY: cfg.grid.spacingY,
     direction: cfg.direction,
@@ -166,15 +173,23 @@ export function spinnerCuesForLayer(scene, layer) {
 
   return {
     configJson,
-    clips: clips.map((c) => ({
-      action: c.action,
-      start: c.start ?? 0,
-      duration: c.duration ?? 0,
-      targetBoard: c.targetBoard ? c.targetBoard.map(row) : null,
-      matchEntrySpeed: c.matchEntrySpeed !== false,
-      perReelStartDelay: c.perReelStartDelay || [],
-      perReelStopDelay: c.perReelStopDelay || []
-    }))
+    clips: clips.map((c) => {
+      // Action params live under `c.spinner` on a normalized clip (see
+      // normalizeSpinnerClipPayload); tolerate a flat clip too.
+      const sp = c.spinner || c;
+      return {
+        action: c.action,
+        start: c.start ?? 0,
+        duration: c.duration ?? 0,
+        targetBoard: sp.targetBoard ? sp.targetBoard.map(row) : null,
+        matchEntrySpeed: sp.matchEntrySpeed !== false,
+        perReelStartDelay: sp.perReelStartDelay || [],
+        perReelStopDelay: sp.perReelStopDelay || [],
+        // §A presentWin params (carried for the Unity spinner track + runtime).
+        reelWinStagger: sp.reelWinStagger || 0,
+        perReelWinDelay: sp.perReelWinDelay || []
+      };
+    })
   };
 }
 
@@ -195,7 +210,22 @@ export function spineCuesForLayer(scene, layer) {
         duration: clip.duration,
         speed: clip.speed ?? 1,
         loop: clip.loop !== false,
-        mixDuration: clip.mixDuration
+        mixDuration: clip.mixDuration,
+        // Spine Animation State clip parity (Unity export round 2, item #4).
+        holdPrevious: clip.holdPrevious === true,
+        useBlendDuration: clip.useBlendDuration === true,
+        clipIn: Number.isFinite(Number(clip.clipIn)) && Number(clip.clipIn) > 0 ? Number(clip.clipIn) : 0,
+        alpha: Number.isFinite(Number(clip.alpha)) ? Math.min(1, Math.max(0, Number(clip.alpha))) : 1,
+        // Spine clip parity round 2 (phase 3 §D).
+        easeIn: Number.isFinite(Number(clip.easeIn)) && Number(clip.easeIn) > 0 ? Number(clip.easeIn) : 0,
+        easeOut: Number.isFinite(Number(clip.easeOut)) && Number(clip.easeOut) > 0 ? Number(clip.easeOut) : 0,
+        defaultMixDuration: clip.defaultMixDuration === true,
+        dontPause: clip.dontPause === true,
+        dontEnd: clip.dontEnd === true,
+        clipEndMixOut: Number.isFinite(Number(clip.clipEndMixOut)) && Number(clip.clipEndMixOut) > 0 ? Number(clip.clipEndMixOut) : 0,
+        eventThreshold: Number.isFinite(Number(clip.eventThreshold)) ? Math.min(1, Math.max(0, Number(clip.eventThreshold))) : 0,
+        attachmentThreshold: Number.isFinite(Number(clip.attachmentThreshold)) ? Math.min(1, Math.max(0, Number(clip.attachmentThreshold))) : 0,
+        drawOrderThreshold: Number.isFinite(Number(clip.drawOrderThreshold)) ? Math.min(1, Math.max(0, Number(clip.drawOrderThreshold))) : 0
       });
     }
   }

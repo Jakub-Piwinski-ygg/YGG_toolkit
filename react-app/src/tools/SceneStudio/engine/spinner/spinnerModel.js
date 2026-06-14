@@ -8,7 +8,10 @@
 
 import { normalizeCurveSpec } from '../animation/curves.js';
 
-export const SPINNER_ACTIONS = ['startSpin', 'spin', 'stopSpin', 'holdResult'];
+// `presentWin` (§A) is an explicit clip placed AFTER stopSpin that controls
+// WHEN winning symbols play their win animation (replacing the auto-fired win
+// from the evaluator). It carries a per-reel win stagger.
+export const SPINNER_ACTIONS = ['startSpin', 'spin', 'stopSpin', 'presentWin', 'holdResult'];
 
 /** Minimum consecutive reels (from the left) for a "ways" win. */
 export const WAYS_MIN_COUNT = 3;
@@ -67,7 +70,13 @@ export function defaultSpinnerBlur() {
 }
 
 export function defaultSpinnerEvents() {
-  return { winDelay: 0.15, landAnimDuration: 0.5, winAnimDuration: 1.0 };
+  // winAnimDuration / landAnimDuration are ONLY a FALLBACK, used when a
+  // symbol's real Spine animation length is unknown (0). The win window and
+  // the present-win clip's auto duration now prefer each symbol's actual
+  // winAnim.duration / landAnim.duration (resolved from the Spine data at
+  // build time and persisted on the symbol). The 2.0s fallback keeps a win
+  // from visibly cutting off before durations resolve.
+  return { winDelay: 0.15, landAnimDuration: 0.5, winAnimDuration: 2.0 };
 }
 
 // ── Normalization ──────────────────────────────────────────────────────
@@ -85,7 +94,21 @@ function normalizeSymbol(s) {
     const kind = a.kind === 'spine' || a.kind === 'pop' ? a.kind : 'none';
     if (kind === 'none') return null;
     if (kind === 'spine' && (!a.assetId || !a.anim)) return null;
-    return { kind, assetId: a.assetId || null, anim: a.anim || null };
+    // Real Spine animation length in seconds, resolved at build time (web
+    // runtime / Unity bake) from the referenced animation's data. 0 = unknown
+    // (no Spine loaded yet); the evaluator then falls back to events.*AnimDuration.
+    const duration = Number.isFinite(Number(a.duration)) && Number(a.duration) > 0 ? Number(a.duration) : 0;
+    return {
+      kind,
+      assetId: a.assetId || null,
+      anim: a.anim || null,
+      // loop preserved (was dropped before — caused overlay pool key mismatch).
+      loop: a.loop !== false,
+      // Land/win timing offset in seconds (§B): play the anim this many seconds
+      // before (negative) or after (positive) the exact land/win moment. 0 = on land.
+      offset: Number.isFinite(Number(a.offset)) ? Number(a.offset) : 0,
+      duration
+    };
   };
   return {
     id: String(s.id),
@@ -227,7 +250,78 @@ export function normalizeSpinnerClipPayload(action, raw) {
         : null
     };
   }
+  if (action === 'presentWin') {
+    return {
+      // 0 = every winning symbol plays at once; >0 = cascade reel-by-reel
+      // (reel 0 first, then reel 1 after `reelWinStagger` seconds, …).
+      reelWinStagger: p.reelWinStagger != null ? num(p.reelWinStagger, 0, 0, 10) : 0,
+      // Optional explicit per-reel win delay (overrides the linear stagger).
+      perReelWinDelay: delays(p.perReelWinDelay)
+    };
+  }
   return {}; // holdResult has no params (yet)
+}
+
+// ── Clip-duration helpers (phase 3 §C) ─────────────────────────────────
+// Compute the "natural" length for each spinner action clip so the inspector
+// can offer a "set duration" button (mirrors the spine "set 1 cycle" button).
+// All consume a normalized config (see normalizeSpinnerConfig).
+
+/** Default spin (idle-at-full-speed) clip length, seconds. */
+export const SPINNER_DEFAULT_SPIN_DURATION = 2;
+
+/** Largest per-reel delay, falling back to (reels-1)*stagger when unset. */
+function maxReelDelay(reels, perReel, stagger) {
+  let m = 0;
+  for (let r = 0; r < reels; r++) {
+    const explicit = Array.isArray(perReel) && Number.isFinite(Number(perReel[r])) ? Number(perReel[r]) : r * stagger;
+    if (explicit > m) m = explicit;
+  }
+  return m;
+}
+
+/**
+ * startSpin: time until EVERY reel has ramped from rest to full spin speed —
+ * the last reel's stagger delay plus the spin-up ramp. At the clip's end the
+ * reels are effectively "in spin".
+ */
+export function spinnerStartSpinDuration(config, perReelStartDelay = null) {
+  if (!config) return SPINNER_DEFAULT_SPIN_DURATION;
+  const { reels } = config.grid;
+  const t = config.timing || {};
+  return Math.max(0.05, maxReelDelay(reels, perReelStartDelay, t.reelStaggerStart || 0) + (t.startDuration || 0));
+}
+
+/**
+ * stopSpin: time until ALL reels have landed AND every symbol's land animation
+ * has finished — the last reel's stop delay + decel duration + land-anim length.
+ */
+export function spinnerStopSpinDuration(config, perReelStopDelay = null) {
+  if (!config) return 1;
+  const { reels } = config.grid;
+  const t = config.timing || {};
+  const land = config.events?.landAnimDuration || 0;
+  return Math.max(0.05, maxReelDelay(reels, perReelStopDelay, t.reelStaggerStop || 0) + (t.stopDuration || 0) + land);
+}
+
+/**
+ * presentWin: time until every winning symbol's win animation has finished —
+ * the last reel's win delay (stagger·(reels-1) or the explicit per-reel array)
+ * plus the win-anim length.
+ */
+export function spinnerPresentWinDuration(config, reelWinStagger = 0, perReelWinDelay = null) {
+  if (!config) return 1;
+  const { reels } = config.grid;
+  const fallback = config.events?.winAnimDuration || 0;
+  // Longest win-anim across symbols: prefer each symbol's real duration,
+  // falling back to events.winAnimDuration when unknown (0).
+  let maxWinAnim = 0;
+  for (const s of config.symbols || []) {
+    const d = s.winAnim?.duration > 0 ? s.winAnim.duration : fallback;
+    if (d > maxWinAnim) maxWinAnim = d;
+  }
+  if (maxWinAnim <= 0) maxWinAnim = fallback;
+  return Math.max(0.05, maxReelDelay(reels, perReelWinDelay, reelWinStagger || 0) + maxWinAnim);
 }
 
 // ── Strips & boards ────────────────────────────────────────────────────

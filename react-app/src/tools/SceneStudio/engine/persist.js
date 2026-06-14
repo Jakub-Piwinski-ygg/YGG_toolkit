@@ -331,6 +331,70 @@ function splitRelPath(path) {
   return String(path || '').split(/[\\/]/).filter(Boolean);
 }
 
+/** Strip spine-file extensions to a base name (matches assetBrowser's base()). */
+function spineBase(name) {
+  return String(name || '').replace(/\.atlas\.txt$/i, '').replace(/\.(json|atlas|png)$/i, '');
+}
+
+/**
+ * Find a spine skeleton's atlas + texture siblings on disk, given its .json
+ * `src`. Mirrors the Asset Browser pairing: base-name match first, else the
+ * lone atlas/png in the folder (the shared-atlas case where many skeletons
+ * use one atlas+texture). Returns root-relative paths or null.
+ */
+export async function resolveSpineSiblings(jsonSrc, rootHandle, sceneBasePath = null) {
+  if (!rootHandle || typeof jsonSrc !== 'string' || jsonSrc.startsWith('data:')) return null;
+  for (const cand of buildResolutionCandidates(jsonSrc, sceneBasePath)) {
+    const parts = splitRelPath(cand);
+    if (!parts.length) continue;
+    const dirParts = parts.slice(0, -1);
+    const jsonName = spineBase(parts[parts.length - 1]);
+    let dir;
+    try { dir = await resolveSceneDirectory(rootHandle, dirParts.join('/'), false); }
+    catch { continue; }
+    if (!dir) continue;
+    const atlases = [];
+    const pngs = [];
+    try {
+      for await (const [name, handle] of dir.entries()) {
+        if (handle.kind !== 'file') continue;
+        if (/\.atlas(\.txt)?$/i.test(name)) atlases.push(name);
+        else if (/\.png$/i.test(name)) pngs.push(name);
+      }
+    } catch { continue; }
+    if (!atlases.length || !pngs.length) continue;
+    const atlasName = atlases.find((n) => spineBase(n) === jsonName) || (atlases.length === 1 ? atlases[0] : null);
+    let pngName = pngs.find((n) => spineBase(n) === jsonName) || (pngs.length === 1 ? pngs[0] : null);
+    if (!pngName && atlasName) pngName = pngs.find((n) => spineBase(n) === spineBase(atlasName));
+    if (!atlasName || !pngName) continue;
+    const prefix = dirParts.join('/');
+    return {
+      atlas: prefix ? `${prefix}/${atlasName}` : atlasName,
+      texture: prefix ? `${prefix}/${pngName}` : pngName
+    };
+  }
+  return null;
+}
+
+/**
+ * Permanently repair spine assets whose atlas/texture references were lost
+ * (e.g. picked through the Spinner wizard before the fix). Resolves the
+ * siblings from disk and writes them back onto the asset records. Returns the
+ * (possibly new) scene + the list of repaired asset names.
+ */
+export async function repairSceneSpineAssets(scene, rootHandle, sceneBasePath = null) {
+  if (!scene || !rootHandle || !Array.isArray(scene.assets)) return { scene, repaired: [] };
+  const repaired = [];
+  const assets = await Promise.all(scene.assets.map(async (a) => {
+    if (a?.type !== 'spine' || (a.atlas && a.texture)) return a;
+    const sib = await resolveSpineSiblings(a.src, rootHandle, sceneBasePath);
+    if (!sib) return a;
+    repaired.push(a.meta?.originalName || a.src);
+    return { ...a, atlas: a.atlas || sib.atlas, texture: a.texture || sib.texture };
+  }));
+  return { scene: repaired.length ? { ...scene, assets } : scene, repaired };
+}
+
 function normalizeRelPath(path) {
   return splitRelPath(path).join('/');
 }

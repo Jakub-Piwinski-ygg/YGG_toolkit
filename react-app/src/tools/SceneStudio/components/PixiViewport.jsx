@@ -15,7 +15,7 @@ import {
 } from '../engine/pixiApp.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 
-export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind' }, ref) {
+export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind' }, ref) {
   const hostRef = useRef(null);
   const appRef = useRef(null);
   const viewportRef = useRef(null);
@@ -252,7 +252,7 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       if (myBuild !== buildIdRef.current) return;
       try {
         const handles = await rebuildScene(
-          app, content, selectionOverlayRef.current, scene, selectedLayerId, rootHandle, onAssetReady
+          app, content, selectionOverlayRef.current, scene, selectedLayerId, rootHandle, onAssetReady, onSpinnerAnimDurations
         );
         if (myBuild === buildIdRef.current) handlesRef.current = handles;
       } catch (e) {

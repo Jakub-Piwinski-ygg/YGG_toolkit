@@ -10,34 +10,33 @@
 // injected by pixiApp.js so this module stays import-cycle-free and
 // unit-mockable.
 //
-// Object shape:
+// Object shape (§B — single machine mask + native 1:1 symbols):
 //   root Container            ← transform applied by rebuildScene like any layer
 //     board Container         ← offset by −W/2,−H/2 so the root origin is centered
-//       reel[r] Container     ← x = r·(cellW+spacingX), rect-masked to the rows window
-//         cell[j] Container   ← j = −1…rows (one buffer row above and below)
-//           staticSprite
-//           blurSprite        ← alpha = blurMix crossfade
-//     fx Container            ← land/win overlays (M5)
+//       masked Container      ← ONE machine-sized mask (W×H) clips ALL reels;
+//         reel[r] Container   ← x = r·(cellW+spacingX), NO per-reel mask
+//           cell[j] Container ← j = −1…rows (one buffer row above and below)
+//             staticSprite    ← native 1:1 (scale 1, overflows its cell)
+//             blurSprite      ← alpha = blurMix crossfade
+//     fx Container            ← land/win overlays — OUTSIDE the mask (overflow)
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { normalizeSpinnerConfig, SPINNER_ACTIONS } from './spinnerModel.js';
 import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey } from './spinnerEval.js';
 
-function fitSpriteToCell(sprite, cellW, cellH) {
-  const tex = sprite.texture;
-  if (!tex || !tex.width || !tex.height) return;
-  const k = Math.min(cellW / tex.width, cellH / tex.height);
-  sprite.scale.set(k);
-}
+// §B: symbols render at native 1:1 (a 220px symbol stays 220px, overflowing
+// its cell). No fit-shrink — keep scale 1; the single machine mask clips the
+// reel window, neighbours overlap freely.
 
 function useSpineOverlay(spinePool, key, x, y, stateT) {
   const pool = spinePool.get(key);
-  if (!pool || pool.nextFree >= pool.instances.length) return;
+  if (!pool || pool.nextFree >= pool.instances.length) return false;
   const inst = pool.instances[pool.nextFree++];
   inst.container.visible = true;
   inst.container.x = x;
   inst.container.y = y;
   inst.setTrackTime(stateT);
+  return true;
 }
 
 /**
@@ -77,14 +76,23 @@ export async function buildSpinnerObject(asset, layer, deps) {
   board.y = -H / 2;
   root.addChild(board);
 
+  // §B: ONE machine-sized mask wraps Statics + Blurs (the reels). The board
+  // window still clips the scrolling top/bottom buffer rows and the machine's
+  // left/right edges; symbols overflow into neighbouring cells inside it. Fx
+  // (land/win overlays) is added to the root OUTSIDE this mask so anims extend
+  // beyond their cell and even past the machine frame.
+  const masked = new Container();
+  masked.label = 'spinner-masked';
+  const boardMask = new Graphics().rect(0, 0, W, H).fill(0xffffff);
+  masked.addChild(boardMask);
+  masked.mask = boardMask;
+  board.addChild(masked);
+
   const reelViews = [];
   for (let r = 0; r < reels; r++) {
     const reelC = new Container();
     reelC.label = `reel-${r}`;
     reelC.x = r * (cellW + spacingX);
-    const mask = new Graphics().rect(0, 0, cellW, H).fill(0xffffff);
-    reelC.addChild(mask);
-    reelC.mask = mask;
 
     const cells = [];
     for (let j = -1; j <= rows; j++) {
@@ -99,7 +107,7 @@ export async function buildSpinnerObject(asset, layer, deps) {
       reelC.addChild(cellC);
       cells.push({ cellC, staticSprite, blurSprite, symbolId: null });
     }
-    board.addChild(reelC);
+    masked.addChild(reelC);
     reelViews.push({ reelC, cells });
   }
 
@@ -111,9 +119,14 @@ export async function buildSpinnerObject(asset, layer, deps) {
   const symbolMap = new Map(config.symbols.map((s) => [s.id, s]));
 
   // Spine overlay pool — pre-built containers for land/win Spine animations.
-  // deps.createSpineContainer(assetId, animName, loop) → {container, setTrackTime(t)} | null
+  // deps.createSpineContainer(assetId, animName, loop) → {container, setTrackTime(t), duration} | null
   const spinePool = new Map();
   const createSpine = deps.createSpineContainer || null;
+  // Real per-symbol Spine durations (seconds), learned while building the pool.
+  // Written into the LOCAL normalized config below (fixes the web preview with
+  // no persistence) and surfaced to the host via deps.onSpinnerAnimDurations
+  // (persists to the model so the inspector + Unity bake see real lengths).
+  const animDur = new Map(); // `${specKey}` → duration
   if (createSpine) {
     const specs = new Map();
     for (const sym of config.symbols) {
@@ -127,14 +140,34 @@ export async function buildSpinnerObject(asset, layer, deps) {
     const poolCount = Math.min(reels * rows, 12);
     for (const [key, spec] of specs) {
       const instances = [];
+      let dur = 0;
       for (let i = 0; i < poolCount; i++) {
         const inst = await createSpine(spec.assetId, spec.anim, spec.loop);
         if (!inst) break;
+        if (inst.duration > 0) dur = inst.duration;
         inst.container.visible = false;
         fx.addChild(inst.container);
         instances.push(inst);
       }
       if (instances.length) spinePool.set(key, { instances, nextFree: 0 });
+      if (dur > 0) animDur.set(key, dur);
+    }
+    // Write resolved durations into the local config symbols, and collect the
+    // per-symbol {win,land} map for the host to persist.
+    const persist = {};
+    for (const sym of config.symbols) {
+      let win = 0, land = 0;
+      const animKey = (a) => (a && a.kind === 'spine'
+        ? `${a.assetId}:${a.anim}:${a.loop !== false ? '1' : '0'}` : null);
+      const wk = animKey(sym.winAnim);
+      const lk = animKey(sym.landAnim);
+      if (wk && animDur.has(wk)) { win = animDur.get(wk); sym.winAnim.duration = win; }
+      if (lk && animDur.has(lk)) { land = animDur.get(lk); sym.landAnim.duration = land; }
+      if (win > 0 || land > 0) persist[sym.id] = { win, land };
+    }
+    if (deps.onSpinnerAnimDurations && Object.keys(persist).length) {
+      try { deps.onSpinnerAnimDurations(persist); }
+      catch (e) { console.warn('[SceneStudio] onSpinnerAnimDurations failed', e); }
     }
   }
 
@@ -205,37 +238,41 @@ export function applySpinnerAtTime(obj, layer, tracks, t) {
       if (cell.symbolId !== data.symbolId) {
         const texPair = textures.get(data.symbolId);
         if (texPair) {
+          // §B: native 1:1 — assign the texture, leave scale at 1.
           cell.staticSprite.texture = texPair.tex;
           cell.blurSprite.texture = texPair.blurTex;
-          fitSpriteToCell(cell.staticSprite, cellW, cellH);
-          fitSpriteToCell(cell.blurSprite, cellW, cellH);
+          cell.staticSprite.scale.set(1);
+          cell.blurSprite.scale.set(1);
         }
         cell.symbolId = data.symbolId;
       }
-      cell.blurSprite.alpha = reel.blurMix;
-      cell.staticSprite.alpha = 1 - reel.blurMix;
-
-      // Land/win Spine overlay animations. Overshoot feel comes from the bounce
-      // curve in the evaluator (bounceOffset on the reel scroll), not symbol scale.
+      // Land/win symbol animations are Spine overlays ONLY — no procedural
+      // scale-punch (removed per phase 3 §A1; it was unwanted). Symbols without
+      // an assigned land/win Spine anim simply don't animate on land/win.
+      // The land-anim timing offset (§B) lets the overlay fire slightly before
+      // or after the exact land/win moment.
       const isVisible = data.gridRow >= 0 && data.gridRow < rows;
       const sym = symbolMap.get(data.symbolId);
+      let overlayShown = false;
 
-      if (isVisible && data.state === 'landing') {
-        const animConf = sym?.landAnim;
-        if (animConf?.kind === 'spine') {
-          const spKey = `${animConf.assetId}:${animConf.anim}:1`;
-          const cellY = -H / 2 + (data.gridRow + dispFrac) * pitchY + cellH / 2;
-          useSpineOverlay(spinePool, spKey, cellCenterX, cellY, data.stateT);
-        }
-      } else if (isVisible && data.state === 'win') {
-        const animConf = sym?.winAnim;
-        if (animConf?.kind === 'spine') {
-          const loop = animConf.loop !== false;
+      const animConf = isVisible
+        ? (data.state === 'landing' ? sym?.landAnim : data.state === 'win' ? sym?.winAnim : null)
+        : null;
+      if (animConf?.kind === 'spine') {
+        const loop = animConf.loop !== false;
+        const off = Number(animConf.offset) || 0;
+        const localT = data.stateT - off;
+        if (localT >= 0) {
           const spKey = `${animConf.assetId}:${animConf.anim}:${loop ? '1' : '0'}`;
           const cellY = -H / 2 + (data.gridRow + dispFrac) * pitchY + cellH / 2;
-          useSpineOverlay(spinePool, spKey, cellCenterX, cellY, data.stateT);
+          overlayShown = useSpineOverlay(spinePool, spKey, cellCenterX, cellY, localT);
         }
       }
+
+      // Hide the static + blur behind a playing overlay so the symbol isn't
+      // visible underneath the animation.
+      cell.blurSprite.alpha = overlayShown ? 0 : reel.blurMix;
+      cell.staticSprite.alpha = overlayShown ? 0 : 1 - reel.blurMix;
       cell.cellC.scale.set(1);
     }
   }

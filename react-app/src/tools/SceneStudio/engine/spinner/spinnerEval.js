@@ -260,14 +260,31 @@ export function resolveSpinnerTrack(config, track) {
     if (clip.action === 'stopSpin') {
       const allLandedAt = Math.max(...landAt);
       const wins = evalWaysWins(target);
+      const autoWinStart = allLandedAt + config.events.winDelay;
       stops.push({
         clipId: clip.id,
         target,
         landAt,
         allLandedAt,
         winCells: wins.flatMap((w) => w.cells.map((c) => ({ ...c, symbolId: w.symbolId }))),
-        winStartAt: allLandedAt + config.events.winDelay
+        // Scalar base (auto = all reels land then winDelay). winStartByReel
+        // carries the per-reel win timing the cell evaluator actually reads;
+        // a presentWin clip later overrides both (see below). winExplicit
+        // distinguishes "author placed a presentWin clip" from the auto path.
+        winStartAt: autoWinStart,
+        winStartByReel: new Array(R).fill(autoWinStart),
+        winExplicit: false
       });
+    } else if (clip.action === 'presentWin' && stops.length) {
+      // §A: the win plays when the author placed this clip, not the auto
+      // winDelay. Bind it to the most recent stop and stagger reel-by-reel.
+      const stop = stops[stops.length - 1];
+      const stagger = payload.reelWinStagger || 0;
+      stop.winStartByReel = stop.winStartByReel.map(
+        (_, r) => clip.start + (payload.perReelWinDelay?.[r] ?? r * stagger)
+      );
+      stop.winStartAt = Math.min(...stop.winStartByReel);
+      stop.winExplicit = true;
     }
     clipMeta.push(meta);
   }
@@ -348,6 +365,22 @@ export function evaluateSpinner(config, resolved, t) {
   const { blur, events } = config;
   const out = { t, reels: [] };
 
+  // Per-symbol land/win animation lengths (seconds), resolved from the real
+  // Spine data at build time. 0 = unknown → fall back to events.*AnimDuration.
+  // Built once per evaluate; the window length below is per-symbol, not a fixed
+  // config default, so a 3s win plays for 3s and a 1s win stops at 1s.
+  const symMap = resolved.__symMap || (resolved.__symMap = new Map(
+    (config.symbols || []).map((s) => [s.id, s])
+  ));
+  const winDurOf = (id) => {
+    const d = symMap.get(id)?.winAnim?.duration;
+    return d > 0 ? d : events.winAnimDuration;
+  };
+  const landDurOf = (id) => {
+    const d = symMap.get(id)?.landAnim?.duration;
+    return d > 0 ? d : events.landAnimDuration;
+  };
+
   for (let r = 0; r < R; r++) {
     const seg = segmentAt(resolved.segments[r], t);
     const { s, v, bounceOffset } = seg
@@ -376,13 +409,17 @@ export function evaluateSpinner(config, resolved, t) {
       let cellState = speed > EPS_V ? 'spinning' : 'idle';
       let stateT = 0;
       if (speed <= EPS_V && stop && j >= 0 && j < rows) {
-        const inWin = t >= stop.winStartAt
-          && t < stop.winStartAt + events.winAnimDuration
+        const winStart = stop.winStartByReel ? stop.winStartByReel[r] : stop.winStartAt;
+        // Window length is the WINNING SYMBOL's real win-anim length (fallback
+        // events.winAnimDuration) — different symbols hold 'win' for different
+        // amounts of time, never cut to a fixed default.
+        const inWin = t >= winStart
+          && t < winStart + winDurOf(symbolId)
           && stop.winCells.some((c) => c.reel === r && c.row === j);
         if (inWin) {
           cellState = 'win';
-          stateT = t - stop.winStartAt;
-        } else if (t < stop.landAt[r] + events.landAnimDuration) {
+          stateT = t - winStart;
+        } else if (t < stop.landAt[r] + landDurOf(symbolId)) {
           cellState = 'landing';
           stateT = t - stop.landAt[r];
         }

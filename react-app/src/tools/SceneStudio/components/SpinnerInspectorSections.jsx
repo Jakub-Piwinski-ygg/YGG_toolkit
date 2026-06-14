@@ -12,7 +12,11 @@ import {
   generateNonWinningBoard,
   generateWinningBoard,
   evalWaysWins,
-  defaultSpinnerBounce
+  defaultSpinnerBounce,
+  spinnerStartSpinDuration,
+  spinnerStopSpinDuration,
+  spinnerPresentWinDuration,
+  SPINNER_DEFAULT_SPIN_DURATION
 } from '../engine/spinner/spinnerModel.js';
 
 const BOUNCE_CURVES = [
@@ -35,7 +39,7 @@ export function SpinnerSection({ asset, onPatchAsset }) {
   const config = normalizeSpinnerConfig(asset?.spinner);
   if (!config) return null;
 
-  const { grid, timing, blur, symbols } = config;
+  const { grid, timing, blur, symbols, events } = config;
 
   const patchSpinner = (patch) => {
     const prev = asset.spinner || {};
@@ -46,6 +50,7 @@ export function SpinnerSection({ asset, onPatchAsset }) {
   const patchTiming  = (patch) => patchSpinner({ timing: { ...(asset.spinner?.timing || {}), ...patch } });
   const patchBlur    = (patch) => patchSpinner({ blur: { ...(asset.spinner?.blur || {}), ...patch } });
   const patchBounce  = (patch) => patchSpinner({ bounce: { ...(asset.spinner?.bounce || defaultSpinnerBounce()), ...patch } });
+  const patchEvents  = (patch) => patchSpinner({ events: { ...(asset.spinner?.events || {}), ...patch } });
 
   const { bounce } = config;
 
@@ -82,6 +87,18 @@ export function SpinnerSection({ asset, onPatchAsset }) {
             onChange={(v) => patchBlur({ vHi: Math.max(0, v) })} />
         </>
       )}
+
+      <div className="scene-field-group-sub">land / win timing</div>
+      <DragNumberField label="land anim dur s" value={events.landAnimDuration} step={0.05} min={0.05}
+        onChange={(v) => patchEvents({ landAnimDuration: Math.max(0.05, v) })} />
+      <DragNumberField label="win anim dur s" value={events.winAnimDuration} step={0.05} min={0.05}
+        onChange={(v) => patchEvents({ winAnimDuration: Math.max(0.05, v) })} />
+      <DragNumberField label="auto win delay s" value={events.winDelay} step={0.05} min={0}
+        onChange={(v) => patchEvents({ winDelay: Math.max(0, v) })} />
+      <div className="scene-spinner-meta">
+        Set "win anim dur" to your Spine win animation's real length — it sizes the win
+        window (so it doesn't cut off) and the present-win clip's auto duration.
+      </div>
 
       <div className="scene-field-group-sub">stop bounce</div>
       <label className="scene-field">
@@ -158,6 +175,18 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
             onChange={(d) => patchSp({ perReelStopDelay: d })}
           />
         )}
+        {config && (
+          <button
+            className="scene-btn scene-btn--ghost"
+            title="Set duration to the exact time until all reels land and every land animation finishes"
+            onClick={() => patchClip({
+              duration: Math.max(0.05, spinnerStopSpinDuration(config, sp.perReelStopDelay)),
+              autoFitDuration: false
+            })}
+          >
+            set duration = until all landed ({spinnerStopSpinDuration(config, sp.perReelStopDelay).toFixed(2)}s)
+          </button>
+        )}
       </div>
     );
   }
@@ -167,9 +196,21 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
       <div className="scene-field-group">
         <div className="scene-field-group-head">start spin</div>
         <div className="scene-spinner-meta">
-          Ramps each reel from rest to spin speed. Duration and ease come from the layer timing.
+          Ramps each reel from rest to spin speed. At the end of this clip every reel is at full speed.
           The "+" button adds a spin clip to the right.
         </div>
+        {config && (
+          <button
+            className="scene-btn scene-btn--ghost"
+            title="Set duration to the spin-up time (all reels reach full speed)"
+            onClick={() => patchClip({
+              duration: Math.max(0.05, spinnerStartSpinDuration(config, sp.perReelStartDelay)),
+              autoFitDuration: false
+            })}
+          >
+            set duration = spin-up ({spinnerStartSpinDuration(config, sp.perReelStartDelay).toFixed(2)}s)
+          </button>
+        )}
       </div>
     );
   }
@@ -179,9 +220,59 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
       <div className="scene-field-group">
         <div className="scene-field-group-head">spin</div>
         <div className="scene-spinner-meta">
-          Reels scroll at constant speed. Extend this clip to control spin duration.
+          Reels scroll at constant speed (the idle hold). Extend this clip to control spin duration.
           The "+" button adds a stopSpin clip to the right.
         </div>
+        <button
+          className="scene-btn scene-btn--ghost"
+          title="Set a default ~2s idle spin"
+          onClick={() => patchClip({ duration: SPINNER_DEFAULT_SPIN_DURATION, autoFitDuration: false })}
+        >
+          set duration = {SPINNER_DEFAULT_SPIN_DURATION}s (idle)
+        </button>
+      </div>
+    );
+  }
+
+  if (action === 'presentWin') {
+    const stagger = Number(sp.reelWinStagger ?? 0);
+    return (
+      <div className="scene-field-group">
+        <div className="scene-field-group-head">present win</div>
+        <div className="scene-spinner-meta">
+          Plays the win animation for the winning symbols of the preceding stopSpin board.
+          Place this clip where you want the win to fire.
+        </div>
+        <DragNumberField
+          label="reel win stagger s"
+          value={Number(stagger.toFixed(3))}
+          step={0.02}
+          min={0}
+          onChange={(v) => patchSp({ reelWinStagger: Math.max(0, v) })}
+        />
+        <div className="scene-spinner-meta">
+          0 = all winning symbols play at once · &gt;0 = cascade reel 0 → reel 1 → …
+        </div>
+        {config && (
+          <PerReelDelayEditor
+            label="per-reel win delay (s)"
+            reelCount={config.grid.reels}
+            delays={sp.perReelWinDelay}
+            onChange={(d) => patchSp({ perReelWinDelay: d })}
+          />
+        )}
+        {config && (
+          <button
+            className="scene-btn scene-btn--ghost"
+            title="Set duration so every reel's win animation finishes (stagger·(reels-1) + win anim length)"
+            onClick={() => patchClip({
+              duration: Math.max(0.05, spinnerPresentWinDuration(config, stagger, sp.perReelWinDelay)),
+              autoFitDuration: false
+            })}
+          >
+            set duration = until all wins played ({spinnerPresentWinDuration(config, stagger, sp.perReelWinDelay).toFixed(2)}s)
+          </button>
+        )}
       </div>
     );
   }
@@ -202,14 +293,14 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
 
 // ── PerReelDelayEditor ────────────────────────────────────────────────────────
 
-function PerReelDelayEditor({ reelCount, delays, onChange }) {
+function PerReelDelayEditor({ reelCount, delays, onChange, label = 'per-reel stop delay (s)' }) {
   const arr = Array.from({ length: reelCount }, (_, i) => {
     const v = Number(delays?.[i] ?? 0);
     return Number.isFinite(v) ? v : 0;
   });
   return (
     <div>
-      <div className="scene-field-group-sub">per-reel stop delay (s)</div>
+      <div className="scene-field-group-sub">{label}</div>
       <div className="scene-spinner-reel-delays">
         {arr.map((d, i) => (
           <DragNumberField

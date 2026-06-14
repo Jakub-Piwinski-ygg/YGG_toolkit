@@ -41,6 +41,7 @@ import {
   loadSceneFromFile,
   loadSceneFromHandle,
   pickProjectRoot,
+  repairSceneSpineAssets,
   saveScene,
   scanProjectScenes
 } from './engine/persist.js';
@@ -507,6 +508,32 @@ export default function SceneStudioInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, rootHandle]);
 
+  // ── Self-heal: recover lost spine atlas/texture references ────────────
+  // Spine assets picked through the Spinner wizard (before the fix) lost their
+  // atlas+texture, which broke Unity export AND web overlay rendering. When a
+  // project root is available, resolve the siblings from disk and write them
+  // back onto the asset records (permanent repair). Each src is attempted once
+  // per session so unresolvable ones don't loop.
+  const spineRepairAttempted = useRef(new Set());
+  useEffect(() => {
+    if (!rootHandle) return;
+    const pending = (scene.assets || []).filter(
+      (a) => a.type === 'spine' && (!a.atlas || !a.texture) && !spineRepairAttempted.current.has(a.src)
+    );
+    if (!pending.length) return;
+    pending.forEach((a) => spineRepairAttempted.current.add(a.src));
+    let cancelled = false;
+    (async () => {
+      const baseDir = currentSceneRel ? currentSceneRel.split('/').slice(0, -1).join('/') : null;
+      const { scene: fixed, repaired } = await repairSceneSpineAssets(sceneRef.current, rootHandle, baseDir);
+      if (cancelled || !repaired.length) return;
+      replaceSceneNoHistory(fixed);
+      log(`Scene Studio: recovered atlas+texture for ${repaired.length} spine asset(s) — ${repaired.join(', ')}`);
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, rootHandle, currentSceneRel]);
+
   const handlePatchLayer = useCallback((layerId, patch) => {
     setScene((prev) => ({
       ...prev,
@@ -941,6 +968,41 @@ export default function SceneStudioInner() {
       });
     }
   }, []);
+
+  // Persist real Spine win/land durations resolved by the runtime back onto
+  // the spinner asset's symbols, so the inspector clip-length button and the
+  // Unity bake (neither of which loads Spine) see actual anim lengths. Existing
+  // scenes self-heal on open: the first rebuild fires this with the resolved
+  // map. Only patches when a value actually changed (avoids render/autosave
+  // loops). `symbols` = { [symbolId]: { win, land } } in seconds.
+  const handleSpinnerAnimDurations = useCallback((assetId, symbols) => {
+    if (!assetId || !symbols) return;
+    setScene((prev) => {
+      let changed = false;
+      const assets = prev.assets.map((a) => {
+        if (a.id !== assetId || a.type !== 'spinner' || !a.spinner) return a;
+        const syms = (a.spinner.symbols || []).map((s) => {
+          const upd = symbols[s.id];
+          if (!upd) return s;
+          let next = s;
+          if (upd.win > 0 && s.winAnim && s.winAnim.duration !== upd.win) {
+            next = { ...next, winAnim: { ...next.winAnim, duration: upd.win } };
+            changed = true;
+          }
+          if (upd.land > 0 && s.landAnim && s.landAnim.duration !== upd.land) {
+            next = { ...next, landAnim: { ...next.landAnim, duration: upd.land } };
+            changed = true;
+          }
+          return next;
+        });
+        if (!changed) return a;
+        // Bump rev so the config re-normalizes/persists and the resolve memo
+        // (spinnerResolveKey reads config.events but not symbols; rev covers it).
+        return { ...a, spinner: { ...a.spinner, symbols: syms, rev: (a.spinner.rev || 1) + 1 } };
+      });
+      return changed ? { ...prev, assets } : prev;
+    });
+  }, [setScene]);
 
   const handleResetPortrait = useCallback((layerId) => {
     setScene((prev) => ({
@@ -1994,6 +2056,7 @@ export default function SceneStudioInner() {
                 onSelectLayer={handleSelectLayer}
                 onTransformLayer={handleTransformLayer}
                 onAssetReady={handleAssetReady}
+                onSpinnerAnimDurations={handleSpinnerAnimDurations}
                 flowTime={flowState.time}
                 livePreview={livePreview}
                 overlayMode={overlayMode}

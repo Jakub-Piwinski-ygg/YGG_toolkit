@@ -266,8 +266,12 @@ const SPINE_GRAPHIC_MATERIALS = {
 };
 
 /** SkeletonGraphic (UI variant) — field layout matches spine-unity 4.2. */
-function skeletonGraphicYaml(id, goId, scriptGuid, spine, size) {
+function skeletonGraphicYaml(id, goId, scriptGuid, spine, size, hasCues) {
   const ref = size || { w: 100, h: 100 };
+  // §E: timeline-driven layers carry NO starting animation (the timeline / its
+  // leading "hold" clip drives them); otherwise it plays before the first clip.
+  const startAnim = hasCues ? '' : (spine?.defaultAnimation || '');
+  const startLoop = hasCues ? 0 : (spine?.loop === false ? 0 : 1);
   return `${commonHeader(114, id, 'MonoBehaviour')}
   m_GameObject: {fileID: ${goId}}
   m_Enabled: 1
@@ -292,8 +296,8 @@ function skeletonGraphicYaml(id, goId, scriptGuid, spine, size) {
   initialSkinName: ${spine?.skin || 'default'}
   initialFlipX: 0
   initialFlipY: 0
-  startingAnimation: ${spine?.defaultAnimation || ''}
-  startingLoop: ${spine?.loop === false ? 0 : 1}
+  startingAnimation: ${startAnim}
+  startingLoop: ${startLoop}
   timeScale: 1
   freeze: 0
   layoutScaleMode: 0
@@ -330,7 +334,10 @@ function skeletonGraphicYaml(id, goId, scriptGuid, spine, size) {
 }
 
 /** SkeletonAnimation (world variant) — spine-unity 4.2 layout. */
-function skeletonAnimationYaml(id, goId, scriptGuid, spine) {
+function skeletonAnimationYaml(id, goId, scriptGuid, spine, hasCues) {
+  // §E: timeline-driven layers carry NO starting animation.
+  const startAnim = hasCues ? '' : (spine?.defaultAnimation || '');
+  const startLoop = hasCues ? 0 : (spine?.loop === false ? 0 : 1);
   return `${commonHeader(114, id, 'MonoBehaviour')}
   m_GameObject: {fileID: ${goId}}
   m_Enabled: 1
@@ -349,8 +356,8 @@ function skeletonAnimationYaml(id, goId, scriptGuid, spine) {
   physicsPositionInheritanceFactor: {x: 1, y: 1}
   physicsRotationInheritanceFactor: 1
   physicsMovementRelativeTo: {fileID: 0}
-  _animationName: ${spine?.defaultAnimation || ''}
-  loop: ${spine?.loop === false ? 0 : 1}
+  _animationName: ${startAnim}
+  loop: ${startLoop}
   timeScale: 1`;
 }
 
@@ -368,6 +375,15 @@ function spinnerYaml(id, goId, scriptGuid, spinner, { ui, ppu, maskSpriteGuid } 
   const bindings = (spinner.bindings || []).map((b) => `  - symbolId: ${b.symbolId}
     staticSprite: ${b.staticGuid ? `{fileID: 21300000, guid: ${b.staticGuid}, type: 3}` : '{fileID: 0}'}
     blurSprite: ${b.blurGuid ? `{fileID: 21300000, guid: ${b.blurGuid}, type: 3}` : '{fileID: 0}'}`).join('\n');
+  // §A3: land/win Spine overlay bindings. skeletonDataAsset stays {fileID: 0}
+  // here — YggSpineAutoWire fills it in by matching `spineName` after import.
+  const animBindings = (spinner.animBindings || []).map((b) => `  - symbolId: ${b.symbolId}
+    kind: ${b.kind}
+    spineName: ${b.spineName}
+    anim: ${b.anim}
+    loop: ${b.loop ? 1 : 0}
+    offset: ${f(b.offset || 0)}
+    skeletonDataAsset: {fileID: 0}`).join('\n');
   return `${commonHeader(114, id, 'MonoBehaviour')}
   m_GameObject: {fileID: ${goId}}
   m_Enabled: 1
@@ -379,28 +395,36 @@ function spinnerYaml(id, goId, scriptGuid, spinner, { ui, ppu, maskSpriteGuid } 
   clipsJson: '${yamlSq(spinner.clipsJson)}'
   symbolBindings:
 ${bindings || '  []'}
+  symbolAnimBindings:
+${animBindings || '  []'}
   worldVariant: ${ui === false ? 1 : 0}
   pixelsPerUnit: ${f(ppu || 100)}
-  maskSprite: ${ui === false && maskSpriteGuid ? `{fileID: 21300000, guid: ${maskSpriteGuid}, type: 3}` : '{fileID: 0}'}`.replace('symbolBindings:\n  []', 'symbolBindings: []');
+  maskSprite: ${ui === false && maskSpriteGuid ? `{fileID: 21300000, guid: ${maskSpriteGuid}, type: 3}` : '{fileID: 0}'}`
+    .replace('symbolBindings:\n  []', 'symbolBindings: []')
+    .replace('symbolAnimBindings:\n  []', 'symbolAnimBindings: []');
 }
 
 /**
- * Baked spinner reel hierarchy (Phase 2 of the Unity feedback round):
+ * Baked spinner reel hierarchy (§B — single machine mask + native 1:1 symbols):
  *
  *   Board                      ← W×H, centered on the spinner GO
- *     Statics                  ← ALL static cells (contiguous draw order)
- *       Reel_0 (RectMask2D)    ← cellW×H column; SpriteMask child in world
- *         Cell_-1 … Cell_rows  ← Image / SpriteRenderer, initial-board sprites
- *       …
- *     Blurs                    ← same shape, blur sprites, alpha 0
- *     Fx                       ← top layer for land/win renderers (runtime)
+ *     Mask                     ← ONE machine-sized clip (RectMask2D ui /
+ *       MaskSprite             ←   one SpriteMask child in world, W×H scaled)
+ *       Statics                ← ALL static cells (contiguous draw order)
+ *         Reel_0               ← column at colX; NO per-reel mask
+ *           Cell_-1 … Cell_rows← Image/SpriteRenderer at the sprite's NATIVE px
+ *         …
+ *       Blurs                  ← same shape, blur sprites, alpha 0
+ *     Fx                       ← OUTSIDE the mask — land/win anims extend past
+ *                                the cell and even the machine frame
  *
- * Statics and Blurs are SIBLING layers (not per-cell nesting) so same-texture
- * cells batch; per-reel masking matches the runtime behaviour. The generated
- * YggSpinner binds to this structure by name in Awake (warm-start pool) and
- * only builds at runtime for legacy prefabs.
+ * Symbols render 1:1 (a 220px sprite stays 220px and overflows its cell into
+ * the neighbours). The single Mask still clips the scrolling top/bottom buffer
+ * rows and the machine's left/right edges. Statics and Blurs are SIBLING
+ * layers (contiguous draw-order batches). The generated YggSpinner binds to
+ * this structure by name in Awake and only builds at runtime for legacy prefabs.
  */
-async function spinnerBakedDocs({ id, ui, node, fatherTrId, ppu, maskSpriteGuid }) {
+async function spinnerBakedDocs({ id, ui, node, fatherTrId, ppu, maskSpriteGuid, spineScriptGuid }) {
   const cfg = node.spinner.config;
   const bindMap = new Map((node.spinner.bindings || []).map((b) => [b.symbolId, b]));
   const { reels, rows, cellW, cellH, spacingX, spacingY } = cfg.grid;
@@ -440,7 +464,25 @@ async function spinnerBakedDocs({ id, ui, node, fatherTrId, ppu, maskSpriteGuid 
 
   const base = `${node.key}:sp`;
   const boardTrId = await id(`${base}:board:tr`);
-  const layerTrIds = [];
+  const maskTrId = await id(`${base}:mask:tr`);
+  const maskGoId = await id(`${base}:mask:go`);
+
+  // ── Single machine mask wrapping Statics + Blurs ────────────────────────
+  const maskChildTrIds = [];
+  const maskComps = [];
+  if (ui) {
+    const rmId = await id(`${base}:mask:rm`);
+    maskComps.push({ id: rmId, yaml: rectMask2DYaml(rmId, maskGoId) });
+  } else if (maskSpriteGuid) {
+    // World: one SpriteMask sized to the whole machine (W×H). It is a leaf
+    // child so scaling it doesn't scale the reels.
+    const msSeed = `${base}:mask:sprite`;
+    const smId = await id(`${msSeed}:sm`);
+    maskChildTrIds.push(await emit(msSeed, 'MaskSprite',
+      box(0, 0, 0, 0, { x: W / SPINNER_MASK_PX, y: H / SPINNER_MASK_PX }),
+      [{ id: smId, yaml: spriteMaskYaml(smId, await id(`${msSeed}:go`), maskSpriteGuid) }],
+      [], maskTrId, 0));
+  }
 
   for (const [layerIdx, lay] of [
     { key: 'statics', name: 'Statics', blur: false },
@@ -457,15 +499,6 @@ async function spinnerBakedDocs({ id, ui, node, fatherTrId, ppu, maskSpriteGuid 
       const cellTrIds = [];
       let order = 0;
 
-      if (!ui && maskSpriteGuid) {
-        const maskSeed = `${reelSeed}:mask`;
-        const smId = await id(`${maskSeed}:sm`);
-        cellTrIds.push(await emit(maskSeed, 'Mask',
-          box(0, 0, 0, 0, { x: cellW / SPINNER_MASK_PX, y: H / SPINNER_MASK_PX }),
-          [{ id: smId, yaml: spriteMaskYaml(smId, await id(`${maskSeed}:go`), maskSpriteGuid) }],
-          [], reelTrId, order++));
-      }
-
       for (let j = -1; j <= rows; j++) {
         const cellSeed = `${reelSeed}:cell${j}`;
         const cellGoId = await id(`${cellSeed}:go`);
@@ -474,12 +507,18 @@ async function spinnerBakedDocs({ id, ui, node, fatherTrId, ppu, maskSpriteGuid 
         const spriteGuid = lay.blur ? (bind?.blurGuid || bind?.staticGuid) : bind?.staticGuid;
         const y = (H / 2 - cellH / 2 - j * pitchY) * k;
         const compDocs = [];
-        let scale = null;
+        // §B: native 1:1 — UI cells size to the sprite's native px; world cells
+        // keep scale 1 (SpriteRenderer renders at the sprite's own ppu).
+        const sz = lay.blur ? (bind?.blurSize || bind?.staticSize) : bind?.staticSize;
         if (ui) {
           const crId = await id(`${cellSeed}:cr`);
           const imgId = await id(`${cellSeed}:img`);
           compDocs.push({ id: crId, yaml: canvasRendererYaml(crId, cellGoId) });
-          compDocs.push({ id: imgId, yaml: imageYaml(imgId, cellGoId, spriteGuid || null, null, lay.blur ? 0 : 1, true) });
+          // preserveAspect false: render at the native size set on the RectTransform.
+          compDocs.push({ id: imgId, yaml: imageYaml(imgId, cellGoId, spriteGuid || null, null, lay.blur ? 0 : 1, false) });
+          const cw = sz?.w || cellW;
+          const ch = sz?.h || cellH;
+          cellTrIds.push(await emit(cellSeed, `Cell_${j}`, box(cw, ch, 0, y), compDocs, [], reelTrId, order++));
         } else {
           const srId = await id(`${cellSeed}:sr`);
           compDocs.push({
@@ -487,28 +526,75 @@ async function spinnerBakedDocs({ id, ui, node, fatherTrId, ppu, maskSpriteGuid 
             yaml: spriteRendererYaml(srId, cellGoId, spriteGuid || null, lay.blur ? 0 : 1, null,
               { maskInteraction: 1, sortingOrder: layerIdx })
           });
-          const sz = lay.blur ? (bind?.blurSize || bind?.staticSize) : bind?.staticSize;
-          if (sz?.w && sz?.h) {
-            const fit = Math.min(cellW / sz.w, cellH / sz.h);
-            scale = { x: fit, y: fit };
-          }
+          cellTrIds.push(await emit(cellSeed, `Cell_${j}`, box(cellW, cellH, 0, y), compDocs, [], reelTrId, order++));
         }
-        cellTrIds.push(await emit(cellSeed, `Cell_${j}`, box(cellW, cellH, 0, y, scale), compDocs, [], reelTrId, order++));
       }
 
-      const reelComps = [];
-      if (ui) {
-        const rmId = await id(`${reelSeed}:rm`);
-        reelComps.push({ id: rmId, yaml: rectMask2DYaml(rmId, await id(`${reelSeed}:go`)) });
-      }
-      reelTrIds.push(await emit(reelSeed, `Reel_${r}`, box(cellW, H, colX, 0), reelComps, cellTrIds, layTrId, r));
+      reelTrIds.push(await emit(reelSeed, `Reel_${r}`, box(cellW, H, colX, 0), [], cellTrIds, layTrId, r));
     }
 
-    layerTrIds.push(await emit(laySeed, lay.name, box(W, H), [], reelTrIds, boardTrId, layerIdx));
+    maskChildTrIds.push(await emit(laySeed, lay.name, box(W, H), [], reelTrIds, maskTrId, maskChildTrIds.length));
   }
 
-  layerTrIds.push(await emit(`${base}:fx`, 'Fx', box(W, H), [], [], boardTrId, 2));
-  await emit(`${base}:board`, 'Board', box(W, H), [], layerTrIds, fatherTrId, 0);
+  // Emit the Mask container (wraps MaskSprite? + Statics + Blurs).
+  await emit(`${base}:mask`, 'Mask', box(W, H), maskComps, maskChildTrIds, boardTrId, 0);
+
+  // Fx holds the baked land/win Spine overlays, now organised PER REEL (like
+  // the cells) — Fx > Reel_r > Anim_<sym>_<kind> for every (symbol,kind) with a
+  // Spine anim. A per-reel instance lets the same winning symbol play on several
+  // reels at once (e.g. a staggered present-win cascade). Overlays are visible
+  // in-editor (inactive until a cell lands/wins) and bound by name + driven by
+  // YggSpinner. SkeletonDataAsset is wired on import by YggSpineAutoWire (each
+  // per-reel overlay node is added to the descriptor). Fx is OUTSIDE the Mask.
+  const fxSeed = `${base}:fx`;
+  const fxTrId = await id(`${fxSeed}:tr`);
+  const fxGoId = await id(`${fxSeed}:go`);
+  const fxReelTrIds = [];
+  const animBindings = spineScriptGuid ? (node.spinner.animBindings || []) : [];
+  if (animBindings.length) {
+    for (let r = 0; r < reels; r++) {
+      const reelSeed = `${fxSeed}:reel${r}`;
+      const reelTrId = await id(`${reelSeed}:tr`);
+      const colX = (r * (cellW + spacingX) - W / 2 + cellW / 2) * k;
+      const animTrIds = [];
+      for (const b of animBindings) {
+        const seed = `${reelSeed}:anim:${b.symbolId}:${b.kind}`;
+        const goId = await id(`${seed}:go`);
+        const trId = await id(`${seed}:tr`);
+        const comps = [trId];
+        const cdocs = [];
+        if (ui) {
+          const crId = await id(`${seed}:cr`);
+          comps.push(crId);
+          cdocs.push(canvasRendererYaml(crId, goId));
+          const sgId = await id(`${seed}:sg`);
+          comps.push(sgId);
+          // hasCues=true → no starting animation; YggSpinner drives it.
+          cdocs.push(skeletonGraphicYaml(sgId, goId, spineScriptGuid, null, { w: cellW, h: cellH }, true));
+        } else {
+          const saId = await id(`${seed}:sa`);
+          comps.push(saId);
+          cdocs.push(skeletonAnimationYaml(saId, goId, spineScriptGuid, null, true));
+        }
+        // Local (0,0) within its reel column — YggSpinner sets y on land/win.
+        const props = box(cellW, cellH, 0, 0);
+        docs.push(gameObjectYaml(goId, `Anim_${b.symbolId}_${b.kind}`, comps, { layer: ui ? 5 : 0, active: false }));
+        docs.push(ui
+          ? rectTransformYaml(trId, goId, props, [], reelTrId, animTrIds.length)
+          : transformYaml(trId, goId, props, [], reelTrId, animTrIds.length));
+        docs.push(...cdocs);
+        animTrIds.push(trId);
+      }
+      fxReelTrIds.push(await emit(reelSeed, `Reel_${r}`, box(cellW, H, colX, 0), [], animTrIds, fxTrId, r));
+    }
+  }
+  docs.push(gameObjectYaml(fxGoId, 'Fx', [fxTrId], { layer: ui ? 5 : 0, active: true }));
+  docs.push(ui
+    ? rectTransformYaml(fxTrId, fxGoId, box(W, H), fxReelTrIds, boardTrId, 1)
+    : transformYaml(fxTrId, fxGoId, box(W, H), fxReelTrIds, boardTrId, 1));
+
+  // Board wraps the single Mask (Statics+Blurs, clipped) and Fx (unclipped).
+  await emit(`${base}:board`, 'Board', box(W, H), [], [maskTrId, fxTrId], fatherTrId, 0);
   return { boardTrId, docs };
 }
 
@@ -547,7 +633,7 @@ function directorYaml(id, goId) {
 }
 
 function scenePlayerYaml(id, goId, opts) {
-  const { scriptGuid, directorId, clipGuid, descriptorGuid, durationSeconds, spineCues } = opts;
+  const { scriptGuid, directorId, clipGuid, descriptorGuid, durationSeconds, spineCues, autoBuildTimeline } = opts;
   const cues = (spineCues || []).map((c) => `  - target: ${c.target}
     animationName: ${c.anim}
     start: ${f(c.start)}
@@ -555,7 +641,20 @@ function scenePlayerYaml(id, goId, opts) {
     speed: ${f(c.speed ?? 1)}
     loop: ${c.loop ? 1 : 0}
     mixDuration: ${c.mixDuration == null ? -1 : f(c.mixDuration)}
-    trackIndex: ${c.trackIndex ?? 0}`).join('\n');
+    trackIndex: ${c.trackIndex ?? 0}
+    holdPrevious: ${c.holdPrevious ? 1 : 0}
+    useBlendDuration: ${c.useBlendDuration ? 1 : 0}
+    clipIn: ${f(c.clipIn ?? 0)}
+    alpha: ${c.alpha == null ? 1 : f(c.alpha)}
+    easeIn: ${f(c.easeIn ?? 0)}
+    easeOut: ${f(c.easeOut ?? 0)}
+    defaultMixDuration: ${c.defaultMixDuration ? 1 : 0}
+    dontPause: ${c.dontPause ? 1 : 0}
+    dontEnd: ${c.dontEnd ? 1 : 0}
+    clipEndMixOut: ${f(c.clipEndMixOut ?? 0)}
+    eventThreshold: ${f(c.eventThreshold ?? 0)}
+    attachmentThreshold: ${f(c.attachmentThreshold ?? 0)}
+    drawOrderThreshold: ${f(c.drawOrderThreshold ?? 0)}`).join('\n');
   return `${commonHeader(114, id, 'MonoBehaviour')}
   m_GameObject: {fileID: ${goId}}
   m_Enabled: 1
@@ -567,6 +666,9 @@ function scenePlayerYaml(id, goId, opts) {
   transformClip: {fileID: 7400000, guid: ${clipGuid}, type: 2}
   descriptor: {fileID: 4900000, guid: ${descriptorGuid}, type: 3}
   durationSeconds: ${f(durationSeconds)}
+  spineCuesHandledByTimeline: 0
+  spinnerHandledByTimeline: 0
+  autoBuildTimeline: ${autoBuildTimeline ? 1 : 0}
   spineCues:
 ${cues || '  []'}`.replace('spineCues:\n  []', 'spineCues: []');
 }
@@ -637,9 +739,9 @@ export async function buildPrefab(spec) {
         const crId = await id(`${node.key}:spinecr`);
         comps.splice(1, 0, crId);
         extraDocs.push(canvasRendererYaml(crId, goId));
-        extraDocs.push(skeletonGraphicYaml(spId, goId, spineScriptGuid, node.spine, node.size));
+        extraDocs.push(skeletonGraphicYaml(spId, goId, spineScriptGuid, node.spine, node.size, node.spineHasCues));
       } else {
-        extraDocs.push(skeletonAnimationYaml(spId, goId, spineScriptGuid, node.spine));
+        extraDocs.push(skeletonAnimationYaml(spId, goId, spineScriptGuid, node.spine, node.spineHasCues));
       }
     }
     const preChildTrIds = [];
@@ -653,7 +755,8 @@ export async function buildPrefab(spec) {
       if (node.spinner.config) {
         const baked = await spinnerBakedDocs({
           id, ui, node, fatherTrId: trId,
-          ppu: pixelsPerUnit, maskSpriteGuid: spinnerMaskSpriteGuid
+          ppu: pixelsPerUnit, maskSpriteGuid: spinnerMaskSpriteGuid,
+          spineScriptGuid
         });
         extraDocs.push(...baked.docs);
         preChildTrIds.push(baked.boardTrId);

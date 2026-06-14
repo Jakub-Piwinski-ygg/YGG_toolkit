@@ -6,20 +6,36 @@
 > spine/anim matching (`engine/spinner/symbolMatch.js`, see §4) with a
 > per-symbol static/blur/land/win preview strip.
 >
-> **Unity feedback round (2026-06-12) — next phase is specced in
-> `next phase spinner unity.md` (repo root).** Headlines:
-> ① BUG: land/win Spine overlays never render in the WEB preview —
-> `pixiApp.js` never provides `deps.createSpineContainer` to
-> `spinnerRuntime.js`, so the overlay pool is always empty.
-> ② Unity prefab should bake the reel hierarchy (pool-style cells,
-> statics/blurred/anims layered under separate parents for draw calls,
-> RectMask2D for UI / SpriteMask + SpriteRenderer for world) instead of
-> runtime-only `Build()` — the spinner reads as an empty GO in the editor.
-> ③ Wanted: a Spine-Timeline-style `YggSpinnerTrack` with action clips,
-> scrubbable in edit mode; ④ Scene Studio spine clips should expose the
-> Spine Animation State Clip fields (mix, hold previous, clip-in, alpha…)
-> for 1:1 export; ⑤ Timeline auto-build should be opt-in and refuse to
-> build spine-less timelines silently.
+> **Unity feedback round 1 (2026-06-12) — SHIPPED.** ① web land/win overlay
+> wiring, ② baked reel hierarchy, ③ `YggSpinnerTrack` control track (scrubs in
+> edit mode), ④ Spine clip parity round 1 (mix/holdPrevious/clipIn/alpha),
+> ⑤ opt-in Timeline auto-build. See `next phase spinner unity phase2.md`.
+>
+> **Unity feedback round 2 (2026-06-13) — verified by import.** Spinner is
+> in-scene and the control track scrubs.
+>
+> **Unity feedback round 3 (2026-06-13) — SHIPPED; `next phase spinner unity
+> phase3.md`.** Removed procedural scale-punch (land/win are Spine-only). Symbol
+> spine triplets export; pooled overlays spawn/drive in `Fx`; SkeletonDataAsset
+> autowired by name. Land/win timing **offset**; spinner clip "set duration"
+> buttons; Spine clip parity round 2. **Atlas/texture self-heal**
+> (`repairSceneSpineAssets`) recovers the shared atlas from disk (the wizard had
+> dropped it). **Mix bug fixed**: `ApplySpineClipTemplate` sets clip fields by
+> enumerating real serialized properties (version-robust) + forces clip ease-in/out
+> so mix=0 snaps. Inspector regrouped to mirror Unity's Spine clip.
+>
+> **Round 4 (2026-06-14) — SHIPPED.** Symbol land/win Spine overlays now BAKED into
+> the prefab `Fx` (visible in-editor, autowired, bound + driven — not runtime-spawned);
+> **single shared-atlas export** (one folder/atlas/material → one draw call, no more
+> per-symbol duplication); static/blur hidden behind a playing overlay.
+>
+> **Round 5 (2026-06-14) — SHIPPED.** Three confirmed builds: (A) a **"present
+> win" clip** after stopSpin with a per-reel win delay (cascade vs simultaneous),
+> replacing the auto-fired win; (B) **1:1 native symbols + a single machine mask**
+> clipping only statics/blur (animations overflow freely); (C) a runtime
+> **`SetResultBoard`/`Spin` API** so programmers inject the backend-randomized
+> result. See "Phase 5 round 5" under §6 for details. Still needs live Unity-import
+> verification (baked overlays actually play; native sizing tuning).
 
 Deterministic slot-machine reel object for Scene Studio ("pixie engine"), replacing
 the old `SlotMachineTool` art tool. Cross-target by design: the core model is a pure
@@ -297,6 +313,81 @@ ways functions + the BoardGridEditor highlight.
       machinery from state windows. *Verify: import package, play + scrub Timeline,
       compare to web; sampled `{t → scroll[]}` parity vectors asserted in a C#
       editor test.*
+
+### Phase 5 round 5 (2026-06-14) — SHIPPED
+
+Three confirmed builds from `next phase spinner unity phase5.md`:
+
+- **§A "Present win" clip.** A new `presentWin` spinner action (after `stopSpin`
+  in the add-clip sequence) controls *when* the winning symbols of the preceding
+  stop play their win animation — replacing the auto-fired
+  `winStartAt = allLanded + winDelay`. Per-reel **`reelWinStagger`** (0 = all at
+  once; >0 = cascade reel 0 → 1 → …) plus an optional explicit `perReelWinDelay`
+  array. The evaluator stores `winStartByReel[]` per stop (auto-filled, then
+  overridden by the `presentWin` clip's `start` + stagger); with no `presentWin`
+  clip the old auto behaviour is unchanged. Carried to Unity through
+  `bake.js → clipsJson/descriptor → YggSpinnerClip/Track/mixer → ResolveTrack`.
+  Inspector: `SpinnerInspectorSections.jsx` present-win section with a
+  "set duration = until all wins played" helper (`spinnerPresentWinDuration`).
+  Note: bake.js previously read clip params *flat* (`c.targetBoard`) while
+  normalized clips nest them under `c.spinner` — fixed to read nested (the
+  target board / delays were silently dropped on export before).
+
+- **§B Single machine mask + native 1:1 symbols.** Statics/blur render at the
+  sprite's **native px** (a 220px symbol stays 220px and overflows its cell) — the
+  per-cell fit-shrink (`fitSpriteToCell` / `FitScale` / UI `preserveAspect` cell-fit)
+  is gone. Per-reel masks are replaced by **one machine-sized mask** wrapping
+  `Statics + Blurs` (RectMask2D for UI; one machine SpriteMask for world,
+  `VisibleInsideMask`). The new hierarchy is `Board > Mask > Statics/Blurs` with
+  **`Fx` a sibling of `Mask`, OUTSIDE it** — land/win anims extend past the cell
+  and even the machine frame. The mask still clips the scrolling top/bottom buffer
+  rows and the machine's left/right edges. Web: `spinnerRuntime.js` (board mask +
+  native scale). Unity: `prefab.js#spinnerBakedDocs` (single Mask, native cell px),
+  `csharp.js` (`NewMaskContainer`, `BindBakedHierarchy` finds `Mask`, `SetNativeSize`,
+  no `FitScale`; legacy prefabs still bind via the Board fallback).
+
+- **§C Runtime result-injection API** (`YggSpinner`, programmer-facing):
+  ```csharp
+  var spinner = machineGo.GetComponentInChildren<YggSpinner>();
+  spinner.SetResultBoard(backendResult); // string[reel][row] of symbol ids
+  spinner.Spin();                         // or Spin(backendResult) in one call
+  // ... spinner.IsSpinning is true until the present-win finishes.
+  ```
+  `SetResultBoard(string[][])` overrides the baked `stopSpin` target board (and
+  re-resolves, so wins derive from the injected board via `EvalWaysWins`).
+  `Spin()` / `Spin(board)` drive a `startSpin → spin → stopSpin → presentWin`
+  cycle on an **internal clock** in `Update()` — no Timeline required (the Timeline,
+  when present, still drives the *visual* via `Evaluate`; this injects the
+  *result*). Timing is derived from the config (`BuildDefaultCycle`). The injection
+  flows through `InjectBoard()` which clones each `stopSpin` clip with the new board.
+
+- **Follow-up fixes (post first Unity import):**
+  - **Real per-symbol win/land durations (the cutoff fix, round 6).** The win and
+    land state windows are now sized by each SYMBOL's *actual* referenced Spine
+    animation length — not a config default. `spineLoader.describeSpine` already
+    exposes `animationDurations`; `pixiApp.createSpineContainer` now also returns the
+    anim `duration`. `buildSpinnerObject` captures each (symbol, kind) length while
+    building the overlay pool, writes it into the in-memory
+    `config.symbols[*].{winAnim,landAnim}.duration` (fixes the web preview instantly),
+    and surfaces a `{ [symbolId]: { win, land } }` map via the new
+    `deps.onSpinnerAnimDurations` callback (threaded `buildLayerObject` →
+    `rebuildScene` → `PixiViewport` → `SceneStudioInner`, mirroring `onAssetReady`).
+    `SceneStudioInner` patches those durations onto `asset.spinner.symbols[*]` and
+    bumps `rev` — so **existing scenes self-heal on open** (no wizard re-run). The
+    evaluator (`evaluateSpinner`) and the C# `EvaluateInternal` (`WinDurFor`/`LandDurFor`,
+    fed by baked `SpinnerSymbolData.winDur/landDur`) use the symbol's real length,
+    falling back to `events.winAnimDuration`/`landAnimDuration` only when unknown (0).
+    `spinnerPresentWinDuration` returns `maxReelDelay + longest win-anim across
+    symbols`. The fragile runtime Spine-reflection extension (`YggSpinner.WinExtensionT`,
+    `Overlay.dur`) from the previous attempt is REMOVED — the baked deterministic
+    durations replace it. `SpinnerSection`'s `land/win anim dur` fields remain as the
+    editable fallback.
+  - **Per-reel Fx overlays** — baked overlays moved from `Fx/Anim_<sym>_<kind>` to
+    `Fx/Reel_<r>/Anim_<sym>_<kind>` (one instance per reel), so the SAME winning
+    symbol can animate on multiple reels at once (the staggered present-win cascade).
+    `BuildOverlays`/`DriveOverlay` key by `reel:sym:kind` when `Fx/Reel_0` exists and
+    fall back to the flat `sym:kind` layout for legacy prefabs. The web runtime
+    already supported simultaneous overlays via its instance pool (unchanged).
 
 ### Future (out of scope, noted)
 

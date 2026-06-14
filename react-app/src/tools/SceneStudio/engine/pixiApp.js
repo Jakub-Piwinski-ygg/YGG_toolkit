@@ -177,7 +177,7 @@ export function setStageFrameZOrder(viewport, stageFrame, content, overlayMode) 
  * @param {FileSystemDirectoryHandle|null} rootHandle
  * @returns {Promise<Map<string, Sprite>>}
  */
-export async function rebuildScene(app, content, selectionOverlay, scene, selectedLayerId, rootHandle, onAssetReady) {
+export async function rebuildScene(app, content, selectionOverlay, scene, selectedLayerId, rootHandle, onAssetReady, onSpinnerAnimDurations) {
   clearContainer(content);
   const handles = new Map();
   const orientation = scene.stage.activeOrientation;
@@ -193,7 +193,7 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
     if (!layer.visible) return;
     const asset = scene.assets.find((a) => a.id === layer.assetId);
     if (!asset) return;
-    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene);
+    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations);
     if (!obj) return;
 
     if (asset.type === 'spine' && onAssetReady) {
@@ -260,13 +260,18 @@ function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath) {
   };
   return async function createSpineContainer(assetId, animName, loop) {
     const skeletonData = await skeletonDataFor(assetId);
-    if (!skeletonData || !skeletonData.findAnimation(animName)) return null;
+    const animData = skeletonData ? skeletonData.findAnimation(animName) : null;
+    if (!skeletonData || !animData) return null;
     try {
       const spine = new Spine(skeletonData);
       spine.state.setAnimation(0, animName, !!loop);
       try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
       return {
         container: spine,
+        // Real animation length (seconds) from the Spine data — the runtime
+        // writes this into the symbol's winAnim/landAnim.duration so the win
+        // window matches the actual anim and never cuts off at a fixed default.
+        duration: Number(animData.duration) || 0,
         setTrackTime(t) {
           const tr = spine.state.tracks[0];
           if (tr) tr.trackTime = t;
@@ -282,7 +287,7 @@ function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath) {
   };
 }
 
-async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null) {
+async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null, onSpinnerAnimDurations = null) {
   try {
     if (asset.type === 'spinner') {
       return await buildSpinnerObject(asset, layer, {
@@ -291,7 +296,12 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
         sceneBasePath,
         resolveAssetUrl,
         loadTexture: loadTextureFromUrl,
-        createSpineContainer: makeSpineOverlayFactory(scene, rootHandle, sceneBasePath)
+        createSpineContainer: makeSpineOverlayFactory(scene, rootHandle, sceneBasePath),
+        // Persist resolved per-symbol Spine durations back to the model so the
+        // inspector's clip-length button and the Unity bake see real lengths.
+        onSpinnerAnimDurations: onSpinnerAnimDurations
+          ? (symbols) => onSpinnerAnimDurations(asset.id, symbols)
+          : null
       });
     }
     if (asset.type === 'png') {
@@ -743,6 +753,11 @@ export function sceneStructuralHash(scene) {
   parts.push('|a|');
   for (const a of scene.assets) {
     parts.push(a.id, a.type, a.src?.slice?.(0, 32) || '');
+    // Spine atlas/texture are part of the structure: when the self-heal recovers
+    // a missing atlas+texture, the object must rebuild (e.g. so a spinner's
+    // land/win overlay pool re-loads with the now-valid skeleton). Without this,
+    // the repaired references would never reach the Pixi build.
+    if (a.type === 'spine') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '');
     // Spinner structural edits bump `rev` (wizard re-runs) — clip/timing
     // edits stay on the cheap apply path via the resolve-key memo.
     if (a.type === 'spinner') parts.push('rev', String(a.spinner?.rev ?? 1));
@@ -796,6 +811,9 @@ function autoMixDurationForTransition(obj, layer, track, clip) {
 }
 
 function resolveMixDuration(obj, layer, track, clip) {
+  // "use blend duration" defers the mix to the transition heuristic (the web
+  // analogue of the Spine Timeline clip blend) instead of the explicit value.
+  if (clip?.useBlendDuration === true) return autoMixDurationForTransition(obj, layer, track, clip);
   const explicit = Number(clip?.mixDuration);
   if (clip?.mixDuration != null) {
     if (!Number.isFinite(explicit) || explicit < 0) return 0;
@@ -895,12 +913,18 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     const animDuration = getSpineAnimationDuration(obj, anim);
     const loop = clip.loop !== false;
     const mixDuration = resolveMixDuration(obj, layer, track, clip);
+    // Spine-Timeline clip parity (see SCENE_STUDIO.md): clip-in offset into the
+    // source animation, entry alpha, and hold-previous blending.
+    const clipIn = Number(clip.clipIn) > 0 ? Number(clip.clipIn) : 0;
+    const clipAlpha = Number.isFinite(Number(clip.alpha)) ? Math.min(1, Math.max(0, Number(clip.alpha))) : 1;
     if (cache.activeClipId !== clip.id || cache.anim !== anim || cache.loop !== loop) {
       try {
         if (anim) {
           const e = obj.state.setAnimation(idx, anim, !!loop);
           if (e) {
             e.mixDuration = mixDuration;
+            e.alpha = clipAlpha;
+            e.holdPrevious = clip.holdPrevious === true;
             if (mixDuration > 0) {
               const sinceClipStart = Math.max(0, t - clip.start);
               e.mixTime = Math.min(mixDuration, sinceClipStart);
@@ -915,7 +939,8 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     try {
       const tr = obj.state?.tracks?.[idx];
       if (tr) {
-        tr.trackTime = remapClipTime(clip, t, animDuration);
+        tr.trackTime = remapClipTime(clip, t, animDuration) + clipIn;
+        tr.alpha = clipAlpha;
         if (mixDuration > 0) {
           const sinceClipStart = Math.max(0, t - clip.start);
           tr.mixTime = Math.min(mixDuration, sinceClipStart);

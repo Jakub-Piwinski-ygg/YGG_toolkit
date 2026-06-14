@@ -20,11 +20,14 @@ import {
   SCRIPT_PATHS,
   scenePlayerSource,
   spinnerSource,
+  yggSpinnerClipSource,
+  yggSpinnerTrackSource,
   scenePlayerEditorSource,
   timelineBuilderSource,
   packageBootstrapSource,
   spineAutoWireSource,
   runtimeAsmdefSource,
+  runtimeTimelineAsmdefSource,
   editorAsmdefSource,
   timelineAsmdefSource
 } from './csharp.js';
@@ -38,6 +41,9 @@ export const DEFAULT_UNITY_SETTINGS = {
   spineCompression: 'none',
   alphaIsTransparency: true,
   includeVideos: false,
+  // Opt-in: when false the imported prefab never auto-builds a Unity Timeline
+  // (use the inspector "Build Unity Timeline" button). Default off by design.
+  autoBuildTimeline: false,
   // Stable script GUIDs from the official spine-unity UPM/unitypackage
   // distribution (verified against spine-runtimes 4.2; unchanged across
   // 4.x). Editable in the dialog for exotic installs.
@@ -51,6 +57,17 @@ const radToDeg = (r) => -(Number(r) || 0) * (180 / Math.PI);
 async function bytesForSrc(src, rootHandle, sceneBasePath) {
   const embedded = dataUrlToBytes(src);
   if (embedded) return embedded;
+  // Wizard-generated assets (e.g. spinner blur PNGs) live as in-memory
+  // blob: URLs — fetch them directly so they get packaged instead of dropped.
+  if (typeof src === 'string' && src.startsWith('blob:')) {
+    try {
+      const resp = await fetch(src);
+      if (!resp.ok) return null;
+      return new Uint8Array(await resp.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
   const file = await resolveAssetFile(src, rootHandle, sceneBasePath);
   if (!file) return null;
   return new Uint8Array(await file.arrayBuffer());
@@ -132,6 +149,19 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
   // ── 1. Resolve + place assets ─────────────────────────────────────────
   progress('resolving assets…');
   const usedAssetIds = new Set(scene.layers.map((l) => l.assetId).filter(Boolean));
+  // Spinner symbol land/win SPINE assets are referenced from the spinner
+  // config (not as layer assetIds), so add them explicitly — otherwise the
+  // overlay skeletons never ship (§A3). Their triplets export via the normal
+  // spine branch below.
+  for (const layer of scene.layers) {
+    const a = (scene.assets || []).find((x) => x.id === layer.assetId);
+    if (a?.type !== 'spinner') continue;
+    for (const sym of a.spinner?.symbols || []) {
+      for (const an of [sym.landAnim, sym.winAnim]) {
+        if (an?.kind === 'spine' && an.assetId) usedAssetIds.add(an.assetId);
+      }
+    }
+  }
   const assetInfo = new Map(); // assetId → { kind, spriteGuid?, size?, spineFolder? }
 
   for (const asset of scene.assets) {
@@ -152,38 +182,49 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
       assetInfo.set(asset.id, { kind: 'png', spriteGuid: item.guid, size });
     } else if (asset.type === 'spine') {
       const name = safeName(asset.meta?.originalName || lastSegment(asset.src), 'Spine');
-      const folder = `${base}/Art/Animations/${name}`;
       const json = await bytesForSrc(asset.src, rootHandle, sceneBasePath);
       const atlas = asset.atlas ? await bytesForSrc(asset.atlas, rootHandle, sceneBasePath) : null;
       const tex = asset.texture ? await bytesForSrc(asset.texture, rootHandle, sceneBasePath) : null;
+      // A spine skeleton without its atlas+texture is non-functional in
+      // spine-unity AND its broken/partial import errors can abort the whole
+      // package import (taking down healthy skeletons too). So SKIP it entirely
+      // rather than shipping a json-only triplet — and tell the user why.
       if (!json || !atlas || !tex) {
-        warnings.push(`Spine "${name}": missing ${[!json && 'json', !atlas && 'atlas', !tex && 'texture'].filter(Boolean).join('+')} — exported partially.`);
+        const miss = [!json && 'json', !atlas && 'atlas', !tex && 'texture'].filter(Boolean).join('+');
+        warnings.push(`Spine "${name}": missing ${miss} — SKIPPED (not exported). Atlas/texture are auto-recovered from disk when a project folder is connected; connect the project root (so Scene Studio can find the shared atlas+png) and re-export. Otherwise re-pick the skeleton in the Spinner wizard / Asset Browser.`);
+        assetInfo.set(asset.id, { kind: 'missing' });
+        continue;
       }
       // Embedded (data:) assets have no usable path segment — fall back to the
       // display name for every file of the triplet.
       const jsonName = asset.src.startsWith('data:') ? name : lastSegment(asset.src).replace(/\.json$/i, '');
-      if (json) await pushItem(`${folder}/${jsonName}.json`, json, textMeta);
-      if (atlas) {
-        // spine-unity requires ".atlas.txt"
-        const atlasName = asset.atlas.startsWith('data:')
-          ? jsonName
-          : lastSegment(asset.atlas).replace(/\.txt$/i, '').replace(/\.atlas$/i, '');
-        await pushItem(`${folder}/${atlasName}.atlas.txt`, atlas, textMeta);
-      }
-      let texSize = null;
-      if (tex) {
-        texSize = pngSize(tex);
-        const comp = settings.perAssetCompression[asset.id] || settings.spineCompression;
-        const texName = asset.texture.startsWith('data:') ? `${jsonName}.png` : lastSegment(asset.texture);
-        await pushItem(`${folder}/${texName}`, tex, (g) => textureMeta(g, {
-          compression: comp,
-          alphaIsTransparency: settings.alphaIsTransparency,
-          // spine-unity material samples the texture directly; sprite mode off
-          spriteMode: 0,
-          pixelsPerUnit: settings.pixelsPerUnit
-        }));
-      }
-      assetInfo.set(asset.id, { kind: 'spine', size: texSize, spineName: name, jsonBase: jsonName });
+      const atlasName = asset.atlas.startsWith('data:')
+        ? jsonName
+        : lastSegment(asset.atlas).replace(/\.txt$/i, '').replace(/\.atlas$/i, '');
+      // Skeletons that SHARE an atlas (made in one Spine project) export into ONE
+      // folder named after the atlas, so the atlas .txt + .png export exactly once
+      // (pushItem dedups by path) and spine-unity builds a single shared
+      // SpineAtlasAsset/material → ONE draw call for all of them, instead of a
+      // per-symbol folder+atlas+material (= a draw call per symbol).
+      const folder = asset.atlas.startsWith('data:')
+        ? `${base}/Art/Animations/${name}`
+        : `${base}/Art/Animations/${safeName(atlasName, 'Spine')}`;
+      await pushItem(`${folder}/${jsonName}.json`, json, textMeta);
+      // spine-unity requires ".atlas.txt"; shared path → exported once.
+      await pushItem(`${folder}/${atlasName}.atlas.txt`, atlas, textMeta);
+      const texName = asset.texture.startsWith('data:') ? `${atlasName}.png` : lastSegment(asset.texture);
+      const texSize = pngSize(tex);
+      const comp = settings.perAssetCompression[asset.id] || settings.spineCompression;
+      await pushItem(`${folder}/${texName}`, tex, (g) => textureMeta(g, {
+        compression: comp,
+        alphaIsTransparency: settings.alphaIsTransparency,
+        // spine-unity material samples the texture directly; sprite mode off
+        spriteMode: 0,
+        pixelsPerUnit: settings.pixelsPerUnit
+      }));
+      // spineName MUST equal the json base — spine-unity names the generated
+      // SkeletonDataAsset "<jsonName>_SkeletonData", which autowire matches on.
+      assetInfo.set(asset.id, { kind: 'spine', size: texSize, spineName: jsonName, jsonBase: jsonName });
     } else if (asset.type === 'video') {
       if (!settings.includeVideos) { assetInfo.set(asset.id, { kind: 'skipped' }); continue; }
       const bytes = await bytesForSrc(asset.src, rootHandle, sceneBasePath);
@@ -224,11 +265,14 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
   // ── 2. Generated C# (constant paths + package-independent GUIDs) ──────
   await pushShared(SCRIPT_PATHS.player, scenePlayerSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.spinner, spinnerSource(), monoMeta);
+  await pushShared(SCRIPT_PATHS.spinnerClip, yggSpinnerClipSource(), monoMeta);
+  await pushShared(SCRIPT_PATHS.spinnerTrack, yggSpinnerTrackSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.playerEditor, scenePlayerEditorSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.timelineBuilder, timelineBuilderSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.packageBootstrap, packageBootstrapSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.spineAutoWire, spineAutoWireSource(), monoMeta);
   await pushShared(SCRIPT_PATHS.runtimeAsmdef, runtimeAsmdefSource(), asmdefMeta);
+  await pushShared(SCRIPT_PATHS.runtimeTimelineAsmdef, runtimeTimelineAsmdefSource(), asmdefMeta);
   await pushShared(SCRIPT_PATHS.editorAsmdef, editorAsmdefSource(), asmdefMeta);
   await pushShared(SCRIPT_PATHS.timelineAsmdef, timelineAsmdefSource(), asmdefMeta);
   const playerScriptGuid = itemsByPath.get(SCRIPT_PATHS.player).guid;
@@ -334,9 +378,14 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
         }
 
         // Spine cues
-        for (const cue of spineCuesForLayer(scene, layer)) {
+        const layerSpineCues = spineCuesForLayer(scene, layer);
+        for (const cue of layerSpineCues) {
           spineCues.push({ ...cue, target: path });
         }
+        // §E: a spine layer driven by the timeline must NOT carry a starting
+        // animation (it would play before the first clip and re-trigger on
+        // scrub-back). The timeline (or its leading "hold" clip) drives it.
+        const spineHasCues = info.kind === 'spine' && layerSpineCues.length > 0;
 
         // Spinner: descriptor cues + serialized component payload for the prefab
         let spinnerData = null;
@@ -358,10 +407,48 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
                 blurSize: size2(bInfo)
               };
             });
+            // §A3: per-symbol land/win Spine overlay bindings. The spine triplet
+            // ships (usedAssetIds above); the SkeletonDataAsset reference is wired
+            // after import by name (YggSpineAutoWire). offset = §B timing offset.
+            const animOf = (an, kind, symId) => {
+              if (!an || an.kind !== 'spine' || !an.assetId || !an.anim) return null;
+              const aInfo = assetInfo.get(an.assetId);
+              if (aInfo?.kind !== 'spine' || !aInfo.spineName) return null;
+              return {
+                symbolId: symId, kind, spineName: aInfo.spineName,
+                anim: an.anim, loop: an.loop !== false,
+                offset: Number.isFinite(Number(an.offset)) ? Number(an.offset) : 0
+              };
+            };
+            const animBindings = [];
+            for (const sym of (spinnerAsset?.spinner?.symbols || [])) {
+              const l = animOf(sym.landAnim, 'land', sym.id); if (l) animBindings.push(l);
+              const w = animOf(sym.winAnim, 'win', sym.id); if (w) animBindings.push(w);
+            }
+            // Register each baked overlay as a descriptor node so the normal
+            // YggSpineAutoWire pass assigns its SkeletonDataAsset (by spineName).
+            // Overlays are now PER REEL: <spinner>/Board/Fx/Reel_<r>/Anim_<sym>_<kind>.
+            const reelCount = normalizeSpinnerConfig(spinnerAsset?.spinner)?.grid?.reels || 0;
+            for (let r = 0; r < reelCount; r++) {
+              for (const b of animBindings) {
+                descriptorNodes.push({
+                  path: `${path}/Board/Fx/Reel_${r}/Anim_${b.symbolId}_${b.kind}`,
+                  kind: 'spine',
+                  layerId: layer.id,
+                  visible: true,
+                  spineData: b.spineName,
+                  spineSkin: '',
+                  spineAnim: '',
+                  spineLoop: false,
+                  spineHasCues: true
+                });
+              }
+            }
             spinnerData = {
               configJson: sc.configJson,
               clipsJson: JSON.stringify({ clips: sc.clips }),
               bindings,
+              animBindings,
               // Normalized config for prefab.js to bake the reel hierarchy
               // (grid, strips, initialBoard, direction).
               config: normalizeSpinnerConfig(spinnerAsset?.spinner)
@@ -383,7 +470,8 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           spineData: info.jsonBase || '',
           spineSkin: layer.spine?.skin || '',
           spineAnim: layer.spine?.defaultAnimation || '',
-          spineLoop: layer.spine?.loop !== false
+          spineLoop: layer.spine?.loop !== false,
+          spineHasCues
         });
 
         out.push({
@@ -398,6 +486,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           size,
           spriteGuid: info.spriteGuid || null,
           spine: layer.spine || null,
+          spineHasCues,
           spinner: spinnerData,
           children: buildNodes(tn.children, false, path, new Set())
         });
@@ -449,7 +538,8 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
         clipGuid: animItem.guid,
         descriptorGuid: descItem.guid,
         durationSeconds: duration,
-        spineCues
+        spineCues,
+        autoBuildTimeline: settings.autoBuildTimeline === true
       }
     });
     await pushItem(`${sceneFolder}/${sceneName}_${canvasName}.prefab`, prefabYaml, (g) => nativeMeta(g, 100100000));

@@ -6,7 +6,7 @@ import { SPINNER_ACTIONS } from '../engine/spinner/spinnerModel.js';
 const LABEL_COL_W = 140;
 
 // Spinner action progression for adjacent-add "+" buttons.
-const SPINNER_ACTION_SEQUENCE = ['startSpin', 'spin', 'stopSpin', 'holdResult'];
+const SPINNER_ACTION_SEQUENCE = ['startSpin', 'spin', 'stopSpin', 'presentWin', 'holdResult'];
 function nextSpinnerAction(currentAction) {
   const idx = SPINNER_ACTION_SEQUENCE.indexOf(currentAction);
   if (idx < 0 || idx >= SPINNER_ACTION_SEQUENCE.length - 1) return 'spin';
@@ -17,6 +17,7 @@ function nextSpinnerAction(currentAction) {
 function spinnerActionDuration(action) {
   if (action === 'startSpin') return 0.5;
   if (action === 'stopSpin')  return 0.8;
+  if (action === 'presentWin') return 1.0;
   if (action === 'holdResult') return 1.0;
   return 3.0; // spin
 }
@@ -1031,7 +1032,7 @@ const EDGE_GUARD_PX = 12;
 
 const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', tint: 'tint' };
 
-const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', holdResult: '#88a' };
+const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', presentWin: '#c5a', holdResult: '#88a' };
 
 function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, duration, siblings = [], pxPerSec, onSelect, onPatch, onRemove, snapTime, onAddLeft, onAddRight, selectedKey, onSelectKey, onMoveKey }) {
   const ref = useRef(null);

@@ -370,7 +370,10 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
       }));
   });
 
-  // Spine assets from the asset browser (for anim pickers)
+  // Spine assets from the asset browser (for anim pickers). MUST carry the
+  // atlas + texture paths (browser items expose atlasPath/texturePath, incl.
+  // the shared-atlas case) — otherwise a land/win anim picked here becomes a
+  // scene asset with no atlas/texture and exports "partially" / fails to import.
   const [browserSpinePool] = useState(() => {
     const existingSrcs = new Set(sceneSpineAssets.map((a) => a.src));
     return (assetItems || [])
@@ -379,6 +382,8 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
         id: uid('bsp'),
         type: 'spine',
         src: it.path || it.jsonPath,
+        atlas: it.atlasPath || it.atlas || null,
+        texture: it.texturePath || it.texture || null,
         meta: { originalName: it.name, _fromBrowser: true },
       }));
   });
@@ -864,6 +869,21 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
                               patchSymbol(i, { landAnim: { ...sym.landAnim, anim: e.target.value } });
                           }}
                         />
+                        <input
+                          className="spinner-sym-anim-name spinner-sym-anim-offset"
+                          type="number"
+                          step={0.05}
+                          title="Land anim timing offset (s): negative = before the land moment, positive = after"
+                          placeholder="+0s"
+                          style={{ width: 52 }}
+                          value={sym.landAnim?.offset ?? ''}
+                          onChange={(e) => {
+                            if (!sym.landAnim?.assetId) return;
+                            const raw = e.target.value;
+                            const n = raw === '' ? 0 : Number(raw);
+                            if (Number.isFinite(n)) patchSymbol(i, { landAnim: { ...sym.landAnim, offset: n } });
+                          }}
+                        />
                         <span className="spinner-sym-anim-label">win</span>
                         <select
                           className="spinner-sym-asset spinner-sym-asset--sm"
@@ -883,6 +903,21 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
                           onChange={(e) => {
                             if (sym.winAnim?.assetId)
                               patchSymbol(i, { winAnim: { ...sym.winAnim, anim: e.target.value } });
+                          }}
+                        />
+                        <input
+                          className="spinner-sym-anim-name spinner-sym-anim-offset"
+                          type="number"
+                          step={0.05}
+                          title="Win anim timing offset (s): negative = before the win moment, positive = after"
+                          placeholder="+0s"
+                          style={{ width: 52 }}
+                          value={sym.winAnim?.offset ?? ''}
+                          onChange={(e) => {
+                            if (!sym.winAnim?.assetId) return;
+                            const raw = e.target.value;
+                            const n = raw === '' ? 0 : Number(raw);
+                            if (Number.isFinite(n)) patchSymbol(i, { winAnim: { ...sym.winAnim, offset: n } });
                           }}
                         />
                       </div>

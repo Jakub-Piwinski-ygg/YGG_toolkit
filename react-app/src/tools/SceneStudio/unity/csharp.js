@@ -29,7 +29,15 @@ export const SCRIPT_PATHS = {
   timelineBuilder: 'Assets/YggSceneStudio/Editor/Timeline/YggSceneTimelineBuilder.cs',
   packageBootstrap: 'Assets/YggSceneStudio/Editor/YggPackageBootstrap.cs',
   spineAutoWire: 'Assets/YggSceneStudio/Editor/YggSpineAutoWire.cs',
+  // YggSpinnerTrack/Clip/Mixer are RUNTIME Timeline types (they reference
+  // Unity.Timeline) so they must live in a runtime — not editor — assembly,
+  // gated by YGG_HAS_TIMELINE exactly like the editor Timeline builder.
+  // YggSpinnerClip is a ScriptableObject (PlayableAsset) so it MUST be in its
+  // own same-named file or Unity can't resolve its MonoScript.
+  spinnerClip: 'Assets/YggSceneStudio/Runtime/Timeline/YggSpinnerClip.cs',
+  spinnerTrack: 'Assets/YggSceneStudio/Runtime/Timeline/YggSpinnerTrack.cs',
   runtimeAsmdef: 'Assets/YggSceneStudio/Runtime/Ygg.SceneStudio.Runtime.asmdef',
+  runtimeTimelineAsmdef: 'Assets/YggSceneStudio/Runtime/Timeline/Ygg.SceneStudio.Runtime.Timeline.asmdef',
   editorAsmdef: 'Assets/YggSceneStudio/Editor/Ygg.SceneStudio.Editor.asmdef',
   timelineAsmdef: 'Assets/YggSceneStudio/Editor/Timeline/Ygg.SceneStudio.Editor.Timeline.asmdef'
 };
@@ -168,14 +176,40 @@ export function editorAsmdefSource() {
   }, null, 2);
 }
 
+// Runtime assembly hosting the custom Timeline track/clip/mixer
+// (YggSpinnerTrack et al). TrackAsset/PlayableBehaviour are runtime types, so
+// — unlike the editor builder — this cannot be Editor-only. Gated on
+// YGG_HAS_TIMELINE so a project without com.unity.timeline simply omits the
+// track entirely (▶ Play still drives the spinner via YggScenePlayer).
+export function runtimeTimelineAsmdefSource() {
+  return JSON.stringify({
+    name: 'Ygg.SceneStudio.Runtime.Timeline',
+    rootNamespace: 'Ygg.SceneStudio',
+    references: ['Ygg.SceneStudio.Runtime', 'Unity.Timeline'],
+    includePlatforms: [],
+    excludePlatforms: [],
+    allowUnsafeCode: false,
+    overrideReferences: false,
+    precompiledReferences: [],
+    autoReferenced: true,
+    defineConstraints: ['YGG_HAS_TIMELINE'],
+    versionDefines: [
+      { name: 'com.unity.timeline', expression: '', define: 'YGG_HAS_TIMELINE' }
+    ],
+    noEngineReferences: false
+  }, null, 2);
+}
+
 export function timelineAsmdefSource() {
   // Compiled ONLY when com.unity.timeline is installed: the versionDefine
   // provides YGG_HAS_TIMELINE and the defineConstraint excludes the whole
   // assembly (reference checks included) when it is missing.
+  // References Runtime.Timeline so the builder can create YggSpinnerTrack
+  // clips with strongly-typed assets (both assemblies share the same gate).
   return JSON.stringify({
     name: 'Ygg.SceneStudio.Editor.Timeline',
     rootNamespace: 'Ygg.SceneStudio',
-    references: ['Ygg.SceneStudio.Runtime', 'Unity.Timeline'],
+    references: ['Ygg.SceneStudio.Runtime', 'Ygg.SceneStudio.Runtime.Timeline', 'Unity.Timeline'],
     includePlatforms: ['Editor'],
     excludePlatforms: [],
     allowUnsafeCode: false,
@@ -212,6 +246,21 @@ namespace Ygg.SceneStudio
         public bool loop = true;
         public float mixDuration = -1f;
         public int trackIndex;
+        // Spine Animation State clip parity (Unity export round 2, item #4).
+        public bool holdPrevious;
+        public bool useBlendDuration;
+        public float clipIn;
+        public float alpha = 1f;
+        // Parity round 2 (phase 3 §D).
+        public float easeIn;
+        public float easeOut;
+        public bool defaultMixDuration;
+        public bool dontPause;
+        public bool dontEnd;
+        public float clipEndMixOut;
+        public float eventThreshold;
+        public float attachmentThreshold;
+        public float drawOrderThreshold;
     }
 
     /// <summary>
@@ -230,6 +279,13 @@ namespace Ygg.SceneStudio
         /// Set by the Timeline builder once Spine Timeline tracks exist —
         /// the runtime cue fallback then steps aside to avoid double-firing.
         public bool spineCuesHandledByTimeline;
+        /// Set by the Timeline builder once a YggSpinnerTrack drives the
+        /// spinner — the runtime Evaluate loop then steps aside (the track's
+        /// mixer drives Evaluate, in edit-mode scrub and at runtime alike).
+        public bool spinnerHandledByTimeline;
+        /// Opt-in: when false (default) the editor never auto-builds a Timeline
+        /// for this prefab — the user presses "Build Unity Timeline" instead.
+        public bool autoBuildTimeline;
 
         bool playing;
         float elapsed;
@@ -309,8 +365,9 @@ namespace Ygg.SceneStudio
                 }
             }
 
-            foreach (var spinner in GetComponentsInChildren<YggSpinner>())
-                spinner.Evaluate(t);
+            if (!(directorDriven && spinnerHandledByTimeline))
+                foreach (var spinner in GetComponentsInChildren<YggSpinner>())
+                    spinner.Evaluate(t);
 
             if (t >= durationSeconds && !directorDriven) playing = false;
             if (directorDriven && director.state != PlayState.Playing && t > 0) playing = false;
@@ -334,10 +391,24 @@ namespace Ygg.SceneStudio
                 if (entry != null)
                 {
                     var entryType = entry.GetType();
-                    if (cue.mixDuration >= 0f)
-                        entryType.GetProperty("MixDuration")?.SetValue(entry, cue.mixDuration);
+                    // §F: default the mix to 0 (snap) unless the clip uses blend
+                    // duration — Spine's setup-pose default mix caused blend artifacts.
+                    if (!cue.useBlendDuration)
+                        entryType.GetProperty("MixDuration")?.SetValue(entry, cue.mixDuration >= 0f ? cue.mixDuration : 0f);
                     if (Math.Abs(cue.speed - 1f) > 1e-4f)
                         entryType.GetProperty("TimeScale")?.SetValue(entry, cue.speed);
+                    if (cue.holdPrevious)
+                        entryType.GetProperty("HoldPrevious")?.SetValue(entry, true);
+                    if (Math.Abs(cue.alpha - 1f) > 1e-4f)
+                        entryType.GetProperty("Alpha")?.SetValue(entry, cue.alpha);
+                    if (cue.clipIn > 0f)
+                        entryType.GetProperty("AnimationStart")?.SetValue(entry, cue.clipIn);
+                    if (cue.eventThreshold > 0f)
+                        entryType.GetProperty("EventThreshold")?.SetValue(entry, cue.eventThreshold);
+                    if (cue.attachmentThreshold > 0f)
+                        entryType.GetProperty("AttachmentThreshold")?.SetValue(entry, cue.attachmentThreshold);
+                    if (cue.drawOrderThreshold > 0f)
+                        entryType.GetProperty("DrawOrderThreshold")?.SetValue(entry, cue.drawOrderThreshold);
                 }
                 return;
             }
@@ -374,6 +445,7 @@ namespace Ygg.SceneStudio
             public string spineSkin;
             public string spineAnim;
             public bool spineLoop = true;
+            public bool spineHasCues;
         }
         [Serializable] public class Descriptor { public string variant; public List<DescriptorNode> nodes; }
 
@@ -462,14 +534,71 @@ namespace Ygg.SceneStudio
                 }
 
                 SetString(so, "initialSkinName", string.IsNullOrEmpty(node.spineSkin) ? "default" : node.spineSkin);
-                SetString(so, "startingAnimation", node.spineAnim);   // SkeletonGraphic
-                SetString(so, "_animationName", node.spineAnim);      // SkeletonAnimation
-                SetBool(so, "startingLoop", node.spineLoop);
-                SetBool(so, "loop", node.spineLoop);
+                // §E: timeline-driven layers get NO starting animation (the
+                // timeline / its "hold" clip drives them) so nothing auto-plays
+                // before the first clip or after scrubbing back.
+                string startAnim = node.spineHasCues ? "" : node.spineAnim;
+                bool startLoop = node.spineHasCues ? false : node.spineLoop;
+                SetString(so, "startingAnimation", startAnim);   // SkeletonGraphic
+                SetString(so, "_animationName", startAnim);      // SkeletonAnimation
+                SetBool(so, "startingLoop", startLoop);
+                SetBool(so, "loop", startLoop);
                 if (so.ApplyModifiedProperties()) changes++;
                 EditorUtility.SetDirty(spineComp);
             }
+
+            // §A3: assign SkeletonDataAsset on every YggSpinner's land/win overlay
+            // bindings by matching spineName (same name-resolution as nodes above).
+            changes += WireSpinnerOverlays(player, dataAssets, ref unresolved, interactive);
+
             if (interactive) Debug.Log($"[Ygg] Spine auto-wire done: {changes} change(s), {unresolved} unresolved.");
+            return changes;
+        }
+
+        /// Resolve a SkeletonDataAsset path for a spine base name (exact
+        /// "<name>_SkeletonData" first, else any asset starting with the name).
+        static string ResolveDataAssetPath(List<(string name, string path)> dataAssets, string spineName)
+        {
+            string want = spineName + "_SkeletonData";
+            string found = null;
+            foreach (var (name, p) in dataAssets)
+            {
+                if (string.Equals(name, want, StringComparison.OrdinalIgnoreCase)) return p;
+                if (found == null && name.StartsWith(spineName, StringComparison.OrdinalIgnoreCase)) found = p;
+            }
+            return found;
+        }
+
+        static int WireSpinnerOverlays(YggScenePlayer player, List<(string name, string path)> dataAssets, ref int unresolved, bool interactive)
+        {
+            int changes = 0;
+            foreach (var spinner in player.GetComponentsInChildren<YggSpinner>(true))
+            {
+                if (spinner.symbolAnimBindings == null) continue;
+                var so = new SerializedObject(spinner);
+                var arr = so.FindProperty("symbolAnimBindings");
+                if (arr == null) continue;
+                bool dirty = false;
+                for (int i = 0; i < arr.arraySize; i++)
+                {
+                    var el = arr.GetArrayElementAtIndex(i);
+                    var dataProp = el.FindPropertyRelative("skeletonDataAsset");
+                    var nameProp = el.FindPropertyRelative("spineName");
+                    if (dataProp == null || nameProp == null || dataProp.objectReferenceValue != null) continue;
+                    string spineName = nameProp.stringValue;
+                    if (string.IsNullOrEmpty(spineName)) continue;
+                    var path = ResolveDataAssetPath(dataAssets, spineName);
+                    if (path == null)
+                    {
+                        if (interactive) Debug.LogWarning($"[Ygg] spinner overlay: no SkeletonDataAsset for '{spineName}' yet.");
+                        unresolved++;
+                        continue;
+                    }
+                    dataProp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
+                    dirty = true;
+                }
+                if (dirty && so.ApplyModifiedProperties()) { changes++; EditorUtility.SetDirty(spinner); }
+            }
             return changes;
         }
 
@@ -694,6 +823,7 @@ namespace Ygg.SceneStudio
             }
 
             TryBuildSpineTracks(player, timeline, director, basePath.Replace('\\\\', '/'));
+            TryBuildSpinnerTrack(player, timeline, director);
 
             director.playableAsset = timeline;
             EditorUtility.SetDirty(timeline);
@@ -724,7 +854,10 @@ namespace Ygg.SceneStudio
             var refAssetType = Type.GetType("Spine.Unity.AnimationReferenceAsset, spine-unity");
             if (clipType == null || refAssetType == null || (graphicTrackType == null && animTrackType == null))
             {
-                Debug.Log("[Ygg] spine-timeline extension not found — spine cues stay on YggScenePlayer (runtime fallback). Install it via the Ygg bootstrap dialog or Package Manager.");
+                // Loud, actionable warning: this scene HAS spine cues but the
+                // timeline would be built without spine tracks. Better to flag
+                // it than silently produce a spine-less timeline.
+                Debug.LogWarning("[Ygg] This scene has Spine animation cues but the spine-timeline extension is NOT installed — the built Timeline will have NO spine tracks (spine cues fall back to YggScenePlayer at runtime only). Install spine-timeline (Ygg > Scene Studio > Install Required Packages, or Package Manager) and rebuild the Timeline to get real Spine Animation State tracks.");
                 player.spineCuesHandledByTimeline = false;
                 return;
             }
@@ -774,7 +907,22 @@ namespace Ygg.SceneStudio
                 if (tiProp != null) { tiProp.intValue = first.trackIndex; soTrack.ApplyModifiedProperties(); }
                 director.SetGenericBinding(track, spineComp);
 
-                foreach (var cue in group.OrderBy(c => c.start))
+                var ordered = group.OrderBy(c => c.start).ToList();
+
+                // §E: leading empty/"hold" clip. Without it, before the first real
+                // clip the track shows the skeleton's setup pose / starting anim,
+                // which scrubbing back re-triggers. An empty-reference clip clears
+                // the track to setup pose for [0, firstStart].
+                if (ordered.Count > 0 && ordered[0].start > 0.0001f)
+                {
+                    var hold = (TimelineClip)createClip.Invoke(track, null);
+                    hold.start = 0;
+                    hold.duration = ordered[0].start;
+                    hold.displayName = "hold";
+                    // no animationReference → empty animation (setup pose)
+                }
+
+                foreach (var cue in ordered)
                 {
                     var refAsset = EnsureReferenceAsset(refFolder, dataAsset, cue.animationName, refAssetType);
                     var clip = (TimelineClip)createClip.Invoke(track, null);
@@ -782,15 +930,22 @@ namespace Ygg.SceneStudio
                     clip.duration = Math.Max(0.05, cue.duration);
                     clip.displayName = cue.animationName;
                     if (Math.Abs(cue.speed - 1f) > 1e-4f) clip.timeScale = cue.speed;
+                    // §D1/§F: force the Timeline clip blend (ease) to the exact
+                    // requested value — ALWAYS, not just when > 0. When the user
+                    // wants no mix, easeIn/Out = 0 means there is no auto-blend for
+                    // "Use Blend Duration" to follow, so the mix is truly 0 even if
+                    // the spine clip keeps useBlendDuration ticked.
+                    clip.easeInDuration = cue.easeIn > 0f ? cue.easeIn : 0;
+                    clip.easeOutDuration = cue.easeOut > 0f ? cue.easeOut : 0;
 
                     var soClip = new SerializedObject(clip.asset);
                     SetRef(soClip, "template.animationReference", refAsset);
-                    SetBool(soClip, "template.loop", cue.loop);
-                    if (cue.mixDuration >= 0f)
-                    {
-                        SetFloat(soClip, "template.mixDuration", cue.mixDuration);
-                        SetBool(soClip, "template.useBlendDuration", false);
-                    }
+                    // Set every other template field by enumerating the clip's
+                    // ACTUAL serialized properties and matching by name keyword —
+                    // robust to spine-timeline version field-name differences (the
+                    // reason a hard-coded "template.useBlendDuration" silently failed
+                    // while "template.holdPrevious" worked).
+                    ApplySpineClipTemplate(soClip, cue);
                     soClip.ApplyModifiedProperties();
                 }
                 built++;
@@ -798,6 +953,63 @@ namespace Ygg.SceneStudio
 
             player.spineCuesHandledByTimeline = built > 0;
             if (built > 0) Debug.Log($"[Ygg] Built {built} Spine Timeline track(s); runtime cues disabled while the director drives playback.");
+        }
+
+        // ── Spinner control track ─────────────────────────────────────────
+        // Reads spinner action clips from the descriptor JSON and creates a
+        // YggSpinnerTrack per spinner (bound to its YggSpinner). The mixer
+        // drives Evaluate(t) so scrubbing the Timeline moves the reels.
+        [Serializable] class DescSpinnerClip {
+            public string action;
+            public float start, duration;
+            public SpinnerRow[] targetBoard;
+            public bool matchEntrySpeed;
+            public float[] perReelStartDelay, perReelStopDelay;
+            public float reelWinStagger;
+            public float[] perReelWinDelay;
+        }
+        [Serializable] class DescSpinnerCue { public string target; public DescSpinnerClip[] clips; }
+        [Serializable] class DescSpinnerCues { public DescSpinnerCue[] spinnerCues; }
+
+        static void TryBuildSpinnerTrack(YggScenePlayer player, TimelineAsset timeline, PlayableDirector director)
+        {
+            if (player.descriptor == null) return;
+            DescSpinnerCues desc;
+            try { desc = JsonUtility.FromJson<DescSpinnerCues>(player.descriptor.text); }
+            catch (Exception e) { Debug.LogWarning("[Ygg] descriptor spinnerCues parse failed: " + e.Message); return; }
+            if (desc == null || desc.spinnerCues == null || desc.spinnerCues.Length == 0) return;
+
+            int built = 0;
+            foreach (var cue in desc.spinnerCues)
+            {
+                if (cue.clips == null || cue.clips.Length == 0) continue;
+                var child = string.IsNullOrEmpty(cue.target) ? player.transform : player.transform.Find(cue.target);
+                if (child == null) { Debug.LogWarning($"[Ygg] spinner target not found: {cue.target}"); continue; }
+                var spinner = child.GetComponent<YggSpinner>();
+                if (spinner == null) { Debug.LogWarning($"[Ygg] no YggSpinner component on {cue.target} — cannot build spinner track."); continue; }
+
+                var track = timeline.CreateTrack<YggSpinnerTrack>(null, "Spinner: " + (string.IsNullOrEmpty(cue.target) ? "root" : cue.target));
+                director.SetGenericBinding(track, spinner);
+                foreach (var c in cue.clips)
+                {
+                    var tc = track.CreateClip<YggSpinnerClip>();
+                    tc.start = c.start;
+                    tc.duration = Math.Max(0.05, c.duration);
+                    tc.displayName = c.action;
+                    var asset = (YggSpinnerClip)tc.asset;
+                    asset.action = c.action;
+                    asset.targetBoard = c.targetBoard;
+                    asset.matchEntrySpeed = c.matchEntrySpeed;
+                    asset.perReelStartDelay = c.perReelStartDelay;
+                    asset.perReelStopDelay = c.perReelStopDelay;
+                    asset.reelWinStagger = c.reelWinStagger;
+                    asset.perReelWinDelay = c.perReelWinDelay;
+                    EditorUtility.SetDirty(asset);
+                }
+                built++;
+            }
+            player.spinnerHandledByTimeline = built > 0;
+            if (built > 0) Debug.Log($"[Ygg] Built {built} spinner Timeline track(s); runtime Evaluate loop steps aside while the director drives playback.");
         }
 
         /// AnimationReferenceAssets are how Spine Timeline clips reference an
@@ -823,6 +1035,50 @@ namespace Ygg.SceneStudio
         {
             var p = so.FindProperty(prop);
             if (p != null) p.objectReferenceValue = value;
+        }
+
+        /// Set the spine clip's template fields by walking its ACTUAL serialized
+        /// properties and matching on name keywords. Spine-timeline field names
+        /// vary across versions (a hard-coded path that's wrong silently no-ops,
+        /// which is exactly why "use blend duration" wasn't being cleared), so we
+        /// never hard-code them here. Booleans/floats only; the animation
+        /// reference is set by the caller.
+        static void ApplySpineClipTemplate(SerializedObject soClip, SpineCue cue)
+        {
+            var template = soClip.FindProperty("template");
+            if (template == null) return;
+            float mix = cue.mixDuration >= 0f ? cue.mixDuration : 0f;
+            var end = template.GetEndProperty();
+            var p = template.Copy();
+            bool enter = true;
+            while (p.NextVisible(enter) && !SerializedProperty.EqualContents(p, end))
+            {
+                enter = false;
+                string n = p.name.ToLowerInvariant();
+                if (p.propertyType == SerializedPropertyType.Boolean)
+                {
+                    if (n.Contains("useblend")) p.boolValue = cue.useBlendDuration;
+                    else if (n.Contains("holdprev")) p.boolValue = cue.holdPrevious;
+                    else if (n.Contains("dontpause")) p.boolValue = cue.dontPause;
+                    else if (n.Contains("dontend")) p.boolValue = cue.dontEnd;
+                    else if (n == "loop") p.boolValue = cue.loop;
+                    // "customDuration" = use a custom mix (the inverse of the
+                    // "Default Mix Duration" checkbox); "defaultmix*" = the checkbox itself.
+                    else if (n.Contains("customduration")) p.boolValue = !cue.defaultMixDuration;
+                    else if (n.Contains("defaultmix")) p.boolValue = cue.defaultMixDuration;
+                }
+                else if (p.propertyType == SerializedPropertyType.Float)
+                {
+                    // Order matters: match clip-end-mix-out BEFORE the bare mix.
+                    if (n.Contains("mixout") || n.Contains("endmix")) p.floatValue = cue.clipEndMixOut;
+                    else if (n.Contains("mixduration")) p.floatValue = mix;
+                    else if (n.Contains("eventthreshold")) p.floatValue = cue.eventThreshold;
+                    else if (n.Contains("attachmentthreshold")) p.floatValue = cue.attachmentThreshold;
+                    else if (n.Contains("draworderthreshold")) p.floatValue = cue.drawOrderThreshold;
+                    else if (n == "alpha") p.floatValue = cue.alpha;
+                    else if (n.Contains("clipin")) p.floatValue = cue.clipIn;
+                }
+            }
         }
 
         static void SetBool(SerializedObject so, string prop, bool value)
@@ -889,6 +1145,10 @@ namespace Ygg.SceneStudio
                     var go = AssetDatabase.LoadAssetAtPath<GameObject>(path);
                     var player = go != null ? go.GetComponentInChildren<YggScenePlayer>() : null;
                     if (player == null) continue;
+                    // Opt-in only: the default is to NOT auto-build (it surprised
+                    // users and could build a spine-less timeline). Build via the
+                    // inspector "Build Unity Timeline" button or set autoBuildTimeline.
+                    if (!player.autoBuildTimeline) continue;
                     var director = player.director != null ? player.director : player.GetComponent<PlayableDirector>();
                     if (director == null || director.playableAsset != null) continue;
                     // Spine cues need wired SkeletonDataAssets for real Spine
@@ -955,6 +1215,7 @@ export function spinnerSource() {
 // All nested string arrays use SpinnerRow so Unity JsonUtility can deserialise them.
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -962,8 +1223,21 @@ namespace Ygg.SceneStudio
 {
     [Serializable] public class SpinnerRow { public string[] cells; }
 
+    /// Land/win Spine overlay binding for one symbol (§A3). skeletonDataAsset is
+    /// assigned after import by YggSpineAutoWire (matched by spineName), so this
+    /// stays serialized-but-null until then. Driven at runtime via reflection so
+    /// the script compiles without spine-unity referenced.
     [Serializable]
-    public class SpinnerSymbolData { public string id, name, assetId, blurAssetId; }
+    public class SpinnerSymbolAnimBinding
+    {
+        public string symbolId, kind, spineName, anim;
+        public bool loop = true;
+        public float offset;
+        public UnityEngine.Object skeletonDataAsset;
+    }
+
+    [Serializable]
+    public class SpinnerSymbolData { public string id, name, assetId, blurAssetId; public float winDur, landDur; }
 
     [Serializable]
     public class SpinnerConfigData
@@ -981,7 +1255,7 @@ namespace Ygg.SceneStudio
         public float bounceAmplitude = 0.35f, bounceDurationFrac = 0.35f;
         public bool blurEnabled = true;
         public float blurVLo = 4f, blurVHi = 9f;
-        public float winDelay = 0.15f, landAnimDuration = 0.5f, winAnimDuration = 1f;
+        public float winDelay = 0.15f, landAnimDuration = 0.5f, winAnimDuration = 2f;
     }
 
     [Serializable]
@@ -992,6 +1266,9 @@ namespace Ygg.SceneStudio
         public SpinnerRow[] targetBoard;
         public bool matchEntrySpeed = true;
         public float[] perReelStartDelay, perReelStopDelay;
+        // §A presentWin: per-reel win cascade. 0 = simultaneous.
+        public float reelWinStagger;
+        public float[] perReelWinDelay;
 
         public string[][] GetBoard()
         {
@@ -1019,6 +1296,9 @@ namespace Ygg.SceneStudio
         [TextArea(2, 6)] public string configJson;
         [TextArea(2, 6)] public string clipsJson;
         public SpinnerSymbolBinding[] symbolBindings;
+        // §A3: per-symbol land/win Spine overlays (skeletonDataAsset wired by
+        // YggSpineAutoWire after import). Played in Fx when a cell lands/wins.
+        public SpinnerSymbolAnimBinding[] symbolAnimBindings;
         // World variant renders SpriteRenderer cells masked by per-reel
         // SpriteMasks; positions are divided by pixelsPerUnit. The UI variant
         // ignores all three fields.
@@ -1032,13 +1312,35 @@ namespace Ygg.SceneStudio
         float _W, _H, _pitchY;
         Transform _fxRoot;
 
+        // ── §C runtime result injection (programmer-facing) ───────────────
+        // The authoritative clip list (baked or pushed by the Timeline mixer)
+        // and an optional injected landing board that overrides the stopSpin
+        // target. Spin()/Spin(board) drive a spin→stop→present-win cycle on an
+        // internal clock without requiring a Timeline.
+        SpinnerClipData[] _clips;
+        string[][] _injectedBoard;
+        bool _runtimePlaying;
+        float _runtimeT, _runtimeTotal;
+
+        // ── Land/win Spine overlay pool (§A3) ─────────────────────────────
+        // One overlay component per (symbolId:kind), spawned under Fx at runtime
+        // via spine-unity reflection so this compiles without spine-unity. Play
+        // mode only (edit-mode scrub never instantiates). All reflection is
+        // wrapped so a spine API mismatch degrades to "no overlay", never a crash.
+        class Overlay { public GameObject go; public object state; public string anim; public bool loop; public float offset; }
+        Dictionary<string, Overlay> _overlays;
+        bool _overlaysBuilt;
+        // §3-followup: land/win overlays are baked PER REEL (Fx > Reel_r > Anim_*)
+        // so the same symbol can animate on several reels at once. Legacy prefabs
+        // (overlays directly under Fx) fall back to one-per-(symbol,kind).
+        bool _perReelFx;
+
         struct CellView
         {
             public Transform sTr, bTr;
             public Image staticImg, blurImg;        // ui
             public SpriteRenderer staticSr, blurSr; // world
             public string symId;
-            public float fitS, fitB;                // world: sprite-to-cell fit scale
         }
         List<CellView>[] _reelCells;
 
@@ -1054,9 +1356,130 @@ namespace Ygg.SceneStudio
             _pitchY = _cfg.cellH + _cfg.spacingY;
             _W = _cfg.reels * _cfg.cellW + (_cfg.reels - 1) * _cfg.spacingX;
             _H = _cfg.rows  * _cfg.cellH + (_cfg.rows - 1)  * _cfg.spacingY;
-            _resolved = ResolveTrack(_cfg, clips);
-            if (!_built && !BindBakedHierarchy()) BuildRuntime();
+            _clips = clips;
+            _resolved = ResolveTrack(_cfg, InjectBoard(clips));
+            // Bind the exporter-baked hierarchy (Find/GetComponent only — safe
+            // to run during edit-mode Timeline scrub). Only instantiate a fresh
+            // hierarchy at runtime: building GameObjects while scrubbing in the
+            // editor would dirty the scene/prefab.
+            if (!_built && !BindBakedHierarchy() && Application.isPlaying) BuildRuntime();
+            // Bind the baked land/win overlays (Find only — safe in edit mode too).
+            BuildOverlays();
             Evaluate(0f);
+        }
+
+        /// Re-resolve the spin track from an authoritative clip list. The
+        /// Timeline mixer calls this so action clips edited in the Timeline
+        /// window (not just the baked clipsJson) drive the reels.
+        public void SetClips(SpinnerClipData[] clips)
+        {
+            EnsureConfigured();
+            if (_cfg == null) return;
+            _clips = clips;
+            _resolved = ResolveTrack(_cfg, InjectBoard(clips));
+        }
+
+        // ── §C public runtime API ─────────────────────────────────────────
+        // Programmers inject the actual backend result + drive spins at runtime
+        // without the Timeline. The Timeline (when present) still drives the
+        // VISUAL via Evaluate; this injects the RESULT (which board lands/wins).
+
+        /// Override the landing board used by the next stop (replaces the baked
+        /// stopSpin targetBoard) and re-resolve so wins derive from this board.
+        /// Pass the real backend result here, then call Spin().
+        public void SetResultBoard(string[][] board)
+        {
+            _injectedBoard = board;
+            EnsureConfigured();
+            if (_cfg != null) _resolved = ResolveTrack(_cfg, InjectBoard(_clips));
+        }
+
+        /// Kick a spin → stop → present-win cycle on an internal clock. Uses the
+        /// last SetResultBoard() result if any (else a generated board).
+        public void Spin() { Spin(_injectedBoard); }
+
+        /// Kick a spin → stop → present-win cycle landing on the given board.
+        public void Spin(string[][] board)
+        {
+            EnsureConfigured();
+            if (_cfg == null) return;
+            if (board != null) _injectedBoard = board;
+            _clips = BuildDefaultCycle();
+            _resolved = ResolveTrack(_cfg, InjectBoard(_clips));
+            _runtimeT = 0f;
+            _runtimePlaying = true;
+            Evaluate(0f);
+        }
+
+        /// True while a runtime Spin() cycle is playing.
+        public bool IsSpinning => _runtimePlaying;
+
+        // Replace each stopSpin clip's target board with the injected result.
+        SpinnerClipData[] InjectBoard(SpinnerClipData[] clips)
+        {
+            if (_injectedBoard == null || clips == null) return clips;
+            var injected = RowsFromBoard(_injectedBoard);
+            var outp = new SpinnerClipData[clips.Length];
+            for (int i = 0; i < clips.Length; i++)
+            {
+                var c = clips[i];
+                if (c != null && c.action == "stopSpin")
+                    outp[i] = new SpinnerClipData
+                    {
+                        action = c.action, start = c.start, duration = c.duration,
+                        targetBoard = injected, matchEntrySpeed = c.matchEntrySpeed,
+                        perReelStartDelay = c.perReelStartDelay, perReelStopDelay = c.perReelStopDelay,
+                        reelWinStagger = c.reelWinStagger, perReelWinDelay = c.perReelWinDelay
+                    };
+                else outp[i] = c;
+            }
+            return outp;
+        }
+
+        static SpinnerRow[] RowsFromBoard(string[][] b)
+        {
+            if (b == null) return null;
+            var rows = new SpinnerRow[b.Length];
+            for (int r = 0; r < b.Length; r++) rows[r] = new SpinnerRow { cells = b[r] };
+            return rows;
+        }
+
+        // A self-contained spin cycle (no Timeline needed). Timing derives from
+        // the config; the injected board (if any) lands and its wins present.
+        SpinnerClipData[] BuildDefaultCycle()
+        {
+            const float spinSeconds = 1.0f;
+            float startDur = Mathf.Max(0.05f, _cfg.startDuration);
+            float spinStart = startDur;
+            float stopStart = startDur + spinSeconds;
+            // Longest land/win across symbols (real Spine length, fallback default)
+            // so the self-driven cycle plays every anim to its full length.
+            float maxLand = _cfg.landAnimDuration, maxWin = _cfg.winAnimDuration;
+            if (_cfg.symbols != null)
+                foreach (var s in _cfg.symbols)
+                {
+                    if (s == null) continue;
+                    if (s.landDur > maxLand) maxLand = s.landDur;
+                    if (s.winDur > maxWin) maxWin = s.winDur;
+                }
+            float stopSpan = (_cfg.reels - 1) * _cfg.reelStaggerStop + _cfg.stopDuration + maxLand;
+            float winStart = stopStart + stopSpan;
+            _runtimeTotal = winStart + maxWin;
+            return new[]
+            {
+                new SpinnerClipData { action = "startSpin", start = 0f, duration = startDur },
+                new SpinnerClipData { action = "spin", start = spinStart, duration = spinSeconds },
+                new SpinnerClipData { action = "stopSpin", start = stopStart, duration = stopSpan, matchEntrySpeed = true },
+                new SpinnerClipData { action = "presentWin", start = winStart, duration = maxWin }
+            };
+        }
+
+        void Update()
+        {
+            if (!_runtimePlaying) return;
+            _runtimeT += Time.deltaTime;
+            Evaluate(_runtimeT);
+            if (_runtimeT >= _runtimeTotal) _runtimePlaying = false;
         }
 
         /// Configure from the serialized prefab fields (idempotent).
@@ -1078,6 +1501,10 @@ namespace Ygg.SceneStudio
         {
             if (_cfg == null || !_built) return;
             var res = EvaluateInternal(_cfg, _resolved, t);
+            // Hide all land/win overlays; the cell loop re-shows the active ones.
+            if (_overlays != null)
+                foreach (var o in _overlays.Values)
+                    if (o != null && o.go != null && o.go.activeSelf) o.go.SetActive(false);
             for (int r = 0; r < _cfg.reels; r++)
             {
                 var reel = res[r];
@@ -1097,21 +1524,40 @@ namespace Ygg.SceneStudio
                             var blur = bind.blurSprite != null ? bind.blurSprite : bind.staticSprite;
                             if (worldVariant)
                             {
+                                // §B: native 1:1 — SpriteRenderer already renders at
+                                // the sprite's own ppu, so no fit scaling.
                                 if (cell.staticSr != null) cell.staticSr.sprite = bind.staticSprite;
                                 if (cell.blurSr != null) cell.blurSr.sprite = blur;
-                                cell.fitS = FitScale(bind.staticSprite);
-                                cell.fitB = FitScale(blur);
                             }
                             else
                             {
-                                if (cell.staticImg != null) cell.staticImg.sprite = bind.staticSprite;
-                                if (cell.blurImg != null) cell.blurImg.sprite = blur;
+                                // §B: resize the cell to the sprite's native px.
+                                if (cell.staticImg != null) { cell.staticImg.sprite = bind.staticSprite; SetNativeSize(cell.sTr, bind.staticSprite); }
+                                if (cell.blurImg != null) { cell.blurImg.sprite = blur; SetNativeSize(cell.bTr, blur); }
                             }
                         }
                         cell.symId = data.symbolId;
                     }
-                    var sCol = new Color(1, 1, 1, 1f - reel.blurMix);
-                    var bCol = new Color(1, 1, 1, reel.blurMix);
+                    // Drive the land/win Spine overlay first so we know whether it
+                    // is actually showing this frame (honours the timing offset).
+                    bool vis = data.gridRow >= 0 && data.gridRow < _cfg.rows;
+                    // The win/land window length is now per-symbol (the baked real
+                    // Spine duration), resolved inside EvaluateInternal — so the state
+                    // already spans the full anim. No runtime extension needed.
+                    var cellState = data.state;
+                    float cellStateT = data.stateT;
+                    bool overlayShowing = false;
+                    if (vis && _overlays != null && (cellState == CellState.Landing || cellState == CellState.Win))
+                    {
+                        float colX = r * (_cfg.cellW + _cfg.spacingX) - _W / 2f + _cfg.cellW / 2f;
+                        overlayShowing = DriveOverlay(r, data.symbolId, cellState == CellState.Win ? "win" : "land", colX, y, cellStateT);
+                    }
+                    // While the overlay plays, hide the static + blur behind it so
+                    // the symbol isn't visible underneath the animation.
+                    float sA = overlayShowing ? 0f : 1f - reel.blurMix;
+                    float bA = overlayShowing ? 0f : reel.blurMix;
+                    var sCol = new Color(1, 1, 1, sA);
+                    var bCol = new Color(1, 1, 1, bA);
                     if (worldVariant)
                     {
                         if (cell.staticSr != null) cell.staticSr.color = sCol;
@@ -1122,16 +1568,10 @@ namespace Ygg.SceneStudio
                         if (cell.staticImg != null) cell.staticImg.color = sCol;
                         if (cell.blurImg != null) cell.blurImg.color = bCol;
                     }
-                    float punch = 1f;
-                    if (data.state == CellState.Landing) {
-                        float p = Mathf.Min(1, data.stateT / _cfg.landAnimDuration);
-                        punch = 1 + 0.12f * Mathf.Sin(Mathf.PI * p);
-                    } else if (data.state == CellState.Win) {
-                        float p = Mathf.Min(1, data.stateT / _cfg.winAnimDuration);
-                        punch = 1 + 0.18f * Mathf.Sin(Mathf.PI * Mathf.Min(1, p*2)) * (1 - p*0.5f);
-                    }
-                    cell.sTr.localScale = Vector3.one * ((worldVariant ? cell.fitS : 1f) * punch);
-                    cell.bTr.localScale = Vector3.one * ((worldVariant ? cell.fitB : 1f) * punch);
+                    // No procedural scale-punch (removed per phase 3 §A1 — it was
+                    // unwanted). §B: native 1:1, no fit scale.
+                    cell.sTr.localScale = Vector3.one;
+                    cell.bTr.localScale = Vector3.one;
                     _reelCells[r][i] = cell;
                 }
             }
@@ -1144,10 +1584,13 @@ namespace Ygg.SceneStudio
             else tr.localPosition = new Vector3(tr.localPosition.x, yPx / Mathf.Max(1e-3f, pixelsPerUnit), 0);
         }
 
-        float FitScale(Sprite s)
+        // §B: render UI symbols at the sprite's native px (a 220px sprite stays
+        // 220px and overflows its cell; the single machine mask clips the window).
+        void SetNativeSize(Transform tr, Sprite s)
         {
-            if (s == null) return 1f;
-            return Mathf.Min(_cfg.cellW / Mathf.Max(1f, s.rect.width), _cfg.cellH / Mathf.Max(1f, s.rect.height));
+            var rt = tr as RectTransform;
+            if (rt == null || s == null) return;
+            rt.sizeDelta = new Vector2(s.rect.width, s.rect.height);
         }
 
         SpinnerSymbolBinding FindBinding(string id)
@@ -1155,6 +1598,108 @@ namespace Ygg.SceneStudio
             if (symbolBindings == null) return null;
             foreach (var b in symbolBindings) if (b != null && b.symbolId == id) return b;
             return null;
+        }
+
+        // ── Land/win Spine overlays (§A3) ─────────────────────────────────
+        // The exporter BAKES one Spine overlay GO per (symbol, kind) under Fx,
+        // named "Anim_<symbolId>_<kind>", with its SkeletonGraphic/SkeletonAnimation
+        // wired on import by YggSpineAutoWire. Here we just BIND them by name
+        // (Find + GetComponent — no instantiation, so this is safe in edit-mode
+        // scrub too) and drive them in Evaluate. Reflection on the spine component
+        // is wrapped so a missing/odd spine API disables overlays, never crashes.
+        void BuildOverlays()
+        {
+            if (_overlaysBuilt || symbolAnimBindings == null || symbolAnimBindings.Length == 0 || _fxRoot == null) return;
+            _overlaysBuilt = true;
+            _overlays = new Dictionary<string, Overlay>();
+            // Per-reel layout when Fx has Reel_* children; else legacy flat.
+            _perReelFx = _fxRoot.Find("Reel_0") != null;
+            int reelCount = _perReelFx ? _cfg.reels : 1;
+            for (int r = 0; r < reelCount; r++)
+            {
+                var parent = _perReelFx ? _fxRoot.Find("Reel_" + r) : _fxRoot;
+                if (parent == null) continue;
+                foreach (var b in symbolAnimBindings)
+                {
+                    if (b == null || string.IsNullOrEmpty(b.anim)) continue;
+                    string key = (_perReelFx ? r + ":" : "") + b.symbolId + ":" + b.kind;
+                    if (_overlays.ContainsKey(key)) continue;
+                    var tr = parent.Find("Anim_" + b.symbolId + "_" + b.kind);
+                    if (tr == null) continue; // legacy prefab without this overlay
+                    object state = null;
+                    foreach (var comp in tr.GetComponents<MonoBehaviour>())
+                    {
+                        if (comp == null) continue;
+                        var fn = comp.GetType().FullName;
+                        if (fn == "Spine.Unity.SkeletonGraphic" || fn == "Spine.Unity.SkeletonAnimation")
+                        {
+                            try { state = comp.GetType().GetProperty("AnimationState")?.GetValue(comp); }
+                            catch { state = null; }
+                            break;
+                        }
+                    }
+                    tr.gameObject.SetActive(false);
+                    _overlays[key] = new Overlay { go = tr.gameObject, state = state, anim = b.anim, loop = b.loop, offset = b.offset };
+                }
+            }
+        }
+
+        bool DriveOverlay(int reel, string symbolId, string kind, float colX, float yBoard, float stateT)
+        {
+            string key = (_perReelFx ? reel + ":" : "") + symbolId + ":" + kind;
+            if (_overlays == null || !_overlays.TryGetValue(key, out var ov) || ov == null || ov.go == null) return false;
+            float localT = stateT - ov.offset;
+            if (localT < 0f) return false; // offset not yet reached → overlay not shown
+            var tr = ov.go.transform;
+            // Per-reel overlays sit under their Reel_r (already at colX), so their
+            // local x is 0; legacy flat overlays are positioned at colX directly.
+            float ox = _perReelFx ? 0f : colX;
+            if (!worldVariant)
+            {
+                var rt = tr as RectTransform;
+                if (rt != null) rt.anchoredPosition = new Vector2(ox, yBoard);
+            }
+            else
+            {
+                tr.localPosition = new Vector3(ox / Mathf.Max(1e-3f, pixelsPerUnit), yBoard / Mathf.Max(1e-3f, pixelsPerUnit), 0);
+            }
+            if (!ov.go.activeSelf) ov.go.SetActive(true);
+            try
+            {
+                // AnimationState may have been null at bind time (component not yet
+                // initialized, e.g. edit mode) — resolve it lazily now.
+                if (ov.state == null)
+                {
+                    foreach (var comp in ov.go.GetComponents<MonoBehaviour>())
+                    {
+                        if (comp == null) continue;
+                        var fn = comp.GetType().FullName;
+                        if (fn == "Spine.Unity.SkeletonGraphic" || fn == "Spine.Unity.SkeletonAnimation")
+                        { ov.state = comp.GetType().GetProperty("AnimationState")?.GetValue(comp); break; }
+                    }
+                }
+                if (ov.state != null)
+                {
+                    var stateType = ov.state.GetType();
+                    var getCurrent = stateType.GetMethod("GetCurrent", new[] { typeof(int) });
+                    var track = getCurrent?.Invoke(ov.state, new object[] { 0 });
+                    string curName = null;
+                    if (track != null)
+                    {
+                        var animObj = track.GetType().GetProperty("Animation")?.GetValue(track);
+                        curName = animObj?.GetType().GetProperty("Name")?.GetValue(animObj) as string;
+                    }
+                    if (curName != ov.anim)
+                    {
+                        stateType.GetMethod("SetAnimation", new[] { typeof(int), typeof(string), typeof(bool) })
+                            ?.Invoke(ov.state, new object[] { 0, ov.anim, ov.loop });
+                        track = getCurrent?.Invoke(ov.state, new object[] { 0 });
+                    }
+                    track?.GetType().GetProperty("TrackTime")?.SetValue(track, localT);
+                }
+            }
+            catch { /* spine API mismatch — overlay shows its current pose */ }
+            return true;
         }
 
         // ── Hierarchy: bind the exporter-baked structure, or build it ─────
@@ -1172,8 +1717,11 @@ namespace Ygg.SceneStudio
         {
             var board = transform.Find("Board");
             if (board == null) return false;
-            var statics = board.Find("Statics");
-            var blurs = board.Find("Blurs");
+            // §B: Statics/Blurs live under a single "Mask" container now; fall
+            // back to the pre-§B layout (directly under Board) for legacy prefabs.
+            var mask = board.Find("Mask");
+            var statics = mask != null ? mask.Find("Statics") : board.Find("Statics");
+            var blurs = mask != null ? mask.Find("Blurs") : board.Find("Blurs");
             if (statics == null || blurs == null) return false; // legacy prefab
             _fxRoot = board.Find("Fx");
             _reelCells = new List<CellView>[_cfg.reels];
@@ -1188,7 +1736,7 @@ namespace Ygg.SceneStudio
                     {
                         sTr = EnsureCell(sReel, j, false, 0),
                         bTr = EnsureCell(bReel, j, true, 1),
-                        symId = null, fitS = 1f, fitB = 1f
+                        symId = null
                     };
                     v.staticImg = v.sTr.GetComponent<Image>();
                     v.blurImg = v.bTr.GetComponent<Image>();
@@ -1206,8 +1754,10 @@ namespace Ygg.SceneStudio
         void BuildRuntime()
         {
             var board = NewContainer(transform, "Board");
-            NewContainer(board, "Statics");
-            NewContainer(board, "Blurs");
+            // §B: ONE machine mask wraps Statics + Blurs; Fx stays outside it.
+            var mask = NewMaskContainer(board);
+            NewContainer(mask, "Statics");
+            NewContainer(mask, "Blurs");
             NewContainer(board, "Fx");
             BindBakedHierarchy();
         }
@@ -1226,6 +1776,34 @@ namespace Ygg.SceneStudio
             return go.transform;
         }
 
+        // §B: the single machine-sized clip. RectMask2D (W×H) for UI; one
+        // SpriteMask child scaled to the machine for world. Reels are NOT masked
+        // individually anymore, so symbols overflow into neighbours.
+        Transform NewMaskContainer(Transform parent)
+        {
+            var go = new GameObject("Mask");
+            go.transform.SetParent(parent, false);
+            if (!worldVariant)
+            {
+                var rt = go.AddComponent<RectTransform>();
+                rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(_W, _H);
+                rt.anchoredPosition = Vector2.zero;
+                go.AddComponent<RectMask2D>();
+            }
+            else if (maskSprite != null)
+            {
+                var maskGo = new GameObject("MaskSprite");
+                maskGo.transform.SetParent(go.transform, false);
+                var sm = maskGo.AddComponent<SpriteMask>();
+                sm.sprite = maskSprite;
+                maskGo.transform.localScale = new Vector3(
+                    _W / Mathf.Max(1f, maskSprite.rect.width),
+                    _H / Mathf.Max(1f, maskSprite.rect.height), 1);
+            }
+            return go.transform;
+        }
+
         Transform EnsureReel(Transform parent, int r)
         {
             var tr = parent.Find("Reel_" + r);
@@ -1239,21 +1817,10 @@ namespace Ygg.SceneStudio
                 rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
                 rt.sizeDelta = new Vector2(_cfg.cellW, _H);
                 rt.anchoredPosition = new Vector2(colX, 0);
-                go.AddComponent<RectMask2D>();
             }
             else
             {
                 go.transform.localPosition = new Vector3(colX / Mathf.Max(1e-3f, pixelsPerUnit), 0, 0);
-                if (maskSprite != null)
-                {
-                    var maskGo = new GameObject("Mask");
-                    maskGo.transform.SetParent(go.transform, false);
-                    var sm = maskGo.AddComponent<SpriteMask>();
-                    sm.sprite = maskSprite;
-                    maskGo.transform.localScale = new Vector3(
-                        _cfg.cellW / Mathf.Max(1f, maskSprite.rect.width),
-                        _H / Mathf.Max(1f, maskSprite.rect.height), 1);
-                }
             }
             return go.transform;
         }
@@ -1272,7 +1839,7 @@ namespace Ygg.SceneStudio
                 rt.sizeDelta = new Vector2(_cfg.cellW, _cfg.cellH);
                 rt.anchoredPosition = new Vector2(0, y);
                 var img = go.AddComponent<Image>();
-                img.preserveAspect = true;
+                img.preserveAspect = false; // §B: native size set on sprite swap
                 img.raycastTarget = false;
                 img.color = new Color(1, 1, 1, isBlur ? 0f : 1f);
             }
@@ -1318,7 +1885,7 @@ namespace Ygg.SceneStudio
             public string ease,easePos,bounceCurve;
             public float bounceAmplitude,bounceDurationFrac;
         }
-        struct StopInfo { public float[] landAt; public float winStartAt; public WinCell[] winCells; }
+        struct StopInfo { public float[] landAt; public float winStartAt; public float[] winStartByReel; public WinCell[] winCells; }
         struct WinCell  { public int reel,row; }
         class ResolvedTrack { public List<Segment>[] segments; public Dictionary<int,string>[] overlayAbs; public List<StopInfo> stops; }
 
@@ -1363,7 +1930,18 @@ namespace Ygg.SceneStudio
         static Segment SegAt(List<Segment> sl,float t){for(int i=sl.Count-1;i>=0;i--)if(t>=sl[i].t0)return sl[i];return sl.Count>0?sl[0]:default;}
         static string StripAt(SpinnerConfigData cfg,ResolvedTrack res,int r,int idx){
             if(res.overlayAbs[r].TryGetValue(idx,out var ov))return ov;
-            var cells=cfg.strips[r].cells;int L=cells.Length;return cells[((idx%L)+L)%L];
+            if(cfg.strips==null||r>=cfg.strips.Length||cfg.strips[r]?.cells==null)return null;
+            var cells=cfg.strips[r].cells;int L=cells.Length;if(L==0)return null;return cells[((idx%L)+L)%L];
+        }
+        // Per-symbol win/land anim length (seconds). Prefer the baked real Spine
+        // duration; fall back to the config default when 0 (unknown). Pure.
+        static float WinDurFor(SpinnerConfigData cfg,string sid){
+            if(cfg.symbols!=null&&sid!=null)foreach(var s in cfg.symbols)if(s!=null&&s.id==sid)return s.winDur>0f?s.winDur:cfg.winAnimDuration;
+            return cfg.winAnimDuration;
+        }
+        static float LandDurFor(SpinnerConfigData cfg,string sid){
+            if(cfg.symbols!=null&&sid!=null)foreach(var s in cfg.symbols)if(s!=null&&s.id==sid)return s.landDur>0f?s.landDur:cfg.landAnimDuration;
+            return cfg.landAnimDuration;
         }
         static ReelResult[] EvaluateInternal(SpinnerConfigData cfg,ResolvedTrack res,float t){
             int R=cfg.reels,rows=cfg.rows;var out2=new ReelResult[R];const float EPS=1e-6f;
@@ -1378,9 +1956,13 @@ namespace Ygg.SceneStudio
                     int sr=cfg.direction==1?rows-1-j:j;string sid=StripAt(cfg,res,r,bi+sr);
                     var state=speed>EPS?CellState.Spinning:CellState.Idle;float stT=0;
                     if(speed<=EPS&&stop.HasValue&&j>=0&&j<rows){
-                        var st=stop.Value;bool inWin=t>=st.winStartAt&&t<st.winStartAt+cfg.winAnimDuration&&Array.Exists(st.winCells,c=>c.reel==r&&c.row==j);
-                        if(inWin){state=CellState.Win;stT=t-st.winStartAt;}
-                        else if(t<st.landAt[r]+cfg.landAnimDuration){state=CellState.Landing;stT=t-st.landAt[r];}
+                        var st=stop.Value;float ws=st.winStartByReel!=null&&r<st.winStartByReel.Length?st.winStartByReel[r]:st.winStartAt;
+                        // Window length is the WINNING SYMBOL's real anim length (fallback
+                        // cfg.*AnimDuration when unknown), so each win/land plays in full.
+                        float winLen=WinDurFor(cfg,sid),landLen=LandDurFor(cfg,sid);
+                        bool inWin=t>=ws&&t<ws+winLen&&Array.Exists(st.winCells,c=>c.reel==r&&c.row==j);
+                        if(inWin){state=CellState.Win;stT=t-ws;}
+                        else if(t<st.landAt[r]+landLen){state=CellState.Landing;stT=t-st.landAt[r];}
                     }
                     cells[j+1]=new CellResult{gridRow=j,symbolId=sid,state=state,stateT=stT};
                 }
@@ -1395,7 +1977,7 @@ namespace Ygg.SceneStudio
             var st=new (float s,float v,float t)[R];
             int rowOff(int j)=>cfg.direction==1?rows-1-j:j;
             if(cfg.initialBoard!=null)
-                for(int r=0;r<R;r++)
+                for(int r=0;r<R&&r<cfg.initialBoard.Length;r++)
                     for(int j=0;j<rows;j++)
                         if(cfg.initialBoard[r]?.cells!=null&&j<cfg.initialBoard[r].cells.Length)
                             ov[r][rowOff(j)]=cfg.initialBoard[r].cells[j];
@@ -1425,13 +2007,19 @@ namespace Ygg.SceneStudio
                         else{float sl0=EntrySlope(cfg.stopEase);float dRaw=v0*cfg.stopDuration/sl0;sFinal=Mathf.Max(Mathf.Ceil(s.s+dRaw),Mathf.Ceil(s.s)+minC);dsEff=clip.matchEntrySpeed?(sFinal-s.s)*sl0/v0:cfg.stopDuration;}
                         PushDecel(segs[r],ref s,sFinal-s.s,dsEff,cfg.stopEase,cfg.bounceCurve,cfg.bounceAmplitude,cfg.bounceDurationFrac);
                         s.s=sFinal;
-                        if(target!=null)for(int j=0;j<rows;j++)if(target[r]!=null&&j<target[r].Length)ov[r][(int)sFinal+rowOff(j)]=target[r][j];
+                        if(target!=null&&r<target.Length)for(int j=0;j<rows;j++)if(target[r]!=null&&j<target[r].Length)ov[r][(int)sFinal+rowOff(j)]=target[r][j];
                         landAt[r]=s.t;PushConst(segs[r],ref s,tB);
                     }else{s.v=0;PushConst(segs[r],ref s,tB);}
                 }
                 if(clip.action=="stopSpin"&&target!=null){
                     float allLand=float.NegativeInfinity;foreach(var la in landAt)if(la>allLand)allLand=la;
-                    stops.Add(new StopInfo{landAt=landAt,winStartAt=allLand+cfg.winDelay,winCells=EvalWaysWins(target,R,rows)});
+                    float autoWin=allLand+cfg.winDelay;var wsr=new float[R];for(int i=0;i<R;i++)wsr[i]=autoWin;
+                    stops.Add(new StopInfo{landAt=landAt,winStartAt=autoWin,winStartByReel=wsr,winCells=EvalWaysWins(target,R,rows)});
+                }else if(clip.action=="presentWin"&&stops.Count>0){
+                    // §A: bind the win to this clip's start (per-reel stagger), overriding the auto winDelay.
+                    var stop=stops[stops.Count-1];float stagger=clip.reelWinStagger;float minW=float.PositiveInfinity;
+                    for(int r=0;r<R;r++){float d=clip.perReelWinDelay!=null&&r<clip.perReelWinDelay.Length?clip.perReelWinDelay[r]:r*stagger;stop.winStartByReel[r]=clip.start+d;if(stop.winStartByReel[r]<minW)minW=stop.winStartByReel[r];}
+                    stop.winStartAt=minW;stops[stops.Count-1]=stop;
                 }
             }
             for(int r=0;r<R;r++)PushConst(segs[r],ref st[r],float.PositiveInfinity);
@@ -1448,13 +2036,177 @@ namespace Ygg.SceneStudio
         static WinCell[] EvalWaysWins(string[][] b,int R,int rows){
             if(b==null)return Array.Empty<WinCell>();
             var res=new List<WinCell>();var seen=new HashSet<string>();
-            for(int r=0;r<R;r++)if(b[r]!=null)foreach(var s in b[r])seen.Add(s);
+            for(int r=0;r<R&&r<b.Length;r++)if(b[r]!=null)foreach(var s in b[r])seen.Add(s);
             foreach(var sym in seen){
-                int streak=0;for(int r=0;r<R;r++){bool f=false;if(b[r]!=null)foreach(var s in b[r])if(s==sym){f=true;break;}if(f)streak++;else break;}
+                int streak=0;for(int r=0;r<R;r++){bool f=false;if(r<b.Length&&b[r]!=null)foreach(var s in b[r])if(s==sym){f=true;break;}if(f)streak++;else break;}
                 if(streak<WAYS_MIN)continue;
                 for(int r=0;r<streak;r++)if(b[r]!=null)for(int j=0;j<b[r].Length;j++)if(b[r][j]==sym)res.Add(new WinCell{reel=r,row=j});
             }
             return res.ToArray();
+        }
+    }
+}
+`;
+}
+
+/**
+ * YggSpinnerClip — the per-action Timeline clip asset. MUST be its own file
+ * named YggSpinnerClip.cs: it derives from PlayableAsset (a ScriptableObject),
+ * and Unity only resolves a MonoScript for ScriptableObject/MonoBehaviour types
+ * when the class lives in a same-named file. Sharing a file with the track gives
+ * "No script asset for YggSpinnerClip" and the serialized clip deserializes
+ * empty (which then crashes ResolveTrack with malformed boards).
+ */
+export function yggSpinnerClipSource() {
+  return `// Auto-generated by YGG Toolkit Scene Studio.
+// Timeline clip asset for the spinner track. Runtime assembly, gated on
+// YGG_HAS_TIMELINE. Keep this type ALONE in YggSpinnerClip.cs (Unity requires
+// ScriptableObject-derived assets to live in a same-named file).
+using System;
+using UnityEngine;
+using UnityEngine.Playables;
+using UnityEngine.Timeline;
+
+namespace Ygg.SceneStudio
+{
+    // Per-clip data carrier. Timing (start/duration) comes from the owning
+    // TimelineClip, read by the track when it builds the mixer.
+    [Serializable]
+    public class YggSpinnerClip : PlayableAsset, ITimelineClipAsset
+    {
+        [Tooltip("startSpin | spin | stopSpin | holdResult")]
+        public string action = "spin";
+        public SpinnerRow[] targetBoard;       // stopSpin: landing board
+        public bool matchEntrySpeed = true;
+        public float[] perReelStartDelay;
+        public float[] perReelStopDelay;
+        // §A presentWin.
+        public float reelWinStagger;
+        public float[] perReelWinDelay;
+
+        public ClipCaps clipCaps { get { return ClipCaps.None; } }
+
+        public override Playable CreatePlayable(PlayableGraph graph, GameObject owner)
+        {
+            return ScriptPlayable<YggSpinnerClipBehaviour>.Create(graph);
+        }
+    }
+
+    public class YggSpinnerClipBehaviour : PlayableBehaviour { }
+}
+`;
+}
+
+/**
+ * YggSpinnerTrack + mixer. Lives in the gated RUNTIME Timeline assembly
+ * (TrackAsset/PlayableBehaviour are runtime types). One clip per spin action;
+ * the mixer rebuilds the spinner's resolved track from the clips and calls
+ * Evaluate(timelineTime) every frame — so scrubbing the Timeline window moves
+ * the reels in edit mode, exactly like Spine's track. (YggSpinnerClip lives in
+ * its own file — see yggSpinnerClipSource.)
+ */
+export function yggSpinnerTrackSource() {
+  return `// Auto-generated by YGG Toolkit Scene Studio.
+// Custom Timeline track + mixer driving a YggSpinner. Runtime assembly,
+// gated on YGG_HAS_TIMELINE (Unity.Timeline must be installed).
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Playables;
+using UnityEngine.Timeline;
+
+namespace Ygg.SceneStudio
+{
+    [TrackColor(0.86f, 0.62f, 0.16f)]
+    [TrackClipType(typeof(YggSpinnerClip))]
+    [TrackBindingType(typeof(YggSpinner))]
+    public class YggSpinnerTrack : TrackAsset
+    {
+        public override Playable CreateTrackMixer(PlayableGraph graph, GameObject go, int inputCount)
+        {
+            var mixer = ScriptPlayable<YggSpinnerMixerBehaviour>.Create(graph, inputCount);
+            var beh = mixer.GetBehaviour();
+            var infos = new List<YggSpinnerMixerBehaviour.ClipInfo>();
+            foreach (var clip in GetClips())
+            {
+                var asset = clip.asset as YggSpinnerClip;
+                if (asset == null) continue;
+                infos.Add(new YggSpinnerMixerBehaviour.ClipInfo
+                {
+                    action = asset.action,
+                    start = (float)clip.start,
+                    duration = (float)clip.duration,
+                    targetBoard = asset.targetBoard,
+                    matchEntrySpeed = asset.matchEntrySpeed,
+                    perReelStartDelay = asset.perReelStartDelay,
+                    perReelStopDelay = asset.perReelStopDelay,
+                    reelWinStagger = asset.reelWinStagger,
+                    perReelWinDelay = asset.perReelWinDelay
+                });
+            }
+            beh.clips = infos.ToArray();
+            return mixer;
+        }
+    }
+
+    public class YggSpinnerMixerBehaviour : PlayableBehaviour
+    {
+        [Serializable]
+        public struct ClipInfo
+        {
+            public string action;
+            public float start, duration;
+            public SpinnerRow[] targetBoard;
+            public bool matchEntrySpeed;
+            public float[] perReelStartDelay, perReelStopDelay;
+            public float reelWinStagger;
+            public float[] perReelWinDelay;
+        }
+
+        public ClipInfo[] clips;
+        bool _applied;
+        YggSpinner _bound;
+
+        public override void ProcessFrame(Playable playable, FrameData info, object playerData)
+        {
+            var spinner = playerData as YggSpinner;
+            if (spinner == null) return;
+            spinner.EnsureConfigured();
+            // Push the track's clips into the spinner once (and whenever the
+            // graph rebuilds — Timeline does that on any clip edit), then just
+            // evaluate at the current sequence time every frame/scrub.
+            if (!_applied || _bound != spinner)
+            {
+                spinner.SetClips(ToClipData());
+                _applied = true;
+                _bound = spinner;
+            }
+            spinner.Evaluate((float)playable.GetTime());
+        }
+
+        public override void OnPlayableDestroy(Playable playable) { _applied = false; }
+
+        SpinnerClipData[] ToClipData()
+        {
+            if (clips == null) return Array.Empty<SpinnerClipData>();
+            var outp = new SpinnerClipData[clips.Length];
+            for (int i = 0; i < clips.Length; i++)
+            {
+                var c = clips[i];
+                outp[i] = new SpinnerClipData
+                {
+                    action = c.action,
+                    start = c.start,
+                    duration = c.duration,
+                    targetBoard = c.targetBoard,
+                    matchEntrySpeed = c.matchEntrySpeed,
+                    perReelStartDelay = c.perReelStartDelay,
+                    perReelStopDelay = c.perReelStopDelay,
+                    reelWinStagger = c.reelWinStagger,
+                    perReelWinDelay = c.perReelWinDelay
+                };
+            }
+            return outp;
         }
     }
 }

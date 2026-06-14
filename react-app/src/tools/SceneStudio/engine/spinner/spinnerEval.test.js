@@ -11,6 +11,7 @@ import {
   boardHasWin,
   generateNonWinningBoard,
   generateWinningBoard,
+  spinnerPresentWinDuration,
   mulberry32
 } from './spinnerModel.js';
 import {
@@ -265,6 +266,154 @@ test('landing state plays per reel as it stops', () => {
   assert.equal(r0.state, 'landing');
   const r4 = res.reels[4].cells.find((c) => c.gridRow === 0);
   assert.equal(r4.state, 'spinning');
+});
+
+// ── Present-win clip (§A) ──────────────────────────────────────────────
+
+/** standard track + a presentWin clip placed after the stop. */
+function trackWithPresentWin(stopExtra, presentExtra, presentStart = 6.0) {
+  return {
+    clips: [
+      clip('c1', 0.5, 0.5, 'startSpin'),
+      clip('c2', 1.0, 2.0, 'spin'),
+      clip('c3', 3.0, 2.0, 'stopSpin', stopExtra || {}),
+      clip('c4', presentStart, 1.5, 'presentWin', presentExtra || {})
+    ]
+  };
+}
+
+test('presentWin clip drives win timing from its start, not the auto winDelay', () => {
+  const cfg = makeConfig();
+  const target = generateWinningBoard(SYMS, 5, 3, 99);
+  const resolved = resolveSpinnerTrack(cfg, trackWithPresentWin({ targetBoard: target }, {}, 6.0));
+  const stop = resolved.stops[0];
+  assert.equal(stop.winExplicit, true, 'win is author-driven');
+  // No win before the presentWin clip starts, even though reels landed earlier.
+  const before = evaluateSpinner(cfg, resolved, stop.allLandedAt + 0.2);
+  for (const wc of stop.winCells) {
+    const cell = before.reels[wc.reel].cells.find((c) => c.gridRow === wc.row);
+    assert.notEqual(cell.state, 'win', `no early win r${wc.reel} j${wc.row}`);
+  }
+  // Win plays right after the presentWin clip start (stagger 0 → all at once).
+  const at = evaluateSpinner(cfg, resolved, 6.0 + 0.1);
+  for (const wc of stop.winCells) {
+    const cell = at.reels[wc.reel].cells.find((c) => c.gridRow === wc.row);
+    assert.equal(cell.state, 'win', `win plays r${wc.reel} j${wc.row}`);
+    assert.ok(Math.abs(cell.stateT - 0.1) < 1e-9);
+  }
+});
+
+test('presentWin reelWinStagger cascades the win reel-by-reel', () => {
+  const cfg = makeConfig();
+  const target = generateWinningBoard(SYMS, 5, 3, 99);
+  const resolved = resolveSpinnerTrack(cfg,
+    trackWithPresentWin({ targetBoard: target }, { reelWinStagger: 0.25 }, 6.0));
+  const stop = resolved.stops[0];
+  // reel of the lowest index winning cell starts at 6.0; higher reels later.
+  for (let r = 0; r < cfg.grid.reels; r++) {
+    assert.ok(Math.abs(stop.winStartByReel[r] - (6.0 + r * 0.25)) < 1e-9, `reel ${r} win start`);
+  }
+  // At 6.1: reel 0 winning, reel 1 (start 6.25) not yet.
+  const res = evaluateSpinner(cfg, resolved, 6.1);
+  const win0 = stop.winCells.filter((c) => c.reel === 0);
+  const win1 = stop.winCells.filter((c) => c.reel === 1);
+  if (win0.length) assert.equal(res.reels[0].cells.find((c) => c.gridRow === win0[0].row).state, 'win');
+  if (win1.length) assert.notEqual(res.reels[1].cells.find((c) => c.gridRow === win1[0].row).state, 'win');
+});
+
+test('no presentWin clip → auto win fallback unchanged', () => {
+  const cfg = makeConfig();
+  const target = generateWinningBoard(SYMS, 5, 3, 99);
+  const resolved = resolveSpinnerTrack(cfg, standardTrack({ stop: { targetBoard: target } }));
+  const stop = resolved.stops[0];
+  assert.equal(stop.winExplicit, false);
+  assert.ok(stop.winStartByReel.every((w) => Math.abs(w - stop.winStartAt) < 1e-12));
+});
+
+// ── Per-symbol win/land durations (real Spine length, no fixed cutoff) ──
+
+/** Config whose winning symbol carries a specific win/land anim duration. */
+function makeDurConfig(winningId, winDur, landDur = 0.5) {
+  return normalizeSpinnerConfig({
+    symbols: SYMS.map((id) => ({
+      id,
+      winAnim: id === winningId
+        ? { kind: 'spine', assetId: 'sk', anim: 'win', loop: false, duration: winDur }
+        : null,
+      landAnim: { kind: 'spine', assetId: 'sk', anim: 'land', loop: false, duration: landDur }
+    })),
+    grid: { reels: 5, rows: 3, cellW: 200, cellH: 200 },
+    seed: 1234,
+    events: { winDelay: 0.15, landAnimDuration: 0.5, winAnimDuration: 2.0 }
+  });
+}
+
+test('normalizeSymbol preserves a numeric anim duration', () => {
+  const cfg = makeDurConfig('a', 3);
+  const sym = cfg.symbols.find((s) => s.id === 'a');
+  assert.equal(sym.winAnim.duration, 3);
+  assert.equal(sym.landAnim.duration, 0.5);
+});
+
+test('win window uses the winning symbol real duration (3s plays for 3s, not the default)', () => {
+  // Force a winning board where the winning symbol is "a" with a 3s win anim.
+  const cfg = makeDurConfig('a', 3);
+  const target = [
+    ['a', 'b', 'c'], ['d', 'a', 'e'], ['f', 'e', 'a'], ['b', 'c', 'd'], ['e', 'f', 'b']
+  ];
+  const resolved = resolveSpinnerTrack(cfg, standardTrack({ stop: { targetBoard: target } }));
+  const stop = resolved.stops[0];
+  assert.equal(stop.winCells.length, 3, 'symbol a wins on reels 0,1,2');
+  const wc = stop.winCells[0];
+  const ws = stop.winStartByReel[wc.reel];
+  // Still in 'win' at 2.5s (would have cut at the old 1s/2s default).
+  const mid = evaluateSpinner(cfg, resolved, ws + 2.5).reels[wc.reel].cells.find((c) => c.gridRow === wc.row);
+  assert.equal(mid.state, 'win', 'still winning at 2.5s');
+  // Past the real 3s length → no longer 'win'.
+  const after = evaluateSpinner(cfg, resolved, ws + 3.01).reels[wc.reel].cells.find((c) => c.gridRow === wc.row);
+  assert.notEqual(after.state, 'win', 'win ended at its real 3s length');
+});
+
+test('a 1s-win symbol stops at 1s while a 3s-win symbol keeps playing', () => {
+  const cfgShort = makeDurConfig('a', 1);
+  const target = [
+    ['a', 'b', 'c'], ['d', 'a', 'e'], ['f', 'e', 'a'], ['b', 'c', 'd'], ['e', 'f', 'b']
+  ];
+  const resolved = resolveSpinnerTrack(cfgShort, standardTrack({ stop: { targetBoard: target } }));
+  const wc = resolved.stops[0].winCells[0];
+  const ws = resolved.stops[0].winStartByReel[wc.reel];
+  const at12 = evaluateSpinner(cfgShort, resolved, ws + 1.2).reels[wc.reel].cells.find((c) => c.gridRow === wc.row);
+  assert.notEqual(at12.state, 'win', '1s win has ended by 1.2s');
+});
+
+test('unknown duration (0) falls back to events.winAnimDuration', () => {
+  const cfg = makeDurConfig('a', 0); // 0 → unknown
+  const target = [
+    ['a', 'b', 'c'], ['d', 'a', 'e'], ['f', 'e', 'a'], ['b', 'c', 'd'], ['e', 'f', 'b']
+  ];
+  const resolved = resolveSpinnerTrack(cfg, standardTrack({ stop: { targetBoard: target } }));
+  const wc = resolved.stops[0].winCells[0];
+  const ws = resolved.stops[0].winStartByReel[wc.reel];
+  // Within the 2s fallback → win; past it → not.
+  assert.equal(evaluateSpinner(cfg, resolved, ws + 1.5).reels[wc.reel].cells.find((c) => c.gridRow === wc.row).state, 'win');
+  assert.notEqual(evaluateSpinner(cfg, resolved, ws + 2.5).reels[wc.reel].cells.find((c) => c.gridRow === wc.row).state, 'win');
+});
+
+test('spinnerPresentWinDuration = maxReelDelay + longest win across mixed-length symbols', () => {
+  const cfg = normalizeSpinnerConfig({
+    symbols: [
+      { id: 'a', winAnim: { kind: 'spine', assetId: 'sk', anim: 'w', loop: false, duration: 1 } },
+      { id: 'b', winAnim: { kind: 'spine', assetId: 'sk', anim: 'w', loop: false, duration: 3 } },
+      { id: 'c' }
+    ],
+    grid: { reels: 5, rows: 3, cellW: 200, cellH: 200 },
+    seed: 7,
+    events: { winDelay: 0.15, landAnimDuration: 0.5, winAnimDuration: 2.0 }
+  });
+  // stagger 0.25 over 5 reels → maxReelDelay = 4*0.25 = 1.0; longest win = 3.
+  assert.ok(Math.abs(spinnerPresentWinDuration(cfg, 0.25) - (1.0 + 3)) < 1e-9);
+  // With no stagger the duration is just the longest win.
+  assert.ok(Math.abs(spinnerPresentWinDuration(cfg, 0) - 3) < 1e-9);
 });
 
 // ── Initial state & blur ───────────────────────────────────────────────
