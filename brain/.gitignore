@@ -1,0 +1,6 @@
+# Per-user Obsidian UI state — not shared
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/graph.json
+.obsidian/hotkeys.json
+.trash/

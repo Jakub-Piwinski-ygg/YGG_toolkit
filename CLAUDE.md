@@ -4,6 +4,11 @@ Internal browser-based toolkit for Yggdrasil Gaming artists. Provides image
 processing (ImageMagick WASM), asset browsing (GitHub / self-hosted GitLab), and
 slot-game preview utilities.
 
+> 📁 **Knowledge base (Obsidian vault)**: `brain/Home.md` — linked notes for every
+> tool, the architecture, design docs, backlog ([[Tool Review]]), and session
+> changelogs. The `brain/00-Maps/Tools.base` view is derived from `registry.js`
+> (the single source of truth) — there are **20** tools across 4 categories, not 19.
+
 **Two versions coexist**:
 1. **Original (`index.html`)**: Single ~4100-line HTML file, zero dependencies, runs
    from `file://`. Legacy reference during React port.

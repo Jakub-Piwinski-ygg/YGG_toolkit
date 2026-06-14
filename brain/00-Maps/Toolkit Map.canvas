@@ -1,0 +1,29 @@
+{
+  "nodes": [
+    { "id": "a1b2c3d4e5f60001", "type": "file", "file": "Home.md", "x": 0, "y": 0, "width": 320, "height": 180, "color": "6" },
+    { "id": "a1b2c3d4e5f60002", "type": "file", "file": "00-Maps/Architecture.md", "x": -480, "y": -280, "width": 300, "height": 140, "color": "5" },
+    { "id": "a1b2c3d4e5f60003", "type": "text", "x": -480, "y": -60, "width": 300, "height": 150, "text": "## 🗃️ Tools.base\n\nLive database of all **20** tools, grouped by category. Derived from `registry.js`.\n\n`00-Maps/Tools.base`", "color": "5" },
+    { "id": "a1b2c3d4e5f60004", "type": "file", "file": "40-Backlog/Tool Review.md", "x": -480, "y": 160, "width": 300, "height": 140, "color": "2" },
+    { "id": "a1b2c3d4e5f60005", "type": "file", "file": "60-Meta/Agent Skills.md", "x": -480, "y": 360, "width": 300, "height": 120, "color": "4" },
+    { "id": "a1b2c3d4e5f60010", "type": "text", "x": 520, "y": -420, "width": 300, "height": 120, "text": "## 🎨 Art Tools (12)\n\nCrop · Scaler · Converter · Blur · Gaussian Blur · RGBA Mask · Grey→Alpha · Gradient Map · Outline · Atlas Packer · Paylines · Font Preview", "color": "1" },
+    { "id": "a1b2c3d4e5f60011", "type": "text", "x": 520, "y": -260, "width": 300, "height": 120, "text": "## 🏗️ Asset Pipeline (6)\n\nAsset Checker · Project Scaffold · Char Extractor · Repo Content Browser · Templates · Asset Library", "color": "3" },
+    { "id": "a1b2c3d4e5f60012", "type": "file", "file": "20-Tools/Scene Studio.md", "x": 520, "y": -100, "width": 300, "height": 150, "color": "6" },
+    { "id": "a1b2c3d4e5f60013", "type": "file", "file": "20-Tools/Cheat Tool.md", "x": 520, "y": 110, "width": 300, "height": 120, "color": "2" },
+    { "id": "a1b2c3d4e5f60020", "type": "file", "file": "30-Design/Scene Studio Design.md", "x": 960, "y": -180, "width": 300, "height": 120 },
+    { "id": "a1b2c3d4e5f60021", "type": "file", "file": "30-Design/Spinner Design.md", "x": 960, "y": -20, "width": 300, "height": 120 },
+    { "id": "a1b2c3d4e5f60022", "type": "file", "file": "50-Sessions/Scene Studio Phase Status.md", "x": 960, "y": 140, "width": 300, "height": 120 }
+  ],
+  "edges": [
+    { "id": "e0000000000000a1", "fromNode": "a1b2c3d4e5f60001", "fromSide": "left", "toNode": "a1b2c3d4e5f60002", "toSide": "right", "label": "architecture" },
+    { "id": "e0000000000000a2", "fromNode": "a1b2c3d4e5f60001", "fromSide": "left", "toNode": "a1b2c3d4e5f60003", "toSide": "right", "label": "tools DB" },
+    { "id": "e0000000000000a3", "fromNode": "a1b2c3d4e5f60001", "fromSide": "left", "toNode": "a1b2c3d4e5f60004", "toSide": "right", "label": "backlog" },
+    { "id": "e0000000000000a4", "fromNode": "a1b2c3d4e5f60001", "fromSide": "left", "toNode": "a1b2c3d4e5f60005", "toSide": "right", "label": "skills" },
+    { "id": "e0000000000000a5", "fromNode": "a1b2c3d4e5f60001", "fromSide": "right", "toNode": "a1b2c3d4e5f60010", "toSide": "left" },
+    { "id": "e0000000000000a6", "fromNode": "a1b2c3d4e5f60001", "fromSide": "right", "toNode": "a1b2c3d4e5f60011", "toSide": "left" },
+    { "id": "e0000000000000a7", "fromNode": "a1b2c3d4e5f60001", "fromSide": "right", "toNode": "a1b2c3d4e5f60012", "toSide": "left" },
+    { "id": "e0000000000000a8", "fromNode": "a1b2c3d4e5f60001", "fromSide": "right", "toNode": "a1b2c3d4e5f60013", "toSide": "left" },
+    { "id": "e0000000000000a9", "fromNode": "a1b2c3d4e5f60012", "fromSide": "right", "toNode": "a1b2c3d4e5f60020", "toSide": "left", "label": "design" },
+    { "id": "e0000000000000b1", "fromNode": "a1b2c3d4e5f60012", "fromSide": "right", "toNode": "a1b2c3d4e5f60021", "toSide": "left", "label": "Spinner" },
+    { "id": "e0000000000000b2", "fromNode": "a1b2c3d4e5f60012", "fromSide": "right", "toNode": "a1b2c3d4e5f60022", "toSide": "left", "label": "sessions" }
+  ]
+}

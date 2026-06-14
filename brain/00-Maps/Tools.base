@@ -1,0 +1,49 @@
+filters:
+  and:
+    - 'type == "tool"'
+
+formulas:
+  status_icon: 'if(status == "shipped", "✅", if(status == "in-progress", "🔧", if(status == "planned", "🗓️", "•")))'
+
+properties:
+  category:
+    displayName: "Category"
+  status:
+    displayName: "Status"
+  formula.status_icon:
+    displayName: ""
+  priority:
+    displayName: "Top backlog"
+  updated:
+    displayName: "Updated"
+
+views:
+  - type: table
+    name: "All tools"
+    order:
+      - file.name
+      - formula.status_icon
+      - category
+      - status
+      - priority
+    groupBy:
+      property: category
+      direction: ASC
+
+  - type: cards
+    name: "Gallery"
+    order:
+      - file.name
+      - category
+      - status
+
+  - type: table
+    name: "Active work"
+    filters:
+      and:
+        - 'status != "shipped"'
+    order:
+      - file.name
+      - category
+      - status
+      - priority
