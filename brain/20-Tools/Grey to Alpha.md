@@ -12,6 +12,6 @@ tags: [art-tool, alpha]
 Canvas pixel-push, threshold. Source: `GreyToAlphaTool.jsx` (81 L).
 
 - **Good**: compact; Rec.709; white/original RGB.
-- **Wanted**: confusing scale slider; no preview; single-file (no batch).
+- **Wanted**: confusing scale slider; no preview. *(~~single-file~~ — batch shipped 2026-06-14.)*
 
 Alpha-sensitive — see [[Gotchas]] for canvas premultiply caveat.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { canvasToBlob } from '../utils/image.js';
 
 export const rgbaMeta = {
   id: 'rgba',
@@ -91,9 +92,7 @@ export function RgbaMaskTool() {
           data[i * 4 + 3] = ch.A ? ch.A.grey[i] : 255;
         }
         ctx.putImageData(out, 0, 0);
-        return new Promise((resolve, reject) => {
-          canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
-        });
+        return canvasToBlob(canvas);
       }
     });
     return () => registerRunner(rgbaMeta.id, null);

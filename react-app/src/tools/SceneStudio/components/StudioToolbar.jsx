@@ -38,6 +38,7 @@ export function StudioToolbar({
   canUndo = false,
   canRedo = false,
   onUnityExport,
+  onWebMExport,
   onAddSpinner
 }) {
   const supported = isFsAccessSupported();
@@ -211,6 +212,12 @@ export function StudioToolbar({
         disabled={busy}
         title="Add a Spinner (slot reel machine) object via the setup wizard"
       >🎰 spinner</button>
+      <button
+        className="scene-btn"
+        onClick={onWebMExport}
+        disabled={busy || !scene.layers.length}
+        title="Export the active timeline as a .webm video (deterministic, native resolution)"
+      >▶ webm</button>
       <button
         className="scene-btn"
         onClick={onUnityExport}

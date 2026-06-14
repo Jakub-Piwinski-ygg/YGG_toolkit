@@ -11,6 +11,7 @@ import { SpinnerWizard } from './components/SpinnerWizard.jsx';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
 import { UnityExportDialog } from './components/UnityExportDialog.jsx';
+import { WebMExportDialog } from './components/WebMExportDialog.jsx';
 import { scanProjectAssets } from './engine/assetBrowser.js';
 import {
   createEmptyScene,
@@ -170,6 +171,7 @@ export default function SceneStudioInner() {
   const scene = useMemo(() => deriveWorkingScene(project), [project]);
   const [rootHandle, setRootHandle] = useState(null);
   const [showUnityExport, setShowUnityExport] = useState(false);
+  const [showWebMExport, setShowWebMExport] = useState(false);
   const [showSpinnerWizard, setShowSpinnerWizard] = useState(false);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const [selectedClipId, setSelectedClipId] = useState(null);
@@ -2111,6 +2113,7 @@ export default function SceneStudioInner() {
         canUndo={historyDepth.undo > 0}
         canRedo={historyDepth.redo > 0}
         onUnityExport={() => setShowUnityExport(true)}
+        onWebMExport={() => setShowWebMExport(true)}
         onAddSpinner={() => setShowSpinnerWizard(true)}
       />
 
@@ -2130,6 +2133,15 @@ export default function SceneStudioInner() {
           rootHandle={rootHandle}
           sceneBasePath={scene.projectRoot || null}
           onClose={() => setShowUnityExport(false)}
+          log={log}
+        />
+      )}
+
+      {showWebMExport && (
+        <WebMExportDialog
+          scene={scene}
+          viewportRef={pixiViewportRef}
+          onClose={() => setShowWebMExport(false)}
           log={log}
         />
       )}

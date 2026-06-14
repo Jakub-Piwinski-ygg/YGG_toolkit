@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { canvasToBlob } from '../utils/image.js';
+import { makeBatchRun } from '../utils/batch.js';
 
 export const greyToAlphaMeta = {
   id: 'greyalpha',
@@ -7,22 +9,21 @@ export const greyToAlphaMeta = {
   small: 'luminance → alpha channel',
   icon: '◑',
   needsMagick: false,
-  batchMode: false,
+  batchMode: true,
   desc: 'Converts a greyscale texture so that its luminance becomes the alpha channel. The RGB output channels are set to white (or kept original). Bright pixels → opaque; dark pixels → transparent. Use the scale slider to amplify or reduce the effect (0 = fully transparent, 1 = 1:1, 10 = tenfold).'
 };
 
 export function GreyToAlphaTool() {
   const [scale, setScale] = useState(1.0);
   const [rgbMode, setRgbMode] = useState('white');
-  const { inputFiles, registerRunner } = useApp();
+  const { inputFiles, registerRunner, log, setProgressLabel } = useApp();
 
   const settingsRef = useRef({ scale, rgbMode });
   settingsRef.current = { scale, rgbMode };
 
   useEffect(() => {
-    registerRunner(greyToAlphaMeta.id, {
-      outName: (n) => n.replace(/\.png$/i, '') + '_alpha.png',
-      run: async (_u, _n, file) => {
+    const outName = (n) => n.replace(/\.png$/i, '') + '_alpha.png';
+    const processOne = async (_u, _n, file) => {
         const { scale, rgbMode } = settingsRef.current;
         const keepRGB = rgbMode === 'original';
         return new Promise((resolve, reject) => {
@@ -44,15 +45,18 @@ export function GreyToAlphaTool() {
               d[i + 3] = alpha;
             }
             ctx.putImageData(imgData, 0, 0);
-            c.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
+            canvasToBlob(c).then(resolve, reject);
           };
           img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
           img.src = url;
         });
-      }
+    };
+    registerRunner(greyToAlphaMeta.id, {
+      outName,
+      run: makeBatchRun(processOne, outName, { log, setProgressLabel })
     });
     return () => registerRunner(greyToAlphaMeta.id, null);
-  }, [registerRunner]);
+  }, [registerRunner, log, setProgressLabel]);
 
   const previewText = inputFiles.length
     ? `Alpha = luminance × ${scale.toFixed(1)}  ·  clamped to 0–255`

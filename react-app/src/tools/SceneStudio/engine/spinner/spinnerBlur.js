@@ -5,7 +5,7 @@
 // soft transparent edges. Falls back to a canvas "stacked ghost" approximation
 // when Magick WASM is not loaded.
 
-import { freshBytes } from '../../../../utils/image.js';
+import { freshBytes, makeFeatherMask } from '../../../../utils/image.js';
 
 function renderSymbolToCell(img, cellW, cellH, symScale) {
   const tmp = document.createElement('canvas');
@@ -37,14 +37,7 @@ export async function makeBlurredSymbolWasm(img, cellW, cellH, symScale, sigma, 
   if (!r1 || !r1.length) throw new Error('Motion blur failed');
   const blurred = r1[0].blob;
 
-  const r2 = await window._Magick.Call(
-    [{ name: 'blurred.png', content: await freshBytes(blurred) }],
-    ['convert', 'blurred.png', '-alpha', 'off', '-fill', 'white', '-colorize', '100',
-      '-shave', `${feather}x${feather}`, '-bordercolor', 'black', '-border', `${feather}x${feather}`,
-      '-blur', `0x${feather}`, '-level', '20%,80%', 'mask.png']
-  );
-  if (!r2 || !r2.length) throw new Error('Mask failed');
-  const mask = r2[0].blob;
+  const mask = await makeFeatherMask(await freshBytes(blurred), feather);
 
   const r3 = await window._Magick.Call(
     [{ name: 'blurred.png', content: await freshBytes(blurred) }],

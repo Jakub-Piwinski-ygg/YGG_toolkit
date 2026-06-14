@@ -26,9 +26,12 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
   `sceneModel.js`, `keyframes.js`, `flowInterpreter.js`, `pixiApp.js`); Spine + video;
   project/scenes/timelines + variants; local FS + IndexedDB autosave; undo/redo; tests
   on the project/timeline model (`projectModel.test.mjs`, `perTimeline.test.mjs`).
-- **Wanted (P0)**: **Phase 4 web exporters not shipped** (hero PNG / PNG sequence /
-  WebM) — single biggest gap; Pixi v8 rapid-rebuild crash (contained, not fixed);
-  filters defined but not UI-wired.
+- **Phase 4 web export — WebM SHIPPED 2026-06-14** (`engine/webmExport.js` +
+  `WebMExportDialog` + `PixiViewport.exportWebM()`: deterministic, native-res, opaque).
+- **Wanted (P0)**: hero-frame PNG + PNG sequence exporters (WebM done). *(Pixi v8
+  rapid-rebuild crash now **FIXED** — `pixiApp.js` `Assets.load()`; boundary kept as
+  failsafe.)* Filters defined but not UI-wired; editable/auto clip-naming for
+  static-PNG clips still open.
 
 ## Sub-objects & docs
 

@@ -14,6 +14,7 @@ import {
   syncTransforms
 } from '../engine/pixiApp.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
+import { pickWebmMime, recordCanvasFrames } from '../engine/webmExport.js';
 
 export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate' }, ref) {
   const hostRef = useRef(null);
@@ -54,6 +55,9 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   overlayModeRef.current = overlayMode;
   const motionKeyDotsRef = useRef([]);
   const pathHandlesRef = useRef([]);
+  // While true, the live render/spine-tick RAF is a no-op so the WebM
+  // exporter can drive deterministic frames without interference.
+  const exportingRef = useRef(false);
 
   const requestRender = () => {
     const app = appRef.current;
@@ -154,6 +158,8 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
           rafHandle = requestAnimationFrame(drive);
           const app = appRef.current;
           if (!app?.renderer) return;
+          // The WebM exporter owns rendering while active — stand down.
+          if (exportingRef.current) return;
           const dtMs = Math.max(0, Math.min(100, ts - lastTs));
           lastTs = ts;
           const runtime = sceneRef.current?.flow?.runtime || {};
@@ -308,6 +314,92 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       const cx = (clientX - rect.left) * (canvas.width / rect.width) / dpr;
       const cy = (clientY - rect.top) * (canvas.height / rect.height) / dpr;
       return { x: (cx - vp.x) / vp.scale.x, y: (cy - vp.y) / vp.scale.y };
+    },
+
+    /**
+     * Render the active timeline 0 → duration into a WebM Blob.
+     *
+     * The live stage is temporarily reconfigured to a clean, native-resolution
+     * render of the active orientation (no pan/zoom, no stage-frame or
+     * selection chrome, opaque background) so the captured frames match the
+     * exported asset rather than the editor view. Everything is restored in
+     * `finally`, so a cancel or error leaves the editor untouched.
+     */
+    async exportWebM({
+      fps, durationSec, scale = 1, backgroundColor = 0x000000, bitrate, onProgress, signal
+    } = {}) {
+      const app = appRef.current;
+      const viewport = viewportRef.current;
+      const stageFrame = stageFrameRef.current;
+      const selectionOverlay = selectionOverlayRef.current;
+      const scene = sceneRef.current;
+      if (!app?.renderer || !viewport || !scene) throw new Error('Scene is not ready.');
+
+      const mimeType = pickWebmMime();
+      if (!mimeType || typeof app.canvas.captureStream !== 'function') {
+        throw new Error('This browser cannot record WebM. Try Chrome or Firefox.');
+      }
+
+      const stage = scene.stage.orientations[scene.stage.activeOrientation];
+      const outW = Math.max(2, Math.round(stage.w * scale));
+      const outH = Math.max(2, Math.round(stage.h * scale));
+      const realFps = Math.max(1, Math.round(fps || scene.stage.fps || 30));
+      const dur = Math.max(0.1, durationSec || scene.stage.duration || 5);
+      const frameCount = Math.max(1, Math.ceil(dur * realFps));
+
+      // ---- enter export mode: stop live drivers, stash editor view ----
+      exportingRef.current = true;
+      try { app.stop(); } catch { /* ignore */ }
+      const saved = {
+        x: viewport.x, y: viewport.y, sx: viewport.scale.x, sy: viewport.scale.y,
+        frameVis: stageFrame ? stageFrame.visible : true,
+        selVis: selectionOverlay ? selectionOverlay.visible : true,
+        bgAlpha: app.renderer.background.alpha,
+        bgColor: app.renderer.background.color,
+        w: app.renderer.width, h: app.renderer.height,
+        res: app.renderer.resolution
+      };
+      if (stageFrame) stageFrame.visible = false;
+      if (selectionOverlay) selectionOverlay.visible = false;
+      app.renderer.background.alpha = 1;
+      app.renderer.background.color = backgroundColor;
+      app.renderer.resize(outW, outH, 1); // resolution 1 → backing store == outW×outH
+      viewport.position.set(0, 0);
+      viewport.scale.set(scale, scale);
+
+      try {
+        const blob = await recordCanvasFrames({
+          canvas: app.canvas,
+          frameCount,
+          fps: realFps,
+          mimeType,
+          bitrate,
+          renderFrame: (t) => {
+            applyFlowAtTime(handlesRef.current, scene, t);
+            app.render();
+          },
+          onProgress,
+          signal
+        });
+        return { blob, width: outW, height: outH, fps: realFps, frames: frameCount, mimeType };
+      } finally {
+        // ---- restore editor view ----
+        if (stageFrame) stageFrame.visible = saved.frameVis;
+        if (selectionOverlay) selectionOverlay.visible = saved.selVis;
+        app.renderer.background.alpha = saved.bgAlpha;
+        app.renderer.background.color = saved.bgColor;
+        const r = hostRef.current?.getBoundingClientRect();
+        const hw = Math.max(2, Math.round(r?.width || saved.w));
+        const hh = Math.max(2, Math.round(r?.height || saved.h));
+        app.renderer.resize(hw, hh, saved.res);
+        app.canvas.style.width = '100%';
+        app.canvas.style.height = '100%';
+        viewport.position.set(saved.x, saved.y);
+        viewport.scale.set(saved.sx, saved.sy);
+        exportingRef.current = false;
+        try { app.start(); } catch { /* ignore */ }
+        requestRender();
+      }
     }
   }), []);
 

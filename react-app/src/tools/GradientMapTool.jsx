@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { canvasToBlob } from '../utils/image.js';
+import { makeBatchRun } from '../utils/batch.js';
 
 export const gradientMapMeta = {
   id: 'gradientmap',
@@ -7,7 +9,7 @@ export const gradientMapMeta = {
   small: 'map luminance to colours',
   icon: '🌈',
   needsMagick: false,
-  batchMode: false,
+  batchMode: true,
   desc: "Maps the luminance of each pixel to a user-defined colour gradient — just like Photoshop's Gradient Map adjustment. Click the gradient bar to add colour stops, drag to reposition, select and press ✕ to remove. Alpha channel is preserved."
 };
 
@@ -67,7 +69,7 @@ export function GradientMapTool() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [lumMode, setLumMode] = useState('rec709');
   const [alphaMode, setAlphaMode] = useState('keep');
-  const { registerRunner } = useApp();
+  const { registerRunner, log, setProgressLabel } = useApp();
 
   const barRef = useRef(null);
   const canvasRef = useRef(null);
@@ -96,9 +98,8 @@ export function GradientMapTool() {
   }, [drawBar]);
 
   useEffect(() => {
-    registerRunner(gradientMapMeta.id, {
-      outName: (n) => n.replace(/\.png$/i, '') + '_gmap.png',
-      run: async (_u, _n, file) => {
+    const outName = (n) => n.replace(/\.png$/i, '') + '_gmap.png';
+    const processOne = async (_u, _n, file) => {
         const { stops, lumMode, alphaMode } = settingsRef.current;
         const lut = buildLUT(stops);
         return new Promise((resolve, reject) => {
@@ -129,15 +130,18 @@ export function GradientMapTool() {
               if (alphaMode === 'full') d[i + 3] = 255;
             }
             ctx.putImageData(imgData, 0, 0);
-            c.toBlob((bl) => (bl ? resolve(bl) : reject(new Error('toBlob failed'))), 'image/png');
+            canvasToBlob(c).then(resolve, reject);
           };
           img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Image load failed')); };
           img.src = url;
         });
-      }
+    };
+    registerRunner(gradientMapMeta.id, {
+      outName,
+      run: makeBatchRun(processOne, outName, { log, setProgressLabel })
     });
     return () => registerRunner(gradientMapMeta.id, null);
-  }, [registerRunner]);
+  }, [registerRunner, log, setProgressLabel]);
 
   const startDrag = (e, idx) => {
     e.preventDefault();

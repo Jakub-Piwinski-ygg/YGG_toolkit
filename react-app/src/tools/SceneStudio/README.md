@@ -28,9 +28,11 @@ keyframe-channel animation), plus since then:
   handles, arc-length `progress(t)` curve, bake-to-keys on export.
   See `react-app/SCENE_STUDIO_PHASE_STATUS.md` (sessions 2–5).
 
-**Still NOT done — Phase 4 web exporters**: no `exporter.js` /
-`ExportPanel` — no hero-frame PNG, PNG sequence, or WebM export from
-the browser. Also outstanding: `pixi-filters` / `effects[]` wiring
+**Phase 4 web exporters — WebM DONE (2026-06-14)**: `engine/webmExport.js`
++ `components/WebMExportDialog.jsx` + `PixiViewport.exportWebM()` render the
+active timeline 0→duration deterministically (native stage resolution, opaque
+background) and download a `.webm`. **Hero-frame PNG and PNG sequence are still
+NOT done.** Also outstanding: `pixi-filters` / `effects[]` wiring
 (Phase 2 carryover), `pngSequence` import + AnimatedSprite rendering,
 the Pixi v8 rapid-rebuild crash (§20.10, contained by
 `PixiErrorBoundary`), `loop` marker type, and deleting the unused

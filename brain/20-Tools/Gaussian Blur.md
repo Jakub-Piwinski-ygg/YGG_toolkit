@@ -12,6 +12,10 @@ tags: [art-tool, wasm]
 Keep/blur alpha modes, feather. Source: `GaussianBlurTool.jsx` (154 L).
 
 - **Good**: keep/blur alpha modes; feather.
-- **Wanted**: two near-identical code paths (L32–75 vs L77–112); no guidance on modes; single-file (no batch).
+- **Wanted**: two near-identical code paths; no guidance on modes. *(~~single-file~~ — batch shipped 2026-06-14; feather chain now shared `makeFeatherMask()`.)*
 
-Shares the duplicated feather chain → `makeFeatherMask()` (see [[Blur]], [[Tool Review]] P0).
+Uses the shared `makeFeatherMask()` (extracted 2026-06-14; see [[Blur]], [[Tool Review]]).
+
+> [!bug] White edge halo (straight-alpha bleed) — open, deferred 2026-06-14
+> Same as [[Blur]]: transparent white RGB bleeds through `-blur` on the feather path.
+> Fix = premultiply around the blur. Pre-existing, not from the refactor.

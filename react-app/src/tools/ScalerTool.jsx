@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { getImageDimensions } from '../utils/image.js';
+import { getImageDimensions, scaleImageWasm } from '../utils/image.js';
+import { makeBatchRun } from '../utils/batch.js';
 
 export const scalerMeta = {
   id: 'scaler',
@@ -8,7 +9,7 @@ export const scalerMeta = {
   small: 'scale canvas + image together',
   icon: '⤡',
   needsMagick: true,
-  batchMode: false,
+  batchMode: true,
   desc: 'Scales image and canvas together using ImageMagick WASM for high-quality resampling. Choose from multiple filter algorithms — Lanczos is the best general-purpose choice; Mitchell is great for mixed content; Point gives nearest-neighbour (pixel-art). Enter a scale factor or set a longest-edge target in pixels.'
 };
 
@@ -17,15 +18,14 @@ export function ScalerTool() {
   const [longestEdge, setLongestEdge] = useState('');
   const [filter, setFilter] = useState('Lanczos');
   const [preview, setPreview] = useState('load files to see size preview');
-  const { inputFiles, registerRunner } = useApp();
+  const { inputFiles, registerRunner, log, setProgressLabel } = useApp();
 
   const settingsRef = useRef({ factor, longestEdge, filter });
   settingsRef.current = { factor, longestEdge, filter };
 
   useEffect(() => {
-    registerRunner(scalerMeta.id, {
-      outName: (n) => n.replace(/\.png$/i, '') + '_scaled.png',
-      run: async (uint8) => {
+    const outName = (n) => n.replace(/\.png$/i, '') + '_scaled.png';
+    const processOne = async (uint8) => {
         const { factor, longestEdge, filter } = settingsRef.current;
         const dims = await getImageDimensions(uint8);
         const le = parseInt(longestEdge) || 0;
@@ -42,16 +42,14 @@ export function ScalerTool() {
         nw = Math.max(1, nw);
         nh = Math.max(1, nh);
 
-        const r = await window._Magick.Call(
-          [{ name: 'input.png', content: uint8 }],
-          ['convert', 'input.png', '-filter', filter, '-resize', `${nw}x${nh}!`, '+repage', 'output.png']
-        );
-        if (!r || !r.length) throw new Error('No output from ImageMagick');
-        return r[0].blob;
-      }
+        return scaleImageWasm(uint8, nw, nh, filter);
+    };
+    registerRunner(scalerMeta.id, {
+      outName,
+      run: makeBatchRun(processOne, outName, { log, setProgressLabel })
     });
     return () => registerRunner(scalerMeta.id, null);
-  }, [registerRunner]);
+  }, [registerRunner, log, setProgressLabel]);
 
   useEffect(() => {
     let cancelled = false;

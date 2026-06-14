@@ -14,16 +14,16 @@ slot-game preview utilities.
    from `file://`. Legacy reference during React port.
 2. **React rewrite (`react-app/`)**: Vite + React 18 + Framer Motion, modular
    components, dev server + GitHub Pages deployment. **The port is complete and the
-   React app has grown well past the original** — 19 tools across 4 categories
+   React app has grown well past the original** — 20 tools across 4 categories
    (see `src/tools/registry.js` → `TOOL_CATEGORIES`).
 
 ---
 
 ## Version: React (primary)
 
-**Status (2026-06-12)**: 19 registered tools in 4 categories — Art Tools 🎨 (12),
-Asset Pipeline 🏗️ (Asset Checker, Project Scaffold, Char Extractor, Repo Content
-Browser, Templates), Scene Studio 🎬 (Pixi v8 scene editor/animator — design in
+**Status (2026-06-14)**: 20 registered tools in 4 categories — Art Tools 🎨 (12),
+Asset Pipeline 🏗️ (6 — Asset Checker, Project Scaffold, Char Extractor, Repo Content
+Browser, Templates, Asset Library), Scene Studio 🎬 (Pixi v8 scene editor/animator — design in
 `react-app/SCENE_STUDIO.md`, spinner in `react-app/SPINNER.md`), Cheets 🎲
 (Cheat Tool). The priority backlog lives in `TOOL_REVIEW.md` (root).
 

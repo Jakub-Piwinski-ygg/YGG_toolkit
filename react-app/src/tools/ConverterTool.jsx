@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { canvasToBlob } from '../utils/image.js';
 
 export const converterMeta = {
   id: 'converter',
@@ -23,16 +24,6 @@ const FORMATS = {
 function stripExt(name) {
   const i = name.lastIndexOf('.');
   return i === -1 ? name : name.slice(0, i);
-}
-
-function canvasToBlob(canvas, mime, quality) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error(`toBlob(${mime}) failed`))),
-      mime,
-      quality
-    );
-  });
 }
 
 async function decodeImage(file) {

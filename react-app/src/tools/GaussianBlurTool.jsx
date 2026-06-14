@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { freshBytes } from '../utils/image.js';
+import { freshBytes, makeFeatherMask } from '../utils/image.js';
+import { makeBatchRun } from '../utils/batch.js';
 
 export const gaussBlurMeta = {
   id: 'gaussblur',
@@ -8,7 +9,7 @@ export const gaussBlurMeta = {
   small: 'uniform soft blur',
   icon: '🔘',
   needsMagick: true,
-  batchMode: false,
+  batchMode: true,
   desc: 'Applies a standard Gaussian blur uniformly across the image. Adjust sigma to control blur strength and radius to set the kernel size (0 = auto from sigma). Optionally feather edges to transparent for compositing.'
 };
 
@@ -17,15 +18,14 @@ export function GaussianBlurTool() {
   const [sigma, setSigma] = useState(4);
   const [feather, setFeather] = useState(0);
   const [alphaMode, setAlphaMode] = useState('blur');
-  const { registerRunner } = useApp();
+  const { registerRunner, log, setProgressLabel } = useApp();
 
   const settingsRef = useRef({ radius, sigma, feather, alphaMode });
   settingsRef.current = { radius, sigma, feather, alphaMode };
 
   useEffect(() => {
-    registerRunner(gaussBlurMeta.id, {
-      outName: (n) => n.replace(/\.png$/i, '') + '_gblur.png',
-      run: async (uint8) => {
+    const outName = (n) => n.replace(/\.png$/i, '') + '_gblur.png';
+    const processOne = async (uint8) => {
         const { radius, sigma, feather, alphaMode } = settingsRef.current;
         const blurArg = `${radius}x${sigma}`;
 
@@ -47,12 +47,7 @@ export function GaussianBlurTool() {
           const blurred = rB[0].blob;
 
           if (feather > 0) {
-            const rM = await window._Magick.Call(
-              [{ name: 'alpha.png', content: await freshBytes(alpha) }],
-              ['convert', 'alpha.png', '-shave', `${feather}x${feather}`, '-bordercolor', 'black', '-border', `${feather}x${feather}`, '-blur', `0x${feather}`, '-level', '20%,80%', 'mask.png']
-            );
-            if (!rM || !rM.length) throw new Error('Feather mask failed');
-            const mask = rM[0].blob;
+            const mask = await makeFeatherMask(await freshBytes(alpha), feather, { prep: 'asis' });
             const rMul = await window._Magick.Call(
               [{ name: 'alpha.png', content: await freshBytes(alpha) }, { name: 'mask.png', content: await freshBytes(mask) }],
               ['convert', 'alpha.png', 'mask.png', '-compose', 'Multiply', '-composite', 'combined.png']
@@ -82,12 +77,7 @@ export function GaussianBlurTool() {
           if (!rB || !rB.length) throw new Error('Gaussian blur failed');
           const blurred = rB[0].blob;
 
-          const rM = await window._Magick.Call(
-            [{ name: 'blurred.png', content: await freshBytes(blurred) }],
-            ['convert', 'blurred.png', '-alpha', 'extract', '-shave', `${feather}x${feather}`, '-bordercolor', 'black', '-border', `${feather}x${feather}`, '-blur', `0x${feather}`, '-level', '20%,80%', 'mask.png']
-          );
-          if (!rM || !rM.length) throw new Error('Feather mask failed');
-          const mask = rM[0].blob;
+          const mask = await makeFeatherMask(await freshBytes(blurred), feather, { prep: 'alphaExtract' });
 
           const rA = await window._Magick.Call(
             [{ name: 'blurred.png', content: await freshBytes(blurred) }],
@@ -117,10 +107,13 @@ export function GaussianBlurTool() {
         );
         if (!r || !r.length) throw new Error('Gaussian blur failed');
         return r[0].blob;
-      }
+    };
+    registerRunner(gaussBlurMeta.id, {
+      outName,
+      run: makeBatchRun(processOne, outName, { log, setProgressLabel })
     });
     return () => registerRunner(gaussBlurMeta.id, null);
-  }, [registerRunner]);
+  }, [registerRunner, log, setProgressLabel]);
 
   return (
     <>

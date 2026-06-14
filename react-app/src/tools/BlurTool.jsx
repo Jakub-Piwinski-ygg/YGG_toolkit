@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { freshBytes } from '../utils/image.js';
+import { freshBytes, makeFeatherMask } from '../utils/image.js';
+import { makeBatchRun } from '../utils/batch.js';
 
 export const blurMeta = {
   id: 'blur',
@@ -8,7 +9,7 @@ export const blurMeta = {
   small: 'motion blur with feathering',
   icon: '💨',
   needsMagick: true,
-  batchMode: false,
+  batchMode: true,
   desc: 'Applies directional motion blur — edges fade to transparent so the blur blends naturally with surroundings.'
 };
 
@@ -18,15 +19,14 @@ export function BlurTool() {
   const [angle, setAngle] = useState(90);
   const [feather, setFeather] = useState(5);
   const [bidirectional, setBidirectional] = useState(false);
-  const { registerRunner } = useApp();
+  const { registerRunner, log, setProgressLabel } = useApp();
 
   const settingsRef = useRef({ radius, sigma, angle, feather, bidirectional });
   settingsRef.current = { radius, sigma, angle, feather, bidirectional };
 
   useEffect(() => {
-    registerRunner(blurMeta.id, {
-      outName: (n) => n.replace(/\.png$/i, '') + '_blur.png',
-      run: async (uint8) => {
+    const outName = (n) => n.replace(/\.png$/i, '') + '_blur.png';
+    const processOne = async (uint8) => {
         const { radius, sigma, angle, feather, bidirectional } = settingsRef.current;
 
         let blurred;
@@ -61,12 +61,7 @@ export function BlurTool() {
           blurred = r1[0].blob;
         }
 
-        const r2 = await window._Magick.Call(
-          [{ name: 'blurred.png', content: await freshBytes(blurred) }],
-          ['convert', 'blurred.png', '-alpha', 'off', '-fill', 'white', '-colorize', '100', '-shave', `${feather}x${feather}`, '-bordercolor', 'black', '-border', `${feather}x${feather}`, '-blur', `0x${feather}`, '-level', '20%,80%', 'mask.png']
-        );
-        if (!r2 || !r2.length) throw new Error('Mask creation failed');
-        const mask = r2[0].blob;
+        const mask = await makeFeatherMask(await freshBytes(blurred), feather);
 
         const r3 = await window._Magick.Call(
           [{ name: 'blurred.png', content: await freshBytes(blurred) }],
@@ -94,10 +89,13 @@ export function BlurTool() {
         );
         if (!r5 || !r5.length) throw new Error('Final composite failed');
         return r5[0].blob;
-      }
+    };
+    registerRunner(blurMeta.id, {
+      outName,
+      run: makeBatchRun(processOne, outName, { log, setProgressLabel })
     });
     return () => registerRunner(blurMeta.id, null);
-  }, [registerRunner]);
+  }, [registerRunner, log, setProgressLabel]);
 
   return (
     <>

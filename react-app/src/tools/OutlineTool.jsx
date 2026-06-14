@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { freshBytes, getImageDimensions } from '../utils/image.js';
+import { makeBatchRun } from '../utils/batch.js';
 
 export const outlineMeta = {
   id: 'outline',
@@ -8,7 +9,7 @@ export const outlineMeta = {
   small: 'edge-accurate contour',
   icon: '🔲',
   needsMagick: true,
-  batchMode: false,
+  batchMode: true,
   desc: "Creates a precise outline around every opaque edge of the image using morphological dilation on the alpha channel — the same technique as Photoshop's Stroke (Outside). Works correctly with concavities, holes, thin features and semi-transparent edges."
 };
 
@@ -20,15 +21,14 @@ export function OutlineTool() {
   const [threshold, setThreshold] = useState(1);
   const [canvasMode, setCanvasMode] = useState('expand');
   const [kernel, setKernel] = useState('Disk');
-  const { registerRunner } = useApp();
+  const { registerRunner, log, setProgressLabel } = useApp();
 
   const settingsRef = useRef({ width, color, opacity, position, threshold, canvasMode, kernel });
   settingsRef.current = { width, color, opacity, position, threshold, canvasMode, kernel };
 
   useEffect(() => {
-    registerRunner(outlineMeta.id, {
-      outName: (n) => n.replace(/\.png$/i, '') + '_outline.png',
-      run: async (uint8) => {
+    const outName = (n) => n.replace(/\.png$/i, '') + '_outline.png';
+    const processOne = async (uint8) => {
         const { width, color, opacity, position, threshold, canvasMode, kernel } = settingsRef.current;
 
         let dilateR, erodeR;
@@ -132,10 +132,13 @@ export function OutlineTool() {
         );
         if (!rFinal || !rFinal.length) throw new Error('Final composite failed');
         return rFinal[0].blob;
-      }
+    };
+    registerRunner(outlineMeta.id, {
+      outName,
+      run: makeBatchRun(processOne, outName, { log, setProgressLabel })
     });
     return () => registerRunner(outlineMeta.id, null);
-  }, [registerRunner]);
+  }, [registerRunner, log, setProgressLabel]);
 
   return (
     <>

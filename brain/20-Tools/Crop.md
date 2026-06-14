@@ -12,6 +12,6 @@ tags: [art-tool, wasm, canvas]
 Canvas resize: crop + pad, with match-first-image. Source: `CropTool.jsx` (104 L).
 
 - **Good**: crop/pad hints; match-first-image.
-- **Wanted**: center-gravity only; transparent-pad only; no batch mode.
+- **Wanted**: center-gravity only; transparent-pad only. *(~~no batch mode~~ — batch shipped 2026-06-14.)*
 
 Part of the [[Tool Review|Art Tools package]]. Implements the [[Runner Registry Pattern]].

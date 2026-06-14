@@ -15,6 +15,27 @@ tags: [session, scene-studio, changelog, spinner, unity]
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
 
+## Phase 4 — WebM export (2026-06-14) ✅
+
+First web-media exporter (beyond Unity): the active timeline 0→duration is rendered
+deterministically to a `.webm` (build green, user-verified in the browser).
+
+- **`engine/webmExport.js`** — pure recorder: `pickWebmMime()` (vp9→vp8→webm probe),
+  `recordCanvasFrames()` uses `canvas.captureStream(0)` + manual `track.requestFrame()`
+  into a `MediaRecorder`, wall-clock-paced (`1000/fps` per frame) → correct duration;
+  cooperative cancel (`signal.aborted`).
+- **`PixiViewport.exportWebM()`** — export mode: stops the ticker + RAF (`exportingRef`),
+  hides the stage frame + selection overlay, sets an opaque background, resizes the
+  renderer to native stage resolution × scale at `resolution 1`, renders 0→duration
+  deterministically (`applyFlowAtTime(t)` → `app.render()` → `requestFrame()`). All
+  restored in `finally` (cancel/error leaves the editor untouched). Spine is seeked by
+  `trackTime` (deterministic); dt-ticking is disabled during capture.
+- **`WebMExportDialog.jsx`** — fps (15/24/30/60), quality (4/8/16 Mbps), resolution
+  (100/50/25%), opaque background colour, progress bar, cancel, auto-download; settings
+  in localStorage. **▶ webm** button in `StudioToolbar` next to ⇪ unity.
+- **Limits (intentional):** opaque only (no alpha); video layers may not be
+  frame-accurate; **hero-PNG and PNG sequence still NOT done.**
+
 ## Project / Scenes / Timelines + Setup-Animate (2026-06-14) ✅
 
 Spine-2D-style workflow + a richer document model (build + all tests green, new

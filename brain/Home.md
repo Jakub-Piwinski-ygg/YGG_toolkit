@@ -42,6 +42,7 @@ Yggdrasil Gaming artists (image processing, asset browsing, slot-game preview).
 
 ## Sessions / changelog
 
+- [[Session 2026-06-14 Audit and P0]] — backlog re-audit + WebM export + Art-Tools batch/infra
 - [[Scene Studio Phase Status]] — session-by-session Scene Studio log
 - Spinner → Unity export: [[Spinner Unity Phase 2]] · [[Spinner Unity Phase 3]] · [[Spinner Unity Phase 4]] · [[Spinner Unity Phase 5]]
 - [[Next Phase Scene Tool]] — Scene Studio backlog notes

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { getImageDimensions } from '../utils/image.js';
+import { getImageDimensions, scaleImageWasm } from '../utils/image.js';
 
 export const atlasMeta = {
   id: 'atlas',
@@ -48,12 +48,8 @@ export function AtlasPackerTool() {
               const orig = await getImageDimensions(uint8);
               const nw = Math.max(1, Math.round(orig.w * scale));
               const nh = Math.max(1, Math.round(orig.h * scale));
-              const r = await window._Magick.Call(
-                [{ name: 's.png', content: uint8 }],
-                ['convert', 's.png', '-filter', filter, '-resize', `${nw}x${nh}!`, '+repage', 'o.png']
-              );
-              if (!r || !r.length) throw new Error('Magick scale returned nothing');
-              uint8 = new Uint8Array(await r[0].blob.arrayBuffer());
+              const scaled = await scaleImageWasm(uint8, nw, nh, filter);
+              uint8 = new Uint8Array(await scaled.arrayBuffer());
             }
             const dims = await getImageDimensions(uint8);
             sprites.push({ name, uint8, w: dims.w, h: dims.h });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { getImageDimensions } from '../utils/image.js';
+import { makeBatchRun } from '../utils/batch.js';
 
 export const cropMeta = {
   id: 'crop',
@@ -8,7 +9,7 @@ export const cropMeta = {
   small: 'crop or pad to exact size',
   icon: '✂️',
   needsMagick: true,
-  batchMode: false,
+  batchMode: true,
   desc: 'Resizes the canvas of each PNG to exact pixel dimensions. If the target is smaller than the source the image is center-cropped; if larger, transparent pixels are added around the image to reach the target size.'
 };
 
@@ -16,26 +17,28 @@ export function CropTool() {
   const [w, setW] = useState(256);
   const [h, setH] = useState(256);
   const [modeHint, setModeHint] = useState({ className: '', text: 'load files to preview mode' });
-  const { inputFiles, log, registerRunner } = useApp();
+  const { inputFiles, log, registerRunner, setProgressLabel } = useApp();
 
   const settingsRef = useRef({ w, h });
   settingsRef.current = { w, h };
 
   useEffect(() => {
+    const outName = (n) => n.replace(/\.png$/i, '') + '_resized.png';
+    const processOne = async (uint8) => {
+      const { w: tw, h: th } = settingsRef.current;
+      const r = await window._Magick.Call(
+        [{ name: 'input.png', content: uint8 }],
+        ['convert', 'input.png', '-background', 'transparent', '-gravity', 'Center', '-extent', `${tw}x${th}`, '+repage', 'output.png']
+      );
+      if (!r || !r.length) throw new Error('No output from ImageMagick');
+      return r[0].blob;
+    };
     registerRunner(cropMeta.id, {
-      outName: (n) => n.replace(/\.png$/i, '') + '_resized.png',
-      run: async (uint8) => {
-        const { w: tw, h: th } = settingsRef.current;
-        const r = await window._Magick.Call(
-          [{ name: 'input.png', content: uint8 }],
-          ['convert', 'input.png', '-background', 'transparent', '-gravity', 'Center', '-extent', `${tw}x${th}`, '+repage', 'output.png']
-        );
-        if (!r || !r.length) throw new Error('No output from ImageMagick');
-        return r[0].blob;
-      }
+      outName,
+      run: makeBatchRun(processOne, outName, { log, setProgressLabel })
     });
     return () => registerRunner(cropMeta.id, null);
-  }, [registerRunner]);
+  }, [registerRunner, log, setProgressLabel]);
 
   useEffect(() => {
     let cancelled = false;

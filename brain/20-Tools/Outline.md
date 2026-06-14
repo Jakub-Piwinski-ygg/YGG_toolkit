@@ -13,6 +13,6 @@ True morphological outline (outside/center/inside), 3 kernel shapes, canvas-expa
 Source: `OutlineTool.jsx` (196 L).
 
 - **Good**: true morphological outline; 3 kernels; canvas-expand.
-- **Wanted**: 6+ sequential Magick calls (slow); **duplicated mask chain**; no preview.
+- **Wanted**: 6+ sequential Magick calls (slow); own morphology mask chain (not the shared feather one); no preview. *(~~single-file~~ — batch shipped 2026-06-14.)*
 
 Shares the feather/mask chain → `makeFeatherMask()` (see [[Blur]], [[Tool Review]] P0).

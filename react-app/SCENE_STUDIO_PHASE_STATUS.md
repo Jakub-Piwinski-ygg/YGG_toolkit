@@ -1,5 +1,27 @@
 # Scene Studio — status po sesji (2026-06-02, sesja 2)
 
+## Phase 4 — eksport WebM (2026-06-14) ✅
+
+Pierwszy eksporter web-media (poza Unity): aktywny timeline 0→duration renderowany
+deterministycznie do pliku `.webm` (build zielony, zweryfikowane w przeglądarce przez
+użytkownika).
+
+- **`engine/webmExport.js`** — czysty rejestrator: `pickWebmMime()` (próba vp9→vp8→webm),
+  `recordCanvasFrames()` używa `canvas.captureStream(0)` + ręczne `track.requestFrame()`
+  na `MediaRecorder`, tempo do zegara ściennego (`1000/fps` na klatkę) → poprawny czas
+  trwania; kooperacyjne anulowanie (`signal.aborted`).
+- **`PixiViewport.exportWebM()`** — tryb eksportu: zatrzymuje ticker + RAF (`exportingRef`),
+  chowa ramkę sceny i overlay selekcji, ustawia tło na nieprzezroczyste, zmienia rozmiar
+  renderera do natywnej rozdzielczości sceny × scale przy `resolution 1`, renderuje
+  0→duration deterministycznie (`applyFlowAtTime(t)` → `app.render()` → `requestFrame()`).
+  Wszystko przywracane w `finally` (anulowanie/błąd nie psuje edytora). Spine seekowany
+  po `trackTime` (deterministycznie), tick dt wyłączony na czas capture.
+- **`WebMExportDialog.jsx`** — fps (15/24/30/60), jakość (4/8/16 Mbps), rozdzielczość
+  (100/50/25%), kolor tła (nieprzezroczyste), pasek postępu, anuluj, auto-download;
+  ustawienia w localStorage. Przycisk **▶ webm** w `StudioToolbar` obok ⇪ unity.
+- **Ograniczenia (świadome):** tylko nieprzezroczyste (brak alfy); warstwy wideo mogą
+  nie być klatkowo-dokładne; **hero-PNG i sekwencja PNG nadal NIE zrobione.**
+
 ## Project / Scenes / Timelines + Setup-Animate (2026-06-14) ✅
 
 Spine-2D-style workflow + bogatszy model dokumentu (build + wszystkie testy zielone,
