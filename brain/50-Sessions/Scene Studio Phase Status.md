@@ -226,6 +226,13 @@ shapes accel). You edit as a path, but on **export** it bakes to plain x/y curve
 - [ ] Manual add/remove of path points on scene (dbl-click add / alt-click remove).
 - [ ] Per-point tangent-mode chips on scene.
 
+## UX / feature sessions
+
+- [[Session 2026-06-15 Scene Studio Keyframe Multiselect Timeline and Overlays]] —
+  spinner re-edit wizard, frozen-column timeline rewrite, **keyframe
+  multi-select / move / scale / clipboard**, "frame in front" grey-out overlay
+  (device modes built then disabled), Spine setup-pose / "no pose" fixes.
+
 ## Spinner → Unity export sessions
 
 Each session has its own full English note:

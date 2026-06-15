@@ -207,6 +207,10 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   min-height: 0;
   min-width: 0;
 }
+/* Setup mode hides the timeline — let the viewport fill the whole column. */
+.scene-center-stack--no-timeline {
+  grid-template-rows: 1fr;
+}
 
 /* ── Panels ──────────────────────────────────────────────────────────── */
 .scene-panel {
@@ -704,6 +708,11 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   border-top: 2px solid var(--yellow, #ffd166);
   background: rgba(255, 209, 102, 0.04);
 }
+/* "set duration = computed" action pinned to the top of the clip section. */
+.scene-clip-duration-action {
+  width: calc(100% - 24px);
+  margin: 2px 12px 8px;
+}
 
 .scene-tween-editor {
   display: flex;
@@ -956,45 +965,67 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   min-width: 28px;
   text-align: right;
 }
+.scene-timeline-zoom-readout {
+  font-size: 10px;
+  color: var(--text-2, #6a7288);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  min-width: 34px;
+  text-align: right;
+}
 
-/* Body: labels column + lanes side by side. Vertical scroll lives on
-   scene-timeline-lanes-scroll so the horizontal scrollbar is always pinned
-   to the visible bottom edge of the timeline (not buried in content).
-   Labels are synced via JS scrollTop so they never show a scrollbar. */
-.scene-timeline-body {
-  display: flex;
+/* Single 2-D scroll container. Each track is one flex row: a sticky-left label
+   cell + its lane, so labels stay aligned with their lane and scroll vertically
+   with them. The ruler is a sticky-top row; its corner cell is sticky on both
+   axes. This replaces the old two-column design that needed JS scroll-sync. */
+.scene-timeline-scroll {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto; /* both axes; horizontal bar pinned to the visible bottom */
+  position: relative;
+  touch-action: none;
 }
-.scene-timeline-labels {
-  flex: 0 0 auto;
+.scene-timeline-grid {
+  position: relative;
+}
+.scene-timeline-row {
   display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--border, #2e3340);
-  background: var(--bg-2, #1a1d24);
-  user-select: none;
-  overflow: hidden; /* scrollTop driven by JS to stay in sync with lanes */
+  background: #121419;
 }
+/* Zebra striping — ruler is child 1, so the first track row is child 2. */
+.scene-timeline-row:nth-child(even) { background: #14171d; }
+
 .scene-timeline-label-cell {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   padding: 0 8px;
   font-size: 11px;
   color: var(--text-0, #e8eaf0);
+  background: var(--bg-2, #1a1d24);
+  border-right: 1px solid var(--border, #2e3340);
   border-bottom: 1px solid rgba(46, 51, 64, 0.6);
+  user-select: none;
   cursor: pointer;
 }
-.scene-timeline-label-cell:hover { background: rgba(79, 158, 255, 0.08); }
-.scene-timeline-label-cell.selected { background: rgba(79, 158, 255, 0.18); }
+/* Sticky labels must stay opaque (they cover lane content when scrolled
+   horizontally) — composite the state tint over the solid base. */
+.scene-timeline-label-cell:hover {
+  background: linear-gradient(rgba(79, 158, 255, 0.08), rgba(79, 158, 255, 0.08)), var(--bg-2, #1a1d24);
+}
+.scene-timeline-label-cell.selected {
+  background: linear-gradient(rgba(79, 158, 255, 0.18), rgba(79, 158, 255, 0.18)), var(--bg-2, #1a1d24);
+}
 .scene-timeline-label-cell--ruler {
+  top: 0;
+  z-index: 7; /* corner: above both the sticky ruler row and sticky labels */
   background: var(--bg-2, #1a1d24);
   color: var(--text-2, #6a7288);
   font-size: 10px;
   cursor: default;
-  border-right: 1px solid var(--border, #2e3340);
-  flex-shrink: 0;
 }
 .scene-timeline-label-cell--ruler:hover { background: var(--bg-2, #1a1d24); }
 .scene-timeline-label-empty {
@@ -1014,34 +1045,21 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   text-transform: uppercase;
 }
 
-/* Ruler row sits ABOVE the scrolling body and never scrolls vertically. */
+/* Ruler row — sticky to the top of the scroll container. */
 .scene-timeline-ruler-row {
   display: flex;
-  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 6;
   border-bottom: 1px solid var(--border, #2e3340);
   background: var(--bg-1, #13151a);
 }
-.scene-timeline-ruler-scroll {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden; /* hidden scrollbar — scrollLeft synced via JS */
-  position: relative;
-  touch-action: none;
-  cursor: col-resize;
-}
-.scene-timeline-lanes-scroll {
-  flex: 1;
-  min-width: 0;
-  overflow: auto; /* both axes: horizontal bar stays at visible bottom edge */
-  position: relative;
-  touch-action: none;
-}
-.scene-timeline-lanes {
-  position: relative;
-}
 .scene-timeline-ruler {
   position: relative;
+  flex: 0 0 auto;
   background: var(--bg-1, #13151a);
+  touch-action: none;
+  cursor: col-resize;
 }
 .scene-tick {
   position: absolute;
@@ -1067,10 +1085,10 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 
 .scene-timeline-lane {
   position: relative;
+  flex: 0 0 auto;
   border-bottom: 1px solid rgba(46, 51, 64, 0.5);
-  background: #121419;
+  background: transparent; /* row carries the zebra background */
 }
-.scene-timeline-lane:nth-child(odd) { background: #14171d; }
 .scene-timeline-empty-row {
   position: relative;
   display: flex;
@@ -1108,6 +1126,36 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   cursor: default;
 }
 .scene-timeline-label-cell--filler:hover { background: var(--bg-1, #13151a); }
+
+/* Object selected but no clip selected — neutral gray/white row so picking an
+   object on stage/hierarchy instantly shows which track it controls. Distinct
+   from the yellow selected-clip highlight. The label tint composites over the
+   opaque base so the sticky column never goes see-through. */
+.scene-timeline-label-cell.layer-selected {
+  background: linear-gradient(rgba(232, 234, 240, 0.13), rgba(232, 234, 240, 0.13)), var(--bg-2, #1a1d24);
+  box-shadow: inset 3px 0 0 rgba(232, 234, 240, 0.55);
+}
+.scene-timeline-row:has(.layer-selected) { background: rgba(232, 234, 240, 0.06); }
+.scene-timeline-lane.layer-selected { background: rgba(232, 234, 240, 0.06); }
+
+/* Ghost track — selected object that has no track yet. */
+.scene-timeline-label-cell--ghost {
+  font-style: italic;
+  color: var(--text-1, #aab1c4);
+}
+.scene-timeline-lane--ghost {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 8px;
+  border-top: 1px dashed rgba(232, 234, 240, 0.25);
+  border-bottom: 1px dashed rgba(232, 234, 240, 0.25);
+}
+.scene-timeline-ghost-add {
+  font-style: italic;
+  opacity: 0.9;
+}
+.scene-timeline-ghost-add:hover { opacity: 1; }
 
 .scene-drop-preview-clip {
   position: absolute;
@@ -1586,6 +1634,7 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   transform: rotate(45deg);
   pointer-events: auto;
   cursor: ew-resize;
+  z-index: 2; /* above the selection box so diamonds stay clickable */
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
 }
 .scene-clip-keyframe:hover {
@@ -1602,6 +1651,63 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 .scene-clip-keyframe--rotation { background: #ffd166; }
 .scene-clip-keyframe--alpha    { background: #a8afc0; }
 .scene-clip-keyframe--tint     { background: #ff6b6b; }
+
+/* Marquee select over a selected clip's keyframe band. The capture layer sits
+   BELOW the dots (earlier in DOM, same stacking) so dots keep click priority;
+   it only grabs presses on empty band space. */
+.scene-kf-marquee-capture {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Leave the resize-edge hit zones (~18px) clear so a selected clip can still
+     be resized by grabbing its left/right edges over the keyframe band. */
+  left: 18px;
+  right: 18px;
+  pointer-events: auto;
+  cursor: crosshair;
+}
+.scene-kf-marquee {
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+}
+/* Box around the selected keys: body = move, edges = scale. The box sits BELOW
+   the dots (lower z) so individual diamonds stay clickable; only its move body
+   and edge grips capture pointer events. */
+.scene-kf-selbox {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  pointer-events: none;
+  border: 1px dashed rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+}
+.scene-kf-selbox-move {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  right: 6px;
+  pointer-events: auto;
+  cursor: grab;
+}
+.scene-kf-selbox-move:active { cursor: grabbing; }
+.scene-kf-selbox-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+.scene-kf-selbox-edge--l { left: -5px; }
+.scene-kf-selbox-edge--r { right: -5px; }
+.scene-kf-selbox-edge:hover { background: rgba(255, 255, 255, 0.25); }
 
 /* ── Round 4: graph editor, colour picker, motion path ─────────────── */
 

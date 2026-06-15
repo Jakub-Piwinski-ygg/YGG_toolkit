@@ -17,14 +17,18 @@ tags: [backlog, priority, review]
 > [!check] Verdicts re-audited against code 2026-06-14
 > Several items had silently shipped. Strikethrough = confirmed done in code.
 
-### P0 — do first (blocks value or compounds daily)
-1. **[[Scene Studio]] Phase 4 web export** — ~~WebM~~ **SHIPPED 2026-06-14**
+### P0 — ✅ CLEARED (all shipped as of 2026-06-14)
+1. ~~**[[Scene Studio]] Phase 4 web export**~~ — **DONE**. WebM **SHIPPED 2026-06-14**
    (`engine/webmExport.js` + `WebMExportDialog` + `PixiViewport.exportWebM()`:
-   deterministic 0→duration capture, native res, opaque). **Remaining: hero-frame
-   PNG + PNG sequence.** ~~+ fix or contain the Pixi v8 crash~~ → **crash FIXED**
-   (`pixiApp.js` `Assets.load()`; boundary kept as failsafe).
-   *(Unity `.unitypackage` export + Spinner Unity phases 2–5 already SHIPPED — see
-   [[Spinner Unity Phase 5]]; per-timeline path test-covered, 27 `unity/*.test.mjs` green.)*
+   deterministic 0→duration capture, native res, opaque). **hero-frame PNG + PNG
+   sequence DROPPED 2026-06-14 — not wanted** (WebM + Unity package cover the need).
+   ~~+ fix or contain the Pixi v8 crash~~ → **crash FIXED** (`pixiApp.js`
+   `Assets.load()`; boundary kept as failsafe). Unity `.unitypackage` export +
+   **Spinner Unity phases 2–5 all SHIPPED** — see [[Spinner Unity Phase 5]] (§A
+   presentWin clip, §B single machine mask + native 1:1, §C runtime
+   `SetResultBoard`/`Spin` API; 58 SceneStudio tests green). **Sole remaining
+   caveat: a live Unity-import sanity check** (baked overlays play/position; web
+   overlays after atlas self-heal) — code + tests complete, never confirmed in-engine.
 2. ~~**Art Tools shared infra**~~ — **SHIPPED 2026-06-14**. `makeFeatherMask()` /
    `scaleImageWasm()` / `canvasToBlob()` extracted to `utils/image.js`; shared
    `utils/batch.js#makeBatchRun()` flips all 7 single-file tools to `batchMode:true`

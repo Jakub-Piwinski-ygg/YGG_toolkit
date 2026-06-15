@@ -5,8 +5,10 @@ import {
   applyFlowAtTime,
   createPixiApp,
   destroyPixiApp,
+  drawDimOverlay,
   drawSelection,
   drawStageFrame,
+  loadDeviceGuideTexture,
   rebuildScene,
   resizeRenderer,
   sceneStructuralHash,
@@ -23,6 +25,9 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   const contentRef = useRef(null);
   const stageFrameRef = useRef(null);
   const selectionOverlayRef = useRef(null);
+  const deviceGuideRef = useRef(null);
+  const dimOverlayRef = useRef(null);
+  const guideRectRef = useRef(null); // {x,y,w,h} of the device guide in stage coords
   const handlesRef = useRef(new Map());
   const buildIdRef = useRef(0);
   const pendingRef = useRef(Promise.resolve());
@@ -87,6 +92,19 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       const stage = s.stage.orientations[s.stage.activeOrientation];
       drawStageFrame(frame, stage.w, stage.h, vScale, overlayModeRef.current);
     }
+    // Dim overlay: grey out around the in-view region (stage, or guide bounds).
+    const dim = dimOverlayRef.current;
+    if (dim) {
+      const mode = overlayModeRef.current;
+      const stage = s.stage.orientations[s.stage.activeOrientation];
+      if (mode === 'above') {
+        drawDimOverlay(dim, { x: 0, y: 0, w: stage.w, h: stage.h });
+      } else if (mode === 'device-landscape' || mode === 'device-portrait') {
+        drawDimOverlay(dim, guideRectRef.current || { x: 0, y: 0, w: stage.w, h: stage.h });
+      } else {
+        drawDimOverlay(dim, null);
+      }
+    }
     if (app?.renderer) app.render();
   };
 
@@ -107,12 +125,17 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         contentRef.current = built.content;
         stageFrameRef.current = built.stageFrame;
         selectionOverlayRef.current = built.selectionOverlay;
+        deviceGuideRef.current = built.deviceGuide;
+        dimOverlayRef.current = built.dimOverlay;
 
         // Initial fit + stage frame at the resulting zoom
         const stage = sceneRef.current.stage.orientations[sceneRef.current.stage.activeOrientation];
         fitViewportToStage(built.viewport, initialSize.w, initialSize.h, stage.w, stage.h);
         drawStageFrame(built.stageFrame, stage.w, stage.h, built.viewport.scale.x, overlayModeRef.current);
         fittedOnceRef.current = true;
+        // Draw the dim overlay (and any device guide) for the initial mode now
+        // that the Pixi refs are assigned — the effects ran before this resolved.
+        requestRender();
         built.app.render();
 
         const onCanvasClick = () => onViewportClickRef.current?.();
@@ -304,6 +327,38 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     requestRender();
   }, [overlayMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Device-view guide: load + size the guide image to COVER the stage (centred),
+  // record its bounds for the dim overlay, and toggle visibility per mode.
+  useEffect(() => {
+    const guide = deviceGuideRef.current;
+    if (!guide) return;
+    const isDevice = overlayMode === 'device-landscape' || overlayMode === 'device-portrait';
+    if (!isDevice) {
+      guide.visible = false;
+      guideRectRef.current = null;
+      requestRender();
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const tex = await loadDeviceGuideTexture(overlayMode);
+      if (cancelled || !tex) return;
+      const stage = sceneRef.current.stage.orientations[sceneRef.current.stage.activeOrientation];
+      const tw = tex.width || tex.source?.width || stage.w;
+      const th = tex.height || tex.source?.height || stage.h;
+      const scale = Math.max(stage.w / tw, stage.h / th); // cover
+      guide.texture = tex;
+      guide.scale.set(scale);
+      guide.position.set(stage.w / 2, stage.h / 2);
+      guide.visible = true;
+      const dw = tw * scale;
+      const dh = th * scale;
+      guideRectRef.current = { x: stage.w / 2 - dw / 2, y: stage.h / 2 - dh / 2, w: dw, h: dh };
+      requestRender();
+    })();
+    return () => { cancelled = true; };
+  }, [overlayMode, scene.stage.activeOrientation]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useImperativeHandle(ref, () => ({
     screenToWorld(clientX, clientY) {
       const vp = viewportRef.current;
@@ -332,6 +387,8 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       const viewport = viewportRef.current;
       const stageFrame = stageFrameRef.current;
       const selectionOverlay = selectionOverlayRef.current;
+      const dimOverlay = dimOverlayRef.current;
+      const deviceGuide = deviceGuideRef.current;
       const scene = sceneRef.current;
       if (!app?.renderer || !viewport || !scene) throw new Error('Scene is not ready.');
 
@@ -354,6 +411,8 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         x: viewport.x, y: viewport.y, sx: viewport.scale.x, sy: viewport.scale.y,
         frameVis: stageFrame ? stageFrame.visible : true,
         selVis: selectionOverlay ? selectionOverlay.visible : true,
+        dimVis: dimOverlay ? dimOverlay.visible : true,
+        guideVis: deviceGuide ? deviceGuide.visible : false,
         bgAlpha: app.renderer.background.alpha,
         bgColor: app.renderer.background.color,
         w: app.renderer.width, h: app.renderer.height,
@@ -361,6 +420,8 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       };
       if (stageFrame) stageFrame.visible = false;
       if (selectionOverlay) selectionOverlay.visible = false;
+      if (dimOverlay) dimOverlay.visible = false;
+      if (deviceGuide) deviceGuide.visible = false;
       app.renderer.background.alpha = 1;
       app.renderer.background.color = backgroundColor;
       app.renderer.resize(outW, outH, 1); // resolution 1 → backing store == outW×outH
@@ -386,6 +447,8 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         // ---- restore editor view ----
         if (stageFrame) stageFrame.visible = saved.frameVis;
         if (selectionOverlay) selectionOverlay.visible = saved.selVis;
+        if (dimOverlay) dimOverlay.visible = saved.dimVis;
+        if (deviceGuide) deviceGuide.visible = saved.guideVis;
         app.renderer.background.alpha = saved.bgAlpha;
         app.renderer.background.color = saved.bgColor;
         const r = hostRef.current?.getBoundingClientRect();

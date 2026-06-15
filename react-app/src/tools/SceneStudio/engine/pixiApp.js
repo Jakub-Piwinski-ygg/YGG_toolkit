@@ -96,11 +96,65 @@ export async function createPixiApp(container, initialCanvasSize) {
   content.label = 'content';
   viewport.addChild(content);
 
+  // Device-view guide image (e.g. landscape / portrait safe-zone maps), shown
+  // for the 'device-*' overlay modes. Hidden otherwise.
+  const deviceGuide = new Sprite();
+  deviceGuide.label = 'deviceGuide';
+  deviceGuide.anchor.set(0.5);
+  deviceGuide.visible = false;
+  deviceGuide.eventMode = 'none';
+  viewport.addChild(deviceGuide);
+
+  // Dim overlay: greys out everything OUTSIDE the in-view region (the stage for
+  // 'frame in front', or the guide bounds for device modes) so the workable /
+  // device-visible area stands out. Sits above content + guide, below selection.
+  const dimOverlay = new Graphics();
+  dimOverlay.label = 'dimOverlay';
+  dimOverlay.eventMode = 'none';
+  viewport.addChild(dimOverlay);
+
   const selectionOverlay = new Graphics();
   selectionOverlay.label = 'selectionOverlay';
   viewport.addChild(selectionOverlay);
 
-  return { app, viewport, content, stageFrame, selectionOverlay };
+  return { app, viewport, content, stageFrame, deviceGuide, dimOverlay, selectionOverlay };
+}
+
+/**
+ * Grey out everything OUTSIDE `clearRect` ({x,y,w,h}) by painting four large
+ * dark bands around it. The extent is large enough to cover the viewport at
+ * any pan/zoom. `clearRect` null → clears the overlay (no dimming).
+ */
+export function drawDimOverlay(g, clearRect, alpha = 0.5) {
+  if (!g) return;
+  g.clear();
+  if (!clearRect) return;
+  const { x, y, w, h } = clearRect;
+  const BIG = 100000;
+  const col = 0x05070b;
+  g.rect(x - BIG, y - BIG, w + 2 * BIG, BIG).fill({ color: col, alpha });          // top
+  g.rect(x - BIG, y + h, w + 2 * BIG, BIG).fill({ color: col, alpha });            // bottom
+  g.rect(x - BIG, y, BIG, h).fill({ color: col, alpha });                          // left
+  g.rect(x + w, y, BIG, h).fill({ color: col, alpha });                            // right
+}
+
+// Device-view guide images (public/sceneStudio/). Cached as load promises.
+const DEVICE_GUIDE_URLS = {
+  'device-landscape': 'sceneStudio/DeviceViewLanscape.png',
+  'device-portrait': 'sceneStudio/DeviceViewPortrait.png'
+};
+const deviceGuideTexCache = new Map();
+
+/** Load (and cache) the guide texture for a device-view overlay mode, or null. */
+export function loadDeviceGuideTexture(mode) {
+  const rel = DEVICE_GUIDE_URLS[mode];
+  if (!rel) return Promise.resolve(null);
+  if (deviceGuideTexCache.has(mode)) return deviceGuideTexCache.get(mode);
+  const base = (import.meta?.env?.BASE_URL) || '/';
+  const url = (base.endsWith('/') ? base : base + '/') + rel;
+  const p = loadTextureFromUrl(url).catch(() => null);
+  deviceGuideTexCache.set(mode, p);
+  return p;
 }
 
 export function destroyPixiApp(app) {
@@ -132,7 +186,7 @@ function clearContainer(c) {
  */
 export function drawStageFrame(frame, stageW, stageH, viewportScale = 1, overlayMode = 'behind') {
   frame.clear();
-  if (overlayMode !== 'above') {
+  if (overlayMode === 'behind') {
     // Stage background — slightly darker than the surrounding checker
     frame.rect(0, 0, stageW, stageH).fill({ color: 0x0d0e11, alpha: 0.85 });
   }
@@ -156,11 +210,13 @@ export function setStageFrameZOrder(viewport, stageFrame, content, overlayMode) 
   const frameIdx = children.indexOf(stageFrame);
   const contentIdx = children.indexOf(content);
   if (frameIdx === -1 || contentIdx === -1) return;
-  if (overlayMode === 'above' && frameIdx < contentIdx) {
+  // Any non-'behind' mode (frame in front + device guides) floats above content.
+  const above = overlayMode !== 'behind';
+  if (above && frameIdx < contentIdx) {
     viewport.removeChild(stageFrame);
     // content index shifts down by 1 after removal; insert right after it
     viewport.addChildAt(stageFrame, children.indexOf(content) + 1);
-  } else if (overlayMode !== 'above' && frameIdx > contentIdx) {
+  } else if (!above && frameIdx > contentIdx) {
     viewport.removeChild(stageFrame);
     // Insert before content
     viewport.addChildAt(stageFrame, children.indexOf(content));
@@ -902,8 +958,12 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     const clip = clipAt(track, t);
     const cache = perTrack.get(idx) || {};
     if (!clip) {
+      // No clip here → hold the Spine's base SETUP pose (Unity "no clip" / hold
+      // behaviour). Use a 0-second empty animation so it snaps deterministically
+      // even while scrubbing (a non-zero mix freezes mid-blend when paused,
+      // which looked like a broken pose between clips).
       if (cache.activeClipId !== null) {
-        try { obj.state.setEmptyAnimation(idx, cache.mixDuration ?? 0.1); }
+        try { obj.state.setEmptyAnimation(idx, 0); }
         catch { /* ignore */ }
         perTrack.set(idx, { activeClipId: null, anim: null, loop: null, mixDuration: 0 });
       }

@@ -1,5 +1,12 @@
 # Spinner — Unity export phase 5 (kickoff / handoff)
 
+> [!done] ✅ SHIPPED 2026-06-14 — all three confirmed decisions (§A, §B, §C) are
+> implemented and test-covered (58 SceneStudio tests green, incl. explicit
+> `phase 5 §A/§B/§C` cases). See per-section "SHIPPED" notes below.
+> **Sole remaining caveat:** none of this has been sanity-checked in a live Unity
+> import yet (baked `Anim_*` overlays playing/positioning on land/win; web overlays
+> after atlas self-heal). Code + tests are complete; in-engine verification pending.
+
 > Self-contained kickoff for a NEW session. The Spinner → Unity export has been
 > built across phases 2–4 (see `next phase spinner unity phase2/3/4.md`,
 > `react-app/SPINNER.md`, `react-app/SCENE_STUDIO.md`). This doc captures the full
@@ -67,7 +74,12 @@ Key files:
 
 ## 2. BUILD NEXT — three confirmed decisions
 
-### A. "Present Win" clip (replaces the auto-fired win) — user-confirmed
+### A. "Present Win" clip (replaces the auto-fired win) — ✅ SHIPPED 2026-06-14
+> `presentWin` in `SPINNER_ACTIONS` + normalized params (`spinnerModel.js`); evaluator
+> override (`spinnerEval.js:278`); inspector stagger + per-reel delay + set-duration
+> helper (`SpinnerInspectorSections.jsx:237`); bake carries params (`bake.js:188`); C#
+> mirror in `csharp.js`. Per-reel Fx overlays added (same symbol can win on several reels).
+
 Win currently auto-fires from the evaluator (`winStartAt = allLand + winDelay`),
 which plays too early. Replace with an explicit clip the user places AFTER stopSpin.
 - **New spinner action `presentWin`** (add to `SPINNER_ACTIONS` in `spinnerModel.js`;
@@ -88,7 +100,12 @@ which plays too early. Replace with an explicit clip the user places AFTER stopS
 - **Bake**: `bake.js#spinnerCuesForLayer` must carry the `presentWin` clip + its
   params into `clipsJson`/descriptor.
 
-### B. Single machine mask + 1:1 symbols — user-confirmed
+### B. Single machine mask + 1:1 symbols — ✅ SHIPPED 2026-06-14
+> Web: one machine-sized `boardMask` wraps the reels, symbols at native scale 1
+> (overflow their cell), Fx outside the mask (`spinnerRuntime.js:79-110,241`). Unity:
+> `RectMask2D` (UI) / single `SpriteMask` + `VisibleInsideMask` (world); per-reel masks
+> removed, no `FitScale`, `SetNativeSize` on sprite swap (`csharp.js:1561-1885`).
+
 - **Render statics + blurred at native 1:1** (a 220×220 symbol stays 220, NOT
   shrunk to the 200 cell). Remove the fit-shrink: world `fit`/`FitScale`, UI
   `preserveAspect` cell-fit. Cells size to the sprite's native px; on runtime
@@ -109,7 +126,10 @@ which plays too early. Replace with an explicit clip the user places AFTER stopS
   horizontally into neighbors/edges (wanted) but the board window still clips the
   scrolling top/bottom.
 
-### C. Runtime result injection API (programmer-facing) — user wants this
+### C. Runtime result injection API (programmer-facing) — ✅ SHIPPED 2026-06-14
+> `SetResultBoard(string[][])`, `Spin()`, `Spin(string[][])` on `YggSpinner`, self-driving
+> off the evaluator (`csharp.js:1425-1438`). Win cells derive from the injected board.
+
 Programmers will inject random spin symbols + the actual backend result (not the
 baked board). Add a small public API on `YggSpinner`:
 - `public void SetResultBoard(string[][] board)` — sets the landing/result board

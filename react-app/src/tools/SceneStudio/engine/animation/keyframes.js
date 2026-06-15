@@ -646,6 +646,124 @@ export function moveKeyTime(channel, idx, newT) {
   return { keys };
 }
 
+// ── Multi-key transform (marquee move / scale) ────────────────────────
+//
+// A selection identity is `{ name, comp, idx }`:
+//   - comp null  → a linked channel's `keys[idx]`.
+//   - comp set   → a split channel's `perComp[comp].keys[idx]`.
+
+/** The key array a `{ name, comp }` identity points at, or null. */
+export function channelKeyList(channels, name, comp) {
+  const ch = channels?.[name];
+  if (!ch) return null;
+  if (comp) return ch.split ? (ch.perComp?.[comp]?.keys || null) : null;
+  return Array.isArray(ch.keys) ? ch.keys : null;
+}
+
+/**
+ * Apply a clip-local time map to a SUBSET of a clip's keyframes (the marquee
+ * selection). `mapT(t)` is the per-key time transform — `t => t + delta` for a
+ * move, `t => pivot + (t - pivot) * factor` for a scale.
+ *
+ * Selected keys are clamped so they never cross a neighbouring NON-selected key
+ * on the same list, which keeps every key's index stable (so the live selection
+ * survives the drag). When selected keys map past the clip's [0, duration]
+ * range the clip itself grows — `start` moves earlier and/or `duration` extends
+ * — but only within `bounds.leftRoom` / `bounds.rightRoom` seconds (free space
+ * to the neighbouring clips / timeline edges); overflow beyond that clamps.
+ *
+ * @param {object} clip            clip snapshot { start, duration, channels }
+ * @param {Array}  selected        [{ name, comp, idx }]
+ * @param {(t:number)=>number} mapT
+ * @param {{leftRoom?:number,rightRoom?:number}} bounds
+ * @returns {{ start, duration, channels } | null}  new clip fields, or null
+ */
+export function transformClipKeys(clip, selected, mapT, bounds = {}) {
+  const channels = clip?.channels;
+  if (!channels || !selected?.length) return null;
+  const leftRoom = Math.max(0, Number(bounds.leftRoom) || 0);
+  const rightRoom = Math.max(0, Number(bounds.rightRoom) || 0);
+  const dur = Math.max(0.05, Number(clip.duration) || 0);
+  const EPS = 1e-4;
+
+  const listKeyOf = (name, comp) => `${name}|${comp || ''}`;
+  const selByList = new Map(); // listKey → Set(idx)
+  for (const s of selected) {
+    const lk = listKeyOf(s.name, s.comp);
+    if (!selByList.has(lk)) selByList.set(lk, new Set());
+    selByList.get(lk).add(s.idx);
+  }
+
+  // Raw mapped time of every selected key → overall overflow past [0, dur].
+  let gMin = Infinity;
+  let gMax = -Infinity;
+  for (const [lk, idxSet] of selByList) {
+    const [name, comp] = lk.split('|');
+    const keys = channelKeyList(channels, name, comp || null);
+    if (!keys) continue;
+    for (const idx of idxSet) {
+      const k = keys[idx];
+      if (!k) continue;
+      const nt = mapT(k.t);
+      if (nt < gMin) gMin = nt;
+      if (nt > gMax) gMax = nt;
+    }
+  }
+  if (!Number.isFinite(gMin)) return null;
+
+  const leftShift = gMin < 0 ? Math.min(-gMin, leftRoom) : 0;
+  const rightExtra = gMax > dur ? Math.min(gMax - dur, rightRoom) : 0;
+  const newDuration = dur + leftShift + rightExtra;
+  const newStart = Math.max(0, clip.start - leftShift);
+
+  // Transform one key list: ALL keys shift by +leftShift (origin moved left);
+  // selected take mapped time, clamped between their non-selected neighbours so
+  // indices never reorder. Non-selected keep their (shifted) time.
+  const transformList = (keys, name, comp) => {
+    const idxSet = selByList.get(listKeyOf(name, comp));
+    const tmp = keys.map((k, i) => {
+      const sel = idxSet?.has(i);
+      let nt = (sel ? mapT(k.t) : k.t) + leftShift;
+      nt = Math.max(0, Math.min(newDuration, nt));
+      return { k, sel, nt };
+    });
+    for (let i = 0; i < tmp.length; i++) {
+      if (!tmp[i].sel) continue;
+      let lo = 0;
+      for (let j = i - 1; j >= 0; j--) if (!tmp[j].sel) { lo = tmp[j].nt + EPS; break; }
+      let hi = newDuration;
+      for (let j = i + 1; j < tmp.length; j++) if (!tmp[j].sel) { hi = tmp[j].nt - EPS; break; }
+      tmp[i].nt = Math.max(lo, Math.min(Math.max(lo, hi), tmp[i].nt));
+    }
+    // Guard against scale compressing consecutive selected keys onto each other.
+    let prev = -Infinity;
+    for (let i = 0; i < tmp.length; i++) {
+      if (tmp[i].nt <= prev) tmp[i].nt = prev + EPS;
+      prev = tmp[i].nt;
+    }
+    return tmp.map(({ k, nt }) => ({ ...k, t: nt }));
+  };
+
+  const newChannels = {};
+  for (const name of Object.keys(channels)) {
+    const ch = channels[name];
+    if (!ch) { newChannels[name] = ch; continue; }
+    if (ch.split && ch.perComp) {
+      const perComp = {};
+      for (const c of Object.keys(ch.perComp)) {
+        perComp[c] = { ...ch.perComp[c], keys: transformList(ch.perComp[c]?.keys || [], name, c) };
+      }
+      newChannels[name] = { ...ch, perComp };
+    } else if (Array.isArray(ch.keys)) {
+      newChannels[name] = { ...ch, keys: transformList(ch.keys, name, null) };
+    } else {
+      newChannels[name] = ch;
+    }
+  }
+
+  return { start: newStart, duration: newDuration, channels: newChannels };
+}
+
 // ── Tangent mutation + introspection (P4) ─────────────────────────────
 
 /**

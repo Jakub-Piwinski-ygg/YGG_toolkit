@@ -49,13 +49,7 @@ export function StudioToolbar({
   };
   return (
     <div className="scene-toolbar">
-      <input
-        className="scene-toolbar-name"
-        type="text"
-        value={scene.name}
-        onChange={(e) => onRename(e.target.value)}
-        placeholder="scene name"
-      />
+      {/* Scene name input moved to the hierarchy panel head (rename ✎). */}
       <select
         className="scene-toolbar-select scene-scene-picker"
         value={activeSceneId && projectScenes.some((s) => s.id === activeSceneId) ? activeSceneId : ''}
@@ -107,10 +101,11 @@ export function StudioToolbar({
         className="scene-toolbar-select"
         value={overlayMode}
         onChange={(e) => onSetOverlayMode?.(e.target.value)}
-        title="Stage frame: behind objects (dark fill) or above objects (transparent interior)"
+        title="Overlay: frame in front (greys out around the stage) or frame behind (dark fill)"
       >
+        <option value="above">▣ frame in front</option>
         <option value="behind">□ frame behind</option>
-        <option value="above">■ frame above</option>
+        {/* device-view guide modes temporarily disabled — needs alignment fix */}
       </select>
       <select
         className="scene-toolbar-select"

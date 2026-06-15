@@ -20,6 +20,16 @@
 // them to scene.assets WITHOUT creating canvas layers.
 //
 // onCreate({ name, spinnerConfig, newAssets })
+//
+// Edit mode
+// ──────────────────────────────────────────────────────────────────────────
+// Pass `existingConfig` (a normalized spinner config) + `existingName` to re-open
+// the wizard on an already-created spinner. All steps are pre-populated from the
+// config; on submit the same onCreate({ name, spinnerConfig, newAssets }) payload
+// is emitted — the caller patches the existing asset instead of adding a layer.
+// In edit mode the wizard preserves config fields it doesn't expose (bounce,
+// events, direction, perReel) and only regenerates strips/board when the symbol
+// set or grid changed.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DragNumberField } from './DragNumberField.jsx';
@@ -322,20 +332,25 @@ function AnimBadge({ label, anim, spinePool }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate }) {
+export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate, existingConfig = null, existingName = null }) {
+  const isEdit = !!existingConfig;
   const [step, setStep] = useState('grid');
 
   // Step 1 — grid
-  const [name, setName] = useState('Spinner');
-  const [reels, setReels] = useState(5);
-  const [rows, setRows] = useState(3);
-  const [cellW, setCellW] = useState(120);
-  const [cellH, setCellH] = useState(120);
-  const [spacingX, setSpacingX] = useState(6);
-  const [spacingY, setSpacingY] = useState(6);
+  const [name, setName] = useState(existingName || 'Spinner');
+  const [reels, setReels] = useState(existingConfig?.grid?.reels ?? 5);
+  const [rows, setRows] = useState(existingConfig?.grid?.rows ?? 3);
+  const [cellW, setCellW] = useState(existingConfig?.grid?.cellW ?? 120);
+  const [cellH, setCellH] = useState(existingConfig?.grid?.cellH ?? 120);
+  const [spacingX, setSpacingX] = useState(existingConfig?.grid?.spacingX ?? 6);
+  const [spacingY, setSpacingY] = useState(existingConfig?.grid?.spacingY ?? 6);
 
   // Step 2 — symbols
-  const [symbols, setSymbols] = useState(() => Array.from({ length: 6 }, (_, i) => defaultSymbol(i)));
+  const [symbols, setSymbols] = useState(() =>
+    existingConfig?.symbols?.length
+      ? existingConfig.symbols.map((s) => ({ ...s }))
+      : Array.from({ length: 6 }, (_, i) => defaultSymbol(i))
+  );
   const [assetFilter, setAssetFilter] = useState('');
   const [blurSigma, setBlurSigma] = useState(8);
   const [blurFeather, setBlurFeather] = useState(4);
@@ -343,12 +358,12 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
   const [generatedAssets, setGeneratedAssets] = useState([]);
 
   // Step 3 — timing + blur
-  const [timing, setTiming] = useState(() => defaultSpinnerTiming());
-  const [blur, setBlur] = useState(() => defaultSpinnerBlur());
+  const [timing, setTiming] = useState(() => ({ ...defaultSpinnerTiming(), ...(existingConfig?.timing || {}) }));
+  const [blur, setBlur] = useState(() => ({ ...defaultSpinnerBlur(), ...(existingConfig?.blur || {}) }));
 
   // Step 4 — initial board
-  const [initialBoard, setInitialBoard] = useState(null);
-  const [seed] = useState(() => Math.floor(Math.random() * 0xFFFFFF) + 1);
+  const [initialBoard, setInitialBoard] = useState(existingConfig?.initialBoard || null);
+  const [seed] = useState(() => existingConfig?.seed ?? (Math.floor(Math.random() * 0xFFFFFF) + 1));
 
   // ── Asset pool ────────────────────────────────────────────────────────────
   // scene.assets pngs that are already in the scene
@@ -614,25 +629,43 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
     const symIds = validSymbols.map((s) => s.id);
     if (symIds.length < 2) return;
 
-    const rand   = mulberry32(seed);
-    const strips = Array.from({ length: reels }, () =>
-      generateStrip(symIds, SPINNER_DEFAULT_STRIP_LEN, rand)
-    );
-    const board = initialBoard || generateNonWinningBoard(symIds, reels, rows, seed);
+    // Preserve existing strips when editing and neither the symbol set nor the
+    // reel count changed; otherwise regenerate (old strips would carry dangling
+    // symbol ids or the wrong reel count).
+    const prevIds = existingConfig ? (existingConfig.symbols || []).map((s) => s.id) : null;
+    const sameSymbols = prevIds && prevIds.length === symIds.length && prevIds.every((id) => symIds.includes(id));
+    const sameReels = existingConfig?.grid?.reels === reels;
+    let strips;
+    if (existingConfig?.strips?.length && sameSymbols && sameReels) {
+      strips = existingConfig.strips;
+    } else {
+      const rand = mulberry32(seed);
+      strips = Array.from({ length: reels }, () =>
+        generateStrip(symIds, SPINNER_DEFAULT_STRIP_LEN, rand)
+      );
+    }
+
+    // Keep the edited board only if it still matches the grid and every cell is
+    // a current symbol; otherwise generate a fresh non-winning board.
+    const idSet = new Set(symIds);
+    const boardValid = initialBoard
+      && initialBoard.length === reels
+      && initialBoard.every((col) => Array.isArray(col) && col.length === rows && col.every((c) => idSet.has(c)));
+    const board = boardValid ? initialBoard : generateNonWinningBoard(symIds, reels, rows, seed);
 
     const spinnerConfig = {
-      rev: 1,
+      rev: (existingConfig?.rev || 0) + 1,
       symbols: validSymbols,
       grid: { reels, rows, cellW, cellH, spacingX, spacingY },
       strips,
       initialBoard: board,
       seed,
-      direction: 1,
+      direction: existingConfig?.direction ?? 1,
       timing,
-      bounce: defaultSpinnerBounce(),
+      bounce: existingConfig?.bounce || defaultSpinnerBounce(),
       blur,
-      events: defaultSpinnerEvents(),
-      perReel: [],
+      events: existingConfig?.events || defaultSpinnerEvents(),
+      perReel: existingConfig?.perReel || [],
     };
 
     // Only emit assets that are used and not already in scene.assets
@@ -657,7 +690,7 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
     validSymbols, reels, rows, cellW, cellH, spacingX, spacingY,
     timing, blur, initialBoard, seed, name,
     browserPool, browserSpinePool, generatedAssets,
-    scene, onCreate,
+    scene, onCreate, existingConfig,
   ]);
 
   const stepIdx = STEPS.indexOf(step);
@@ -672,7 +705,7 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
       <div className="spinner-wizard">
 
         <div className="spinner-wizard-head">
-          <span className="spinner-wizard-title">＋ New Spinner</span>
+          <span className="spinner-wizard-title">{isEdit ? '✎ Edit Spinner' : '＋ New Spinner'}</span>
           <div className="spinner-wizard-steps">
             {STEPS.map((s, i) => (
               <button
@@ -1033,7 +1066,7 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
             <button type="button" className="scene-btn scene-btn--primary"
               disabled={validSymbols.length < 2}
               onClick={handleCreate}>
-              ＋ create spinner
+              {isEdit ? '✓ rebuild spinner' : '＋ create spinner'}
             </button>
           )}
         </div>

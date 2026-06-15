@@ -8,6 +8,7 @@ import { InspectorPanel } from './components/InspectorPanel.jsx';
 import { PixiErrorBoundary } from './components/PixiErrorBoundary.jsx';
 import { PixiViewport } from './components/PixiViewport.jsx';
 import { SpinnerWizard } from './components/SpinnerWizard.jsx';
+import { normalizeSpinnerConfig } from './engine/spinner/spinnerModel.js';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
 import { UnityExportDialog } from './components/UnityExportDialog.jsx';
@@ -64,6 +65,7 @@ import { patchTransform, resetPortrait } from './engine/orientationManager.js';
 import { groupSpineFiles } from './engine/spineLoader.js';
 import {
   channelLayout,
+  channelKeyList,
   clipLocalSeconds,
   composeRgbValue,
   composeVec2Value,
@@ -72,12 +74,35 @@ import {
   insertOrUpdateKey,
   isPathChannel,
   splitChannel,
+  transformClipKeys,
   SPRITE_PROP_TO_CHANNEL
 } from './engine/animation/keyframes.js';
 import { insertOrUpdatePathPoint, resolvePointHandles } from './engine/animation/pathSpline.js';
 import './styles/scene-studio.css';
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
+
+/**
+ * Find a free [start, duration] window of `slotDuration` seconds at/after
+ * `prefStart` that doesn't overlap any clip in `clips`, shrinking to fit if
+ * needed. Returns null when nothing fits. Used by clip paste (the TimelinePanel
+ * has its own copy for drag-to-create).
+ */
+function findFreeSlotIn(clips, prefStart, slotDuration, duration) {
+  const sorted = [...(clips || [])].sort((a, b) => a.start - b.start);
+  let start = Math.max(0, Math.min(prefStart, Math.max(0, duration - 0.05)));
+  for (const c of sorted) {
+    if (start >= c.start && start < c.start + c.duration) start = c.start + c.duration;
+  }
+  if (start >= duration) return null;
+  let maxEnd = duration;
+  for (const c of sorted) {
+    if (c.start >= start) { maxEnd = Math.min(maxEnd, c.start); break; }
+  }
+  const dur = Math.max(0.05, Math.min(slotDuration, maxEnd - start));
+  if (dur < 0.05) return null;
+  return { start, duration: dur };
+}
 
 /** Total layer count across all scenes in a session-draft project. */
 function sessionLayerCount(project) {
@@ -173,6 +198,9 @@ export default function SceneStudioInner() {
   const [showUnityExport, setShowUnityExport] = useState(false);
   const [showWebMExport, setShowWebMExport] = useState(false);
   const [showSpinnerWizard, setShowSpinnerWizard] = useState(false);
+  // When set, the wizard runs in edit mode against an existing spinner:
+  // { layerId, assetId, config, name }
+  const [editSpinnerTarget, setEditSpinnerTarget] = useState(null);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const [selectedClipId, setSelectedClipId] = useState(null);
   // Multi-selection of timeline clips (ctrl/shift-click + marquee). The
@@ -180,8 +208,13 @@ export default function SceneStudioInner() {
   // inspector + auto-key target. `selectedClipIds` is the full set for group
   // move + group delete.
   const [selectedClipIds, setSelectedClipIds] = useState([]);
-  const [selectedKey, setSelectedKey] = useState(null);   // { clipId, name, idx } | null
-  const [clipboardKey, setClipboardKey] = useState(null); // { name, v, out } | null
+  const [selectedKey, setSelectedKey] = useState(null);   // { clipId, name, comp, idx } | null (primary)
+  // Multi-selection of keyframes within a SINGLE clip (marquee + ctrl-click).
+  // Each entry is { clipId, name, comp, idx }; `selectedKey` is the primary.
+  const [selectedKeys, setSelectedKeys] = useState([]);
+  // Unified clipboard for copy/paste: kind 'keys' carries a relative-timed key
+  // sequence; kind 'clips' carries clip snapshots (with their track + offset).
+  const [clipboard, setClipboard] = useState(null); // { kind:'keys'|'clips', ... } | null
   const [busy, setBusy] = useState(false);
   const [assetDescriptors, setAssetDescriptors] = useState({});
   const [assetItems, setAssetItems] = useState([]);
@@ -189,7 +222,7 @@ export default function SceneStudioInner() {
   const [rootDropHover, setRootDropHover] = useState(false);
   const [pickError, setPickError] = useState(null);
   const [livePreview, setLivePreview] = useState(true);
-  const [overlayMode, setOverlayMode] = useState('behind');
+  const [overlayMode, setOverlayMode] = useState('above');
   // Default tangent mode stamped onto NEWLY created keyframes (P4). Existing
   // keys keep their own mode. Read through a ref by the imperative auto-key
   // path so it never goes stale.
@@ -206,7 +239,7 @@ export default function SceneStudioInner() {
   // Studio mode: 'setup' = position default poses per orientation (no timeline,
   // no keyframes); 'animate' = create timelines + keyframe over time. Read
   // through a ref by the imperative handlePatchTransform path.
-  const [studioMode, setStudioMode] = useState('animate');
+  const [studioMode, setStudioMode] = useState('setup');
   const studioModeRef = useRef(studioMode);
   studioModeRef.current = studioMode;
 
@@ -258,8 +291,10 @@ export default function SceneStudioInner() {
   selectedClipIdsRef.current = selectedClipIds;
   const selectedKeyRef = useRef(selectedKey);
   selectedKeyRef.current = selectedKey;
-  const clipboardKeyRef = useRef(clipboardKey);
-  clipboardKeyRef.current = clipboardKey;
+  const selectedKeysRef = useRef(selectedKeys);
+  selectedKeysRef.current = selectedKeys;
+  const clipboardRef = useRef(clipboard);
+  clipboardRef.current = clipboard;
 
   /**
    * Wrap a scene mutation so the prior state lands on the undo stack.
@@ -647,6 +682,47 @@ export default function SceneStudioInner() {
     log(`Scene Studio: + spinner "${name}"`, 'ok');
   }, [log]);
 
+  // Re-open the wizard pre-filled with an existing spinner's config so it can be
+  // edited and rebuilt. Reads from the live scene via sceneRef.
+  const handleEditSpinner = useCallback((layerId) => {
+    const cur = sceneRef.current;
+    const layer = cur.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const asset = cur.assets.find((a) => a.id === layer.assetId);
+    if (!asset || asset.type !== 'spinner') return;
+    const config = normalizeSpinnerConfig(asset.spinner);
+    if (!config) return;
+    setShowSpinnerWizard(false);
+    setEditSpinnerTarget({
+      layerId,
+      assetId: asset.id,
+      config,
+      name: asset.meta?.originalName || layer.name || 'Spinner',
+    });
+  }, []);
+
+  // Apply a wizard rebuild onto the existing spinner asset (and rename its
+  // layer). New wizard assets (generated blurs, browser PNG/Spine picks) are
+  // appended without creating layers, matching handleCreateSpinner.
+  const handleUpdateSpinner = useCallback((target, { name, spinnerConfig, newAssets }) => {
+    setEditSpinnerTarget(null);
+    setScene((prev) => {
+      const have = new Set(prev.assets.map((a) => a.id));
+      const extraAssets = (Array.isArray(newAssets) ? newAssets : []).filter((a) => !have.has(a.id));
+      return {
+        ...prev,
+        assets: [...prev.assets, ...extraAssets].map((a) =>
+          a.id === target.assetId
+            ? { ...a, spinner: spinnerConfig, meta: { ...a.meta, originalName: name } }
+            : a
+        ),
+        layers: prev.layers.map((l) => (l.id === target.layerId ? { ...l, name } : l)),
+      };
+    });
+    setSelectedLayerId(target.layerId);
+    log(`Scene Studio: rebuilt spinner "${name}"`, 'ok');
+  }, [log]);
+
   // Swap a layer's animated object to an existing scene asset (keeps clips).
   const handleSwapLayerAsset = useCallback((layerId, assetId) => {
     setScene((prev) => {
@@ -1030,19 +1106,21 @@ export default function SceneStudioInner() {
       if (old && JSON.stringify(old) === JSON.stringify(descriptor)) return prev;
       return { ...prev, [assetId]: descriptor };
     });
-    // For Spine layers, pick a sensible default animation the first time
+    // For Spine layers, pick a sensible default animation ONCE — the first time
     // we learn the animation list from the descriptor. Preference:
     //   1. first animation whose name contains "idle" (case-insensitive)
     //   2. otherwise, the first animation in the list
-    // Only patches layers that don't have a defaultAnimation set yet, so
-    // user choices are preserved.
+    // Guard on KEY PRESENCE, not truthiness: once `defaultAnimation` exists on
+    // the layer (even when explicitly set to null = "no pose / setup pose"), we
+    // never re-pick. Otherwise choosing "none" would be overwritten on the next
+    // rebuild's onAssetReady.
     if (Array.isArray(descriptor.animations) && descriptor.animations.length) {
       const pick = descriptor.animations.find((n) => /idle/i.test(n)) || descriptor.animations[0];
       setScene((prev) => {
         let changed = false;
         const layers = prev.layers.map((l) => {
           if (l.assetId !== assetId) return l;
-          if (l.spine?.defaultAnimation) return l;
+          if (l.spine && Object.prototype.hasOwnProperty.call(l.spine, 'defaultAnimation')) return l;
           changed = true;
           return { ...l, spine: { ...(l.spine || {}), defaultAnimation: pick, loop: l.spine?.loop !== false } };
         });
@@ -1523,7 +1601,25 @@ export default function SceneStudioInner() {
 
   const handleSelectKey = useCallback((ref) => {
     setSelectedKey(ref);
+    setSelectedKeys(ref ? [ref] : []);
   }, []);
+
+  /**
+   * Multi-select keyframes within a single clip (marquee + ctrl/shift-click).
+   * `list` is the full set of { clipId, name, comp, idx }; `primary` drives the
+   * inspector / move-by-frame. All entries must share one clipId.
+   */
+  const handleSelectKeys = useCallback((list, primary) => {
+    const arr = Array.isArray(list) ? list : [];
+    setSelectedKeys(arr);
+    setSelectedKey(primary ?? (arr.length ? arr[arr.length - 1] : null));
+  }, []);
+
+  // Keep the multi-selection cleared whenever the primary key clears (covers
+  // every setSelectedKey(null) reset site without touching each one).
+  useEffect(() => {
+    if (!selectedKey) setSelectedKeys((prev) => (prev.length ? [] : prev));
+  }, [selectedKey]);
 
   /**
    * Explicitly add keyframe(s) at the playhead to the selected clip for a
@@ -1653,6 +1749,62 @@ export default function SceneStudioInner() {
     });
   }, [setScene]);
 
+  /**
+   * Move or scale a marquee selection of keyframes within one clip.
+   *
+   * `snapshotClip` is the clip captured at drag-start (so repeated calls during
+   * a drag are idempotent). `selected` is [{ name, comp, idx }] (clipId implied).
+   * `transform` is { kind:'move', delta } or { kind:'scale', pivot, factor } in
+   * clip-local seconds. Selected keys that map past the clip's range expand the
+   * clip's start/duration into the free space beside it (`transformClipKeys`).
+   */
+  const handleTransformKeys = useCallback((snapshotClip, selected, transform) => {
+    if (!snapshotClip || !selected?.length) return;
+    const clipId = snapshotClip.id;
+    const sceneNow = sceneRef.current;
+    const rawDur = Number(sceneNow.stage?.duration);
+    const sceneDur = Number.isFinite(rawDur) ? Math.max(0.01, Math.min(300, rawDur)) : 5;
+    let trackId = null;
+    let siblings = [];
+    for (const tr of sceneNow.flow?.tracks || []) {
+      if (tr.clips?.some((c) => c.id === clipId)) {
+        trackId = tr.id;
+        siblings = tr.clips.filter((c) => c.id !== clipId);
+        break;
+      }
+    }
+    if (!trackId) return;
+    // Free space to grow into on each side (to neighbouring clip / timeline edge).
+    const start = snapshotClip.start;
+    const end = snapshotClip.start + snapshotClip.duration;
+    let leftRoom = start;
+    let rightRoom = sceneDur - end;
+    for (const sib of siblings) {
+      const sEnd = sib.start + sib.duration;
+      if (sEnd <= start) leftRoom = Math.min(leftRoom, start - sEnd);
+      else if (sib.start >= end) rightRoom = Math.min(rightRoom, sib.start - end);
+    }
+    const mapT = transform.kind === 'scale'
+      ? (t) => transform.pivot + (t - transform.pivot) * transform.factor
+      : (t) => t + transform.delta;
+    const next = transformClipKeys(snapshotClip, selected, mapT, { leftRoom, rightRoom });
+    if (!next) return;
+    setScene((prev) => {
+      const tracks = (prev.flow?.tracks || []).map((tr) => {
+        if (tr.id !== trackId) return tr;
+        return {
+          ...tr,
+          clips: tr.clips.map((c) =>
+            c.id === clipId
+              ? { ...c, start: next.start, duration: next.duration, channels: next.channels, autoFitDuration: false }
+              : c
+          )
+        };
+      });
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks }) };
+    });
+  }, [setScene]);
+
   /** Shift the selected key by `dir` frames (±1). Clamps to clip bounds. */
   const handleMoveKeyByFrame = useCallback((dir) => {
     const sel = selectedKeyRef.current;
@@ -1677,107 +1829,200 @@ export default function SceneStudioInner() {
     }
   }, [handleMoveKey]);
 
-  /** Delete the selected timeline keyframe. */
-  const handleDeleteSelectedKey = useCallback(() => {
-    const sel = selectedKeyRef.current;
-    if (!sel) return false;
+  /** Delete every selected keyframe (whole marquee selection). */
+  const handleDeleteSelectedKeys = useCallback(() => {
+    const sel = selectedKeysRef.current;
+    if (!sel?.length) return false;
+    // clipId → ('name|comp' → idx[])
+    const byClip = new Map();
+    for (const s of sel) {
+      if (!byClip.has(s.clipId)) byClip.set(s.clipId, new Map());
+      const byList = byClip.get(s.clipId);
+      const lk = `${s.name}|${s.comp || ''}`;
+      if (!byList.has(lk)) byList.set(lk, []);
+      byList.get(lk).push(s.idx);
+    }
     setScene((prev) => {
       const tracks = (prev.flow?.tracks || []).map((tr) => ({
         ...tr,
         clips: tr.clips.map((c) => {
-          if (c.id !== sel.clipId) return c;
-          const ch = c.channels?.[sel.name];
-          if (!ch) return c;
-          const nextChannels = { ...c.channels };
-          if (sel.comp && ch.split) {
-            const sub = ch.perComp?.[sel.comp];
-            if (!sub?.keys) return c;
-            const keys = sub.keys.filter((_, i) => i !== sel.idx);
-            const perComp = { ...ch.perComp };
-            if (keys.length) perComp[sel.comp] = { keys };
-            else delete perComp[sel.comp];
-            if (Object.keys(perComp).length) nextChannels[sel.name] = { ...ch, perComp };
-            else delete nextChannels[sel.name];
-          } else {
-            if (!ch.keys) return c;
-            const keys = ch.keys.filter((_, i) => i !== sel.idx);
-            if (keys.length) nextChannels[sel.name] = { ...ch, keys };
-            else delete nextChannels[sel.name];
+          const byList = byClip.get(c.id);
+          if (!byList) return c;
+          const channels = { ...(c.channels || {}) };
+          for (const [lk, idxs] of byList) {
+            const [name, comp] = lk.split('|');
+            const ch = channels[name];
+            if (!ch) continue;
+            const desc = [...new Set(idxs)].sort((a, b) => b - a);
+            if (comp && ch.split) {
+              const sub = ch.perComp?.[comp];
+              if (!sub?.keys) continue;
+              const keys = sub.keys.slice();
+              for (const i of desc) if (i >= 0 && i < keys.length) keys.splice(i, 1);
+              const perComp = { ...ch.perComp };
+              if (keys.length) perComp[comp] = { ...sub, keys };
+              else delete perComp[comp];
+              if (Object.keys(perComp).length) channels[name] = { ...ch, perComp };
+              else delete channels[name];
+            } else if (Array.isArray(ch.keys)) {
+              const keys = ch.keys.slice();
+              for (const i of desc) if (i >= 0 && i < keys.length) keys.splice(i, 1);
+              if (keys.length) channels[name] = { ...ch, keys };
+              else delete channels[name];
+            }
           }
-          return { ...c, channels: Object.keys(nextChannels).length ? nextChannels : null };
+          return { ...c, channels: Object.keys(channels).length ? channels : null };
         })
       }));
       return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks }) };
     });
     setSelectedKey(null);
+    setSelectedKeys([]);
     return true;
   }, [setScene]);
 
-  /** Copy the selected key's value to the in-memory clipboard. */
-  const handleCopySelectedKey = useCallback(() => {
-    const sel = selectedKeyRef.current;
-    if (!sel) return false;
-    const tracks = sceneRef.current.flow?.tracks || [];
-    for (const tr of tracks) {
-      const c = tr.clips?.find((cl) => cl.id === sel.clipId);
-      if (!c) continue;
-      const ch = c.channels?.[sel.name];
-      let key;
-      if (sel.comp && ch?.split) {
-        key = ch.perComp?.[sel.comp]?.keys?.[sel.idx];
-      } else {
-        key = ch?.keys?.[sel.idx];
-      }
-      if (!key) return false;
-      setClipboardKey({ name: sel.name, comp: sel.comp ?? null, v: key.v, out: key.out });
-      return true;
+  /** Copy the selected keyframe sequence (relative timing) to the clipboard. */
+  const handleCopySelectedKeys = useCallback(() => {
+    const sel = selectedKeysRef.current;
+    if (!sel?.length) return false;
+    const clipId = sel[0].clipId;
+    let clip = null;
+    for (const tr of sceneRef.current.flow?.tracks || []) {
+      const c = tr.clips?.find((cl) => cl.id === clipId);
+      if (c) { clip = c; break; }
     }
-    return false;
+    if (!clip) return false;
+    const items = [];
+    for (const s of sel) {
+      const keys = channelKeyList(clip.channels, s.name, s.comp);
+      const k = keys?.[s.idx];
+      if (!k) continue;
+      items.push({ name: s.name, comp: s.comp ?? null, t: k.t,
+        key: { v: k.v, out: k.out, tm: k.tm, ti: k.ti, to: k.to } });
+    }
+    if (!items.length) return false;
+    const minT = Math.min(...items.map((i) => i.t));
+    setClipboard({ kind: 'keys', items: items.map((i) => ({ name: i.name, comp: i.comp, dt: i.t - minT, key: i.key })) });
+    return true;
   }, []);
 
-  /**
-   * Paste the clipboard value into the selected clip's matching channel
-   * at the playhead. Falls back to inserting on the currently-selected
-   * clip if the clipboard channel doesn't exist yet.
-   */
-  const handlePasteKey = useCallback(() => {
-    const cb = clipboardKeyRef.current;
-    if (!cb) return false;
+  /** Paste a copied keyframe sequence onto the selected clip at the playhead. */
+  const handlePasteKeys = useCallback(() => {
+    const cb = clipboardRef.current;
+    if (cb?.kind !== 'keys') return false;
     const clipId = selectedClipIdRef.current;
     if (!clipId) return false;
-    const tracks = sceneRef.current.flow?.tracks || [];
-    let targetClip = null;
     let targetTrackId = null;
-    for (const tr of tracks) {
+    let targetClip = null;
+    for (const tr of sceneRef.current.flow?.tracks || []) {
       const c = tr.clips?.find((cl) => cl.id === clipId);
       if (c) { targetClip = c; targetTrackId = tr.id; break; }
     }
     if (!targetClip) return false;
-    const localT = clipLocalSeconds(targetClip, flowRef.current.time, { clampPastEnd: true });
+    const baseT = clipLocalSeconds(targetClip, flowRef.current.time, { clampPastEnd: true });
     setScene((prev) => {
-      const ftracks = (prev.flow?.tracks || []).map((tr) => {
+      const tracks = (prev.flow?.tracks || []).map((tr) => {
         if (tr.id !== targetTrackId) return tr;
         return {
           ...tr,
           clips: tr.clips.map((c) => {
             if (c.id !== clipId) return c;
-            const existing = c.channels?.[cb.name] || { keys: [] };
-            const nextCh = insertOrUpdateKey(existing, localT, cb.v, { out: cb.out, tm: defaultEaseRef.current });
-            return { ...c, channels: { ...(c.channels || {}), [cb.name]: nextCh } };
+            const channels = { ...(c.channels || {}) };
+            for (const it of cb.items) {
+              const tT = Math.max(0, Math.min(c.duration, baseT + it.dt));
+              const opts = { out: it.key.out || 'linear', tm: it.key.tm || defaultEaseRef.current };
+              if (it.comp) {
+                let ch = channels[it.name];
+                if (!ch) ch = { split: true, perComp: {} };
+                else if (!ch.split) ch = splitChannel(ch, it.name);
+                const sub = ch.perComp?.[it.comp] || { keys: [] };
+                const nextSub = insertOrUpdateKey(sub, tT, it.key.v, opts);
+                channels[it.name] = { ...ch, split: true, perComp: { ...(ch.perComp || {}), [it.comp]: nextSub } };
+              } else {
+                const existing = channels[it.name] || { keys: [] };
+                channels[it.name] = insertOrUpdateKey(existing, tT, it.key.v, opts);
+              }
+            }
+            return { ...c, channels };
           })
         };
       });
-      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks: ftracks }) };
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks }) };
     });
     return true;
   }, [setScene]);
 
-  /** Duplicate the selected key at the playhead (Ctrl+D). */
-  const handleDuplicateSelectedKey = useCallback(() => {
-    const ok = handleCopySelectedKey();
-    if (!ok) return false;
-    return handlePasteKey();
-  }, [handleCopySelectedKey, handlePasteKey]);
+  /** Copy the selected clip(s) (relative timing + track) to the clipboard. */
+  const handleCopySelectedClips = useCallback(() => {
+    const ids = selectedClipIdsRef.current;
+    if (!ids?.length) return false;
+    const idSet = new Set(ids);
+    const items = [];
+    for (const tr of sceneRef.current.flow?.tracks || []) {
+      for (const c of tr.clips || []) {
+        if (idSet.has(c.id)) items.push({ trackId: tr.id, start: c.start, clip: c });
+      }
+    }
+    if (!items.length) return false;
+    const minStart = Math.min(...items.map((i) => i.start));
+    const clone = (c) => { const { id, ...rest } = c; return JSON.parse(JSON.stringify(rest)); };
+    setClipboard({ kind: 'clips', items: items.map((i) => ({ trackId: i.trackId, dt: i.start - minStart, clip: clone(i.clip) })) });
+    return true;
+  }, []);
+
+  /** Paste copied clip(s) at the playhead, onto their original tracks. */
+  const handlePasteClips = useCallback(() => {
+    const cb = clipboardRef.current;
+    if (cb?.kind !== 'clips') return false;
+    const baseStart = flowRef.current.time;
+    const rawDur = Number(sceneRef.current.stage?.duration);
+    const sceneDur = Number.isFinite(rawDur) ? Math.max(0.01, Math.min(300, rawDur)) : 5;
+    const newIds = [];
+    setScene((prev) => {
+      const tracks = prev.flow?.tracks || [];
+      const tracksById = new Map(tracks.map((t) => [t.id, t]));
+      const additions = new Map(); // trackId → clip[]
+      for (const it of cb.items) {
+        const tr = tracksById.get(it.trackId);
+        if (!tr) continue; // track removed since copy
+        const dur = Math.max(0.05, Number(it.clip.duration) || 1);
+        const startT = Math.max(0, Math.min(sceneDur - 0.05, baseStart + it.dt));
+        const existing = [...(tr.clips || []), ...(additions.get(it.trackId) || [])];
+        const slot = findFreeSlotIn(existing, startT, dur, sceneDur);
+        if (!slot) continue;
+        const nid = uid('C');
+        newIds.push(nid);
+        const nc = { ...it.clip, id: nid, start: slot.start, duration: slot.duration };
+        if (!additions.has(it.trackId)) additions.set(it.trackId, []);
+        additions.get(it.trackId).push(nc);
+      }
+      const nextTracks = tracks.map((tr) => {
+        const add = additions.get(tr.id);
+        if (!add) return tr;
+        return { ...tr, clips: [...(tr.clips || []), ...add].sort((a, b) => a.start - b.start) };
+      });
+      return { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks: nextTracks }) };
+    });
+    if (newIds.length) { setSelectedClipIds(newIds); setSelectedClipId(newIds[newIds.length - 1]); }
+    return newIds.length > 0;
+  }, [setScene]);
+
+  // Copy / paste / delete routed by what's selected: keyframes win over clips.
+  const handleCopySelection = useCallback(() => {
+    if (selectedKeysRef.current?.length) return handleCopySelectedKeys();
+    if (selectedClipIdsRef.current?.length) return handleCopySelectedClips();
+    return false;
+  }, [handleCopySelectedKeys, handleCopySelectedClips]);
+
+  const handlePasteSelection = useCallback(() => {
+    return handlePasteKeys() || handlePasteClips();
+  }, [handlePasteKeys, handlePasteClips]);
+
+  /** Duplicate the selection in place at the playhead (Ctrl+D). */
+  const handleDuplicateSelection = useCallback(() => {
+    if (!handleCopySelection()) return false;
+    return handlePasteSelection();
+  }, [handleCopySelection, handlePasteSelection]);
 
   // Drop stale selectedKey if its clip / channel / idx no longer exist.
   // Handles both linked (ch.keys) and split (ch.perComp[comp].keys) channels.
@@ -1799,6 +2044,25 @@ export default function SceneStudioInner() {
     }
     setSelectedKey(null);
   }, [scene, selectedKey]);
+
+  // Prune any selected keyframes that no longer exist (e.g. after delete/undo).
+  useEffect(() => {
+    if (!selectedKeys.length) return;
+    const channelsFor = (clipId) => {
+      for (const tr of scene.flow?.tracks || []) {
+        const c = tr.clips?.find((cl) => cl.id === clipId);
+        if (c) return c.channels || {};
+      }
+      return null;
+    };
+    const valid = selectedKeys.filter((s) => {
+      const channels = channelsFor(s.clipId);
+      if (!channels) return false;
+      const keys = channelKeyList(channels, s.name, s.comp);
+      return !!keys && s.idx >= 0 && s.idx < keys.length;
+    });
+    if (valid.length !== selectedKeys.length) setSelectedKeys(valid);
+  }, [scene, selectedKeys]);
 
   // Global keyboard shortcuts: Delete, Ctrl+D, Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z.
   // Don't fire when the user is typing in an input/textarea/contentEditable.
@@ -1824,20 +2088,20 @@ export default function SceneStudioInner() {
         return;
       }
       if (meta && e.key.toLowerCase() === 'd') {
-        if (handleDuplicateSelectedKey()) e.preventDefault();
+        if (handleDuplicateSelection()) e.preventDefault();
         return;
       }
       if (meta && e.key.toLowerCase() === 'c') {
-        if (handleCopySelectedKey()) e.preventDefault();
+        if (handleCopySelection()) e.preventDefault();
         return;
       }
       if (meta && e.key.toLowerCase() === 'v') {
-        if (handlePasteKey()) e.preventDefault();
+        if (handlePasteSelection()) e.preventDefault();
         return;
       }
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Priority: a selected keyframe wins; otherwise delete selected clip(s).
-        if (handleDeleteSelectedKey()) { e.preventDefault(); return; }
+        // Priority: selected keyframe(s) win; otherwise delete selected clip(s).
+        if (handleDeleteSelectedKeys()) { e.preventDefault(); return; }
         if (handleDeleteSelectedClips()) { e.preventDefault(); return; }
         return;
       }
@@ -1862,7 +2126,7 @@ export default function SceneStudioInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo, handleDuplicateSelectedKey, handleCopySelectedKey, handlePasteKey, handleDeleteSelectedKey, handleDeleteSelectedClips]);
+  }, [undo, redo, handleDuplicateSelection, handleCopySelection, handlePasteSelection, handleDeleteSelectedKeys, handleDeleteSelectedClips]);
 
   /**
    * Selecting a layer (via hierarchy, viewport click, or timeline label)
@@ -1985,11 +2249,11 @@ export default function SceneStudioInner() {
       redo,
       historyDepth: () => ({ undo: undoStackRef.current.length, redo: redoStackRef.current.length }),
       selectedKey: () => selectedKeyRef.current,
-      selectKey: (clipId, name, idx) => setSelectedKey({ clipId, name, idx }),
-      deleteSelectedKey: () => handleDeleteSelectedKey(),
-      duplicateSelectedKey: () => handleDuplicateSelectedKey(),
-      copySelectedKey: () => handleCopySelectedKey(),
-      pasteKey: () => handlePasteKey()
+      selectKey: (clipId, name, idx) => handleSelectKey({ clipId, name, idx }),
+      deleteSelectedKey: () => handleDeleteSelectedKeys(),
+      duplicateSelectedKey: () => handleDuplicateSelection(),
+      copySelectedKey: () => handleCopySelection(),
+      pasteKey: () => handlePasteSelection()
     };
     window.__sceneStudio = api;
     return () => {
@@ -2117,13 +2381,20 @@ export default function SceneStudioInner() {
         onAddSpinner={() => setShowSpinnerWizard(true)}
       />
 
-      {showSpinnerWizard && (
+      {(showSpinnerWizard || editSpinnerTarget) && (
         <SpinnerWizard
+          key={editSpinnerTarget ? `edit-${editSpinnerTarget.assetId}` : 'create'}
           scene={scene}
           assetItems={assetItems}
           rootHandle={rootHandle}
-          onClose={() => setShowSpinnerWizard(false)}
-          onCreate={handleCreateSpinner}
+          existingConfig={editSpinnerTarget?.config || null}
+          existingName={editSpinnerTarget?.name || null}
+          onClose={() => { setShowSpinnerWizard(false); setEditSpinnerTarget(null); }}
+          onCreate={
+            editSpinnerTarget
+              ? (payload) => handleUpdateSpinner(editSpinnerTarget, payload)
+              : handleCreateSpinner
+          }
         />
       )}
 
@@ -2155,6 +2426,7 @@ export default function SceneStudioInner() {
             onToggleVisibility={handleToggleVisibility}
             onRemove={handleRemoveLayer}
             onReorder={handleReorder}
+            onRenameScene={handleRename}
           />
           <AssetBrowserPanel
             items={assetItems}
@@ -2173,7 +2445,7 @@ export default function SceneStudioInner() {
           />
         </div>
 
-        <div className="scene-center-stack">
+        <div className={'scene-center-stack' + (studioMode === 'animate' ? '' : ' scene-center-stack--no-timeline')}>
           <div ref={dropRef} className="scene-viewport-wrap">
             <PixiErrorBoundary>
               <PixiViewport
@@ -2219,6 +2491,7 @@ export default function SceneStudioInner() {
             selectedClipId={selectedClipId}
             selectedClipIds={selectedClipIds}
             selectedKey={selectedKey}
+            selectedKeys={selectedKeys}
             assetDescriptors={assetDescriptors}
             autoKey={autoKey}
             onToggleAutoKey={() => setAutoKey((v) => !v)}
@@ -2227,18 +2500,15 @@ export default function SceneStudioInner() {
             onSelectClip={handleSelectClip}
             onSelectClips={handleSelectClips}
             onSelectKey={handleSelectKey}
+            onSelectKeys={handleSelectKeys}
             onMoveKey={handleMoveKey}
-            onDeleteKey={handleDeleteSelectedKey}
+            onTransformKeys={handleTransformKeys}
+            onDeleteKey={handleDeleteSelectedKeys}
             onMoveKeyByFrame={handleMoveKeyByFrame}
             onPatchFlow={patchFlow}
             onFlowAction={handleFlowAction}
           />
-          ) : (
-            <div className="scene-setup-banner">
-              ⚙ Setup mode — drag objects to set their default pose for{' '}
-              <strong>{scene.stage.activeOrientation}</strong>. Switch to Animate to keyframe over time.
-            </div>
-          )}
+          ) : null /* Setup mode hides the timeline panel entirely. */}
         </div>
 
         <InspectorPanel
@@ -2249,7 +2519,7 @@ export default function SceneStudioInner() {
           flowTime={flowState.time}
           selectedKey={selectedKey}
           onSelectKey={handleSelectKey}
-          onDeleteKey={handleDeleteSelectedKey}
+          onDeleteKey={handleDeleteSelectedKeys}
           onMoveKeyByFrame={handleMoveKeyByFrame}
           onPatchLayer={handlePatchLayer}
           onPatchTransform={handlePatchTransform}
@@ -2260,6 +2530,8 @@ export default function SceneStudioInner() {
           onSwapAsset={handleSwapLayerAsset}
           onSwapAssetFromBrowserId={handleSwapLayerAssetFromBrowserId}
           onPatchAsset={handlePatchAsset}
+          onEditSpinner={handleEditSpinner}
+          studioMode={studioMode}
         />
       </div>
       {rootDropHover && (

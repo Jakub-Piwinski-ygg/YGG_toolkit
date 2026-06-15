@@ -30,6 +30,39 @@ function nextActionForSpinnerTrack(clips) {
   const last = sorted[sorted.length - 1];
   return nextSpinnerAction(last.action || 'startSpin');
 }
+/**
+ * Shift every keyframe in a clip's channels by `shift` clip-local seconds,
+ * clamped to [0, duration]. Used by left-edge resize so the keys keep their
+ * absolute (scene) time when the clip's start moves — extending a clip leftward
+ * doesn't drag its keys along.
+ */
+function shiftClipChannels(channels, shift, duration) {
+  if (!channels || !shift) return channels;
+  const clampT = (t) => Math.max(0, Math.min(duration, t + shift));
+  const out = {};
+  for (const name of Object.keys(channels)) {
+    const ch = channels[name];
+    if (!ch) { out[name] = ch; continue; }
+    if (ch.mode === 'path' && ch.path) {
+      const prog = ch.path.progress;
+      out[name] = prog?.keys
+        ? { ...ch, path: { ...ch.path, progress: { ...prog, keys: prog.keys.map((k) => ({ ...k, t: clampT(k.t) })) } } }
+        : ch;
+    } else if (ch.split && ch.perComp) {
+      const perComp = {};
+      for (const c of Object.keys(ch.perComp)) {
+        perComp[c] = { ...ch.perComp[c], keys: (ch.perComp[c]?.keys || []).map((k) => ({ ...k, t: clampT(k.t) })) };
+      }
+      out[name] = { ...ch, perComp };
+    } else if (Array.isArray(ch.keys)) {
+      out[name] = { ...ch, keys: ch.keys.map((k) => ({ ...k, t: clampT(k.t) })) };
+    } else {
+      out[name] = ch;
+    }
+  }
+  return out;
+}
+
 const DEFAULT_PX_PER_SEC = 120;
 const MIN_PX_PER_SEC = 30;
 const MAX_PX_PER_SEC = 360;
@@ -134,6 +167,7 @@ export function TimelinePanel({
   selectedClipId,
   selectedClipIds = [],
   selectedKey,
+  selectedKeys = [],
   assetDescriptors = {},
   autoKey = true,
   onToggleAutoKey,
@@ -142,7 +176,9 @@ export function TimelinePanel({
   onSelectClip,
   onSelectClips,
   onSelectKey,
+  onSelectKeys,
   onMoveKey,
+  onTransformKeys,
   onDeleteKey,
   onMoveKeyByFrame,
   onPatchFlow,
@@ -153,9 +189,6 @@ export function TimelinePanel({
 
   const tracks = scene.flow?.tracks || [];
   const lanesScrollRef = useRef(null);
-  const rulerScrollRef = useRef(null);
-  const labelsRef = useRef(null);
-  const rulerRef = useRef(null);
   const scrubbingRef = useRef(false);
   const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
   const [dragPreview, setDragPreview] = useState(null);
@@ -283,7 +316,8 @@ export function TimelinePanel({
     const wrap = lanesScrollRef.current;
     if (!wrap) return 0;
     const rect = wrap.getBoundingClientRect();
-    const xInScroll = (clientX - rect.left) + wrap.scrollLeft;
+    // Lane content starts after the frozen label column inside the scroller.
+    const xInScroll = (clientX - rect.left) + wrap.scrollLeft - LABEL_COL_W;
     return clamp(xInScroll / pxPerSec, 0, duration);
   };
 
@@ -593,10 +627,12 @@ export function TimelinePanel({
       setPxPerSec(clamped);
       return;
     }
-    const centerTime = (wrap.scrollLeft + wrap.clientWidth / 2) / prev;
+    // Keep the time under the viewport center stable across zoom. Lane content
+    // is offset by the frozen label column, so factor LABEL_COL_W in/out.
+    const centerTime = (wrap.scrollLeft + wrap.clientWidth / 2 - LABEL_COL_W) / prev;
     setPxPerSec(clamped);
     requestAnimationFrame(() => {
-      const target = Math.max(0, centerTime * clamped - wrap.clientWidth / 2);
+      const target = Math.max(0, LABEL_COL_W + centerTime * clamped - wrap.clientWidth / 2);
       wrap.scrollLeft = target;
     });
   }, [pxPerSec]);
@@ -624,18 +660,6 @@ export function TimelinePanel({
     return () => wrap.removeEventListener('wheel', onWheel);
   }, [pxPerSec, setTimelineZoom]);
 
-  // Sync ruler + labels scroll with lanes scroll.
-  useEffect(() => {
-    const lanes = lanesScrollRef.current;
-    if (!lanes) return;
-    const onScroll = () => {
-      if (rulerScrollRef.current) rulerScrollRef.current.scrollLeft = lanes.scrollLeft;
-      if (labelsRef.current) labelsRef.current.scrollTop = lanes.scrollTop;
-    };
-    lanes.addEventListener('scroll', onScroll, { passive: true });
-    return () => lanes.removeEventListener('scroll', onScroll);
-  });
-
   // ── Scrubber: drag the playhead by pointer on the ruler / lanes ──
   //
   // We listen at the lanes-scroll level so a press on either the ruler
@@ -645,7 +669,8 @@ export function TimelinePanel({
     const wrap = lanesScrollRef.current;
     if (!wrap) return 0;
     const rect = wrap.getBoundingClientRect();
-    const xInScroll = (clientX - rect.left) + wrap.scrollLeft;
+    // Lane content starts after the frozen label column inside the scroller.
+    const xInScroll = (clientX - rect.left) + wrap.scrollLeft - LABEL_COL_W;
     return clamp(xInScroll / pxPerSec, 0, duration);
   }, [duration, pxPerSec]);
 
@@ -762,6 +787,7 @@ export function TimelinePanel({
   // ── Marquee selection on empty lane body ────────────────────────────
   const marqueeRef = useRef(null);
   const [marquee, setMarquee] = useState(null); // { x0, y0, x1, y1 } in lanes content px
+  const panRef = useRef(null); // middle-mouse pan { x, y, sl, st, pointerId }
 
   const lanesContentPoint = (clientX, clientY) => {
     const wrap = lanesScrollRef.current;
@@ -773,9 +799,20 @@ export function TimelinePanel({
   };
 
   const onLanesPointerDown = useCallback((e) => {
+    // Middle-mouse drag = pan the timeline (both axes), like the scene view.
+    if (e.button === 1) {
+      e.preventDefault();
+      const wrap = lanesScrollRef.current;
+      panRef.current = { x: e.clientX, y: e.clientY, sl: wrap.scrollLeft, st: wrap.scrollTop, pointerId: e.pointerId };
+      try { wrap.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      return;
+    }
     if (e.button !== 0) return;
-    // Clips own their pointers; ignore presses that land on one.
-    if (e.target.closest('.scene-clip')) return;
+    // Clips own their pointers; the frozen label column + sticky ruler are not
+    // part of the lane body — ignore presses on any of them.
+    if (e.target.closest('.scene-clip')
+      || e.target.closest('.scene-timeline-label-cell')
+      || e.target.closest('.scene-timeline-ruler-row')) return;
     const p = lanesContentPoint(e.clientX, e.clientY);
     marqueeRef.current = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false, pointerId: e.pointerId };
     setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
@@ -783,6 +820,13 @@ export function TimelinePanel({
   }, []);
 
   const onLanesPointerMove = useCallback((e) => {
+    const pan = panRef.current;
+    if (pan) {
+      const wrap = lanesScrollRef.current;
+      wrap.scrollLeft = pan.sl - (e.clientX - pan.x);
+      wrap.scrollTop = pan.st - (e.clientY - pan.y);
+      return;
+    }
     const st = marqueeRef.current;
     if (!st) return;
     const p = lanesContentPoint(e.clientX, e.clientY);
@@ -792,6 +836,11 @@ export function TimelinePanel({
   }, []);
 
   const onLanesPointerUp = useCallback((e) => {
+    if (panRef.current) {
+      try { lanesScrollRef.current.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      panRef.current = null;
+      return;
+    }
     const st = marqueeRef.current;
     if (!st) return;
     marqueeRef.current = null;
@@ -806,10 +855,11 @@ export function TimelinePanel({
     const maxX = Math.max(st.x0, st.x1);
     const minY = Math.min(st.y0, st.y1);
     const maxY = Math.max(st.y0, st.y1);
-    const minT = minX / pxPerSec;
-    const maxT = maxX / pxPerSec;
+    // Content X includes the frozen label column; Y includes the ruler header.
+    const minT = (minX - LABEL_COL_W) / pxPerSec;
+    const maxT = (maxX - LABEL_COL_W) / pxPerSec;
     const hits = [];
-    let top = 0;
+    let top = RULER_H;
     for (const track of tracks) {
       const h = heightOf(track);
       const tTop = top;
@@ -889,6 +939,27 @@ export function TimelinePanel({
     return defaultName;
   };
 
+  // Selection-state of a track row:
+  //   'clip'  → a clip on this track is selected (yellow clip + accent row)
+  //   'layer' → the track's object is selected but no clip is (gray/white row,
+  //             so picking an object on stage/hierarchy instantly reveals its
+  //             track)
+  const trackSelState = (track) => {
+    const hasClip = (track.clips || []).some((c) => selectedSet.has(c.id) || c.id === selectedClipId);
+    if (hasClip) return 'clip';
+    if (track.layerId === selectedLayerId) return 'layer';
+    return null;
+  };
+  const selStateClass = (state) =>
+    state === 'clip' ? ' selected' : state === 'layer' ? ' layer-selected' : '';
+
+  // Selected object with no track yet → render a ghost track row with an
+  // "add track" affordance so it can be added straight from the timeline.
+  const selectedLayerHasTrack = tracks.some((t) => t.layerId === selectedLayerId);
+  const ghostLayer = selectedLayerId && !selectedLayerHasTrack
+    ? scene.layers.find((l) => l.id === selectedLayerId)
+    : null;
+
   return (
     <div className="scene-timeline">
       <div className="scene-timeline-head">
@@ -928,19 +999,11 @@ export function TimelinePanel({
               title={timelines.length <= 1 ? 'Cannot remove the only timeline' : 'Remove active timeline'}
             >🗑</button>
           </div>
-          <label className="scene-timeline-zoom">
-            <span>zoom</span>
-            <input
-              type="range"
-              min={MIN_PX_PER_SEC}
-              max={MAX_PX_PER_SEC}
-              step={5}
-              value={pxPerSec}
-              onChange={onTimelineZoomInput}
-              title="Timeline zoom (mouse wheel in timeline area)"
-            />
-            <em>{Math.round((pxPerSec / DEFAULT_PX_PER_SEC) * 100)}%</em>
-          </label>
+          {/* Zoom slider removed — zoom with the mouse wheel over the timeline.
+              Keep a compact readout for feedback. */}
+          <span className="scene-timeline-zoom-readout" title="Timeline zoom — scroll the wheel over the timeline to change">
+            {Math.round((pxPerSec / DEFAULT_PX_PER_SEC) * 100)}%
+          </span>
         </div>
 
         {/* Center: playback transport + time readout. */}
@@ -1040,44 +1103,70 @@ export function TimelinePanel({
         </div>
       </div>
 
-      {/* Ruler row — lives OUTSIDE the scrolling body so it never scrolls away.
-          Horizontal position mirrors lanesScrollRef via the scroll-sync effect. */}
-      <div className="scene-timeline-ruler-row">
-        <div className="scene-timeline-label-cell scene-timeline-label-cell--ruler" style={{ width: LABEL_COL_W, height: RULER_H }}>
-          <span className="scene-timeline-label-head">time</span>
-        </div>
-        <div
-          ref={rulerScrollRef}
-          className="scene-timeline-ruler-scroll"
-          onPointerDown={onScrubPointerDown}
-          onPointerMove={onScrubPointerMove}
-          onPointerUp={onScrubPointerUp}
-          onPointerCancel={onScrubPointerUp}
-        >
-          <div className="scene-timeline-ruler" ref={rulerRef} style={{ width: totalW, height: RULER_H }}>
-            {buildTicks(duration).map((t) => (
-              <div key={t.value} className="scene-tick" style={{ left: t.value * pxPerSec }}>
-                <span>{t.label}</span>
-              </div>
-            ))}
-            <div className="scene-playhead" style={{ left: flowState.time * pxPerSec, top: 0, bottom: 0 }} />
-          </div>
-        </div>
-      </div>
+      {/* Single 2-D scroll container. Each track is ONE flex row — a sticky-left
+          label cell + its lane — so a label always lines up with its lane and
+          scrolls vertically with it. The ruler is a sticky-top row whose corner
+          is sticky on both axes; labels stay visible during horizontal scroll. */}
+      <div
+        ref={lanesScrollRef}
+        className="scene-timeline-scroll"
+        onPointerDown={onLanesPointerDown}
+        onPointerMove={onLanesPointerMove}
+        onPointerUp={onLanesPointerUp}
+        onPointerCancel={onLanesPointerUp}
+        onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
+      >
+        <div className="scene-timeline-grid" style={{ width: LABEL_COL_W + totalW }}>
 
-      <div className="scene-timeline-body">
-        <div ref={labelsRef} className="scene-timeline-labels" style={{ width: LABEL_COL_W }}>
-          {tracks.length === 0 ? (
-            <div className="scene-timeline-label-cell scene-timeline-label-empty" style={{ height: ROW_H }}>
-              no tracks
+          {/* Ruler — sticky top. Corner cell is sticky on both axes. */}
+          <div className="scene-timeline-ruler-row" style={{ height: RULER_H }}>
+            <div className="scene-timeline-label-cell scene-timeline-label-cell--ruler" style={{ width: LABEL_COL_W, height: RULER_H }}>
+              <span className="scene-timeline-label-head">time</span>
             </div>
-          ) : tracks.map((track) => {
-            const selected = track.layerId === selectedLayerId;
-            return (
+            <div
+              className="scene-timeline-ruler"
+              style={{ width: totalW, height: RULER_H }}
+              onPointerDown={onScrubPointerDown}
+              onPointerMove={onScrubPointerMove}
+              onPointerUp={onScrubPointerUp}
+              onPointerCancel={onScrubPointerUp}
+            >
+              {buildTicks(duration).map((t) => (
+                <div key={t.value} className="scene-tick" style={{ left: t.value * pxPerSec }}>
+                  <span>{t.label}</span>
+                </div>
+              ))}
+              <div className="scene-playhead" style={{ left: flowState.time * pxPerSec, top: 0, bottom: 0 }} />
+            </div>
+          </div>
+
+          {tracks.length === 0 && !ghostLayer ? (
+            <div className="scene-timeline-row" style={{ height: ROW_H }}>
+              <div className="scene-timeline-label-cell scene-timeline-label-empty" style={{ width: LABEL_COL_W, height: ROW_H }}>
+                no tracks
+              </div>
               <div
-                key={track.id}
-                className={'scene-timeline-label-cell' + (selected ? ' selected' : '')}
-                style={{ height: heightOf(track) }}
+                className={'scene-timeline-empty-row' + (dragPreview?.kind === 'newTrack' ? ' drag-over' : '')}
+                style={{ height: ROW_H, width: totalW }}
+                onDragOver={onEmptyAreaDragOver}
+                onDrop={onEmptyAreaDrop}
+              >
+                {dragPreview?.kind === 'newTrack'
+                  ? dragPreview.label
+                  : 'drop a layer from the hierarchy onto this strip to create a track'}
+                {dragPreview?.kind === 'newTrack' && dragPreview.slot && (
+                  <div
+                    className="scene-drop-preview-clip"
+                    style={{ left: dragPreview.slot.start * pxPerSec, width: Math.max(8, dragPreview.slot.duration * pxPerSec) }}
+                  />
+                )}
+              </div>
+            </div>
+          ) : tracks.map((track) => (
+            <div key={track.id} className="scene-timeline-row" style={{ height: heightOf(track) }}>
+              <div
+                className={'scene-timeline-label-cell' + selStateClass(trackSelState(track))}
+                style={{ width: LABEL_COL_W, height: heightOf(track) }}
                 onClick={() => onSelectLayer?.(track.layerId)}
                 title={labelForTrack(track)}
               >
@@ -1097,60 +1186,8 @@ export function TimelinePanel({
                   ✕
                 </button>
               </div>
-            );
-          })}
-          {tracks.length > 0 && (
-            <div
-              className="scene-timeline-label-cell scene-timeline-label-cell--filler"
-              style={{ height: 22 }}
-              title="Drop a layer onto the lane on the right to create a new track"
-            >
-              <span className="scene-timeline-label-text">drop layer →</span>
-            </div>
-          )}
-        </div>
-
-        <div
-          ref={lanesScrollRef}
-          className="scene-timeline-lanes-scroll"
-          onPointerDown={onLanesPointerDown}
-          onPointerMove={onLanesPointerMove}
-          onPointerUp={onLanesPointerUp}
-          onPointerCancel={onLanesPointerUp}
-        >
-          <div className="scene-timeline-lanes" style={{ width: totalW }}>
-            {marquee && (
               <div
-                className="scene-marquee"
-                style={{
-                  left: Math.min(marquee.x0, marquee.x1),
-                  top: Math.min(marquee.y0, marquee.y1),
-                  width: Math.abs(marquee.x1 - marquee.x0),
-                  height: Math.abs(marquee.y1 - marquee.y0)
-                }}
-              />
-            )}
-            {tracks.length === 0 ? (
-              <div
-                className={'scene-timeline-empty-row' + (dragPreview?.kind === 'newTrack' ? ' drag-over' : '')}
-                style={{ height: ROW_H, width: totalW }}
-                onDragOver={onEmptyAreaDragOver}
-                onDrop={onEmptyAreaDrop}
-              >
-                {dragPreview?.kind === 'newTrack'
-                  ? dragPreview.label
-                  : 'drop a layer from the hierarchy onto this strip to create a track'}
-                {dragPreview?.kind === 'newTrack' && dragPreview.slot && (
-                  <div
-                    className="scene-drop-preview-clip"
-                    style={{ left: dragPreview.slot.start * pxPerSec, width: Math.max(8, dragPreview.slot.duration * pxPerSec) }}
-                  />
-                )}
-              </div>
-            ) : tracks.map((track) => (
-              <div
-                key={track.id}
-                className={'scene-timeline-lane' + (dragPreview?.trackId === track.id ? ' drag-over' : '')}
+                className={'scene-timeline-lane' + (dragPreview?.trackId === track.id ? ' drag-over' : '') + selStateClass(trackSelState(track))}
                 style={{ height: heightOf(track), width: totalW }}
                 onDragOver={onTrackLaneDragOver(track)}
                 onDrop={onLaneDrop(track)}
@@ -1192,19 +1229,69 @@ export function TimelinePanel({
                       onAddLeft={() => insertAdjacentClip(track, c, 'left')}
                       onAddRight={() => insertAdjacentClip(track, c, 'right')}
                       selectedKey={selectedKey}
+                      selectedKeys={selectedKeys}
                       onSelectKey={(clipId, name, idx, comp, t) => {
                         onSelectClip?.(clipId);
                         onSelectKey?.({ clipId, name, idx, comp });
                         if (typeof t === 'number') onFlowAction?.('seek', c.start + t);
                       }}
+                      onSelectKeys={(clipId, list, primary) => {
+                        onSelectClip?.(clipId);
+                        onSelectKeys?.(
+                          list.map((k) => ({ clipId, ...k })),
+                          primary ? { clipId, ...primary } : null
+                        );
+                      }}
                       onMoveKey={(clipId, name, idx, comp, newT) => onMoveKey?.(clipId, name, idx, comp, newT)}
+                      onTransformKeys={onTransformKeys}
                     />
                   );
                 })}
               </div>
-            ))}
+            </div>
+          ))}
 
-            {tracks.length > 0 && (
+          {ghostLayer && (
+            <div className="scene-timeline-row" style={{ height: ROW_H }}>
+              <div
+                className="scene-timeline-label-cell scene-timeline-label-cell--ghost layer-selected"
+                style={{ width: LABEL_COL_W, height: ROW_H }}
+                title={`${ghostLayer.name} has no track yet — add one`}
+              >
+                <span className="scene-timeline-label-text">{ghostLayer.name}</span>
+                <button
+                  className="scene-icon-btn scene-track-action"
+                  title="Add a track for this object"
+                  onClick={(e) => { e.stopPropagation(); addTrackForLayer(ghostLayer.id); }}
+                >
+                  +
+                </button>
+              </div>
+              <div
+                className="scene-timeline-lane scene-timeline-lane--ghost layer-selected"
+                style={{ height: ROW_H, width: totalW }}
+              >
+                <button
+                  className="scene-btn scene-btn--sm scene-timeline-ghost-add"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => { e.stopPropagation(); addTrackForLayer(ghostLayer.id); }}
+                  title="Add a track for this object so you can animate it"
+                >
+                  ＋ add track for “{ghostLayer.name}”
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tracks.length > 0 && (
+            <div className="scene-timeline-row" style={{ height: 22 }}>
+              <div
+                className="scene-timeline-label-cell scene-timeline-label-cell--filler"
+                style={{ width: LABEL_COL_W, height: 22 }}
+                title="Drop a layer onto the lane on the right to create a new track"
+              >
+                <span className="scene-timeline-label-text">drop layer →</span>
+              </div>
               <div
                 className={'scene-timeline-lane scene-timeline-lane--add' + (dragPreview?.kind === 'newTrack' ? ' drag-over' : '')}
                 style={{ height: 22, width: totalW }}
@@ -1219,13 +1306,26 @@ export function TimelinePanel({
                   />
                 )}
               </div>
-            )}
+            </div>
+          )}
 
+          {marquee && (
             <div
-              className="scene-playhead"
-              style={{ left: flowState.time * pxPerSec, bottom: 0 }}
+              className="scene-marquee"
+              style={{
+                left: Math.min(marquee.x0, marquee.x1),
+                top: Math.min(marquee.y0, marquee.y1),
+                width: Math.abs(marquee.x1 - marquee.x0),
+                height: Math.abs(marquee.y1 - marquee.y0)
+              }}
             />
-          </div>
+          )}
+
+          {/* Global playhead spanning the lane area (offset past the label col). */}
+          <div
+            className="scene-playhead"
+            style={{ left: LABEL_COL_W + flowState.time * pxPerSec, top: RULER_H, bottom: 0 }}
+          />
         </div>
       </div>
 
@@ -1251,7 +1351,7 @@ const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', t
 
 const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', presentWin: '#c5a', holdResult: '#88a' };
 
-function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, onSelectKey, onMoveKey }) {
+function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -1305,6 +1405,7 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
       startClientX: e.clientX,
       origStart: clip.start,
       origDuration: clip.duration,
+      origChannels: clip.channels,
       pointerId: e.pointerId,
       group: willGroup,
       deferredSelect: willGroup,
@@ -1326,6 +1427,8 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
     let nextStart = st.origStart;
     let nextDuration = st.origDuration;
 
+    let shiftKeys = 0; // clip-local seconds to add to every key (left-resize only)
+
     if (st.mode === 'move') {
       const lo = minStart;
       const hi = Math.max(lo, maxEnd - st.origDuration);
@@ -1338,6 +1441,9 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
       raw = clamp(snapTime(raw, altDisableSnap), lo, hi);
       nextStart = raw;
       nextDuration = origEnd - raw;
+      // Keep keys at their absolute scene time: when start moves by Δ, add Δ to
+      // every key's clip-local time (computed from the drag-start snapshot).
+      shiftKeys = st.origStart - nextStart;
     } else if (st.mode === 'resizeEnd') {
       const lo = st.origStart + 0.05;
       const hi = maxEnd;
@@ -1346,7 +1452,11 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
       nextDuration = rawEnd - st.origStart;
     }
 
-    onPatch?.({ start: nextStart, duration: nextDuration });
+    const patch = { start: nextStart, duration: nextDuration };
+    if (st.mode === 'resizeStart' && st.origChannels) {
+      patch.channels = shiftClipChannels(st.origChannels, shiftKeys, nextDuration);
+    }
+    onPatch?.(patch);
   }, [duration, onPatch, snapTime, siblings, pxPerSec, onGroupMoveUpdate]);
 
   const onPointerUp = useCallback((e) => {
@@ -1428,10 +1538,14 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
       </div>
       <ClipKeyframeDots
         clip={clip}
+        clipSelected={selected}
         pxPerSec={pxPerSec}
         selectedKey={selectedKey}
+        selectedKeys={selectedKeys}
         onSelectKey={onSelectKey}
+        onSelectKeys={onSelectKeys}
         onMoveKey={onMoveKey}
+        onTransformKeys={onTransformKeys}
       />
       <div className="scene-clip-edge scene-clip-edge--right" />
       {selected && canAddRight && (
@@ -1461,14 +1575,155 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
  * clip's own drag/resize; each diamond re-enables its own events.
  */
 function ClipKeyframeDots({
-  clip, pxPerSec, selectedKey, onSelectKey, onMoveKey
+  clip, clipSelected, pxPerSec, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys
 }) {
+  const bandRef = useRef(null);
+  const dotDragRef = useRef(null);     // group move via dragging a selected dot
+  const handleDragRef = useRef(null);  // scale via selection-box edge handle
+  const marqueeRef = useRef(null);
+  const [marquee, setMarquee] = useState(null); // band-local { x0,y0,x1,y1 }
+
   const { dots, maxStack, rowLabels } = buildClipDots(clip);
   if (!dots.length) return null;
   const bandH = 6 + (maxStack - 1) * KF_SLOT_H + 6;
 
+  const idStr = (name, comp, idx) => `${name}|${comp || ''}|${idx}`;
+  const idOf = (d) => ({ name: d.channel, comp: d.comp ?? null, idx: d.idx });
+  const selList = (selectedKeys || []).filter((k) => k.clipId === clip.id);
+  const selSet = new Set(selList.map((k) => idStr(k.name, k.comp, k.idx)));
+  const isSel = (d) => selSet.has(idStr(d.channel, d.comp, d.idx));
+  const selListBare = () => selList.map((k) => ({ name: k.name, comp: k.comp ?? null, idx: k.idx }));
+
+  const selDots = dots.filter(isSel);
+  const hasSel = selDots.length > 0;
+  const minSelT = hasSel ? Math.min(...selDots.map((d) => d.t)) : 0;
+  const maxSelT = hasSel ? Math.max(...selDots.map((d) => d.t)) : 0;
+  const canScale = selDots.length >= 2 && (maxSelT - minSelT) > 1e-3;
+
+  // ── Dragging a dot → move the whole selection (or just that dot) ──
+  const dotDragBegin = (d) => {
+    const inSel = isSel(d);
+    const list = inSel ? selListBare() : [idOf(d)];
+    if (!inSel) onSelectKeys?.(clip.id, list, idOf(d)); // single-select for highlight
+    dotDragRef.current = { snapshot: clip, list };
+  };
+  const dotDragMove = (deltaT) => {
+    const st = dotDragRef.current;
+    if (!st) return;
+    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: deltaT });
+  };
+  const dotDragEnd = () => { dotDragRef.current = null; };
+
+  const toggleKey = (d) => {
+    const s = idStr(d.channel, d.comp, d.idx);
+    const cur = selListBare();
+    const exists = selSet.has(s);
+    const next = exists ? cur.filter((k) => idStr(k.name, k.comp, k.idx) !== s) : [...cur, idOf(d)];
+    onSelectKeys?.(clip.id, next, exists ? (next[next.length - 1] || null) : idOf(d));
+  };
+
+  // ── Scale handles on the selection box ──
+  const handleDown = (side) => (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    handleDragRef.current = {
+      side, startX: e.clientX, snapshot: clip, list: selListBare(),
+      span: maxSelT - minSelT, minSelT, maxSelT, pointerId: e.pointerId
+    };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  const handleMove = (e) => {
+    const st = handleDragRef.current;
+    if (!st || st.span <= 1e-4) return;
+    const deltaT = (e.clientX - st.startX) / pxPerSec;
+    let pivot;
+    let factor;
+    if (st.side === 'right') { pivot = st.minSelT; factor = (st.span + deltaT) / st.span; }
+    else { pivot = st.maxSelT; factor = (st.span - deltaT) / st.span; }
+    factor = Math.max(0.05, factor);
+    onTransformKeys?.(st.snapshot, st.list, { kind: 'scale', pivot, factor });
+  };
+  const handleUp = (e) => {
+    if (!handleDragRef.current) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    handleDragRef.current = null;
+  };
+
+  // ── Dragging the selection-box BODY moves the whole selection ──
+  const boxMoveDown = (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    dotDragRef.current = { snapshot: clip, list: selListBare() };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    dotDragRef.current.startX = e.clientX;
+  };
+  const boxMoveMove = (e) => {
+    const st = dotDragRef.current;
+    if (!st || st.startX == null) return;
+    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: (e.clientX - st.startX) / pxPerSec });
+  };
+  const boxMoveUp = (e) => {
+    if (!dotDragRef.current) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    dotDragRef.current = null;
+  };
+
+  // ── Marquee selection over the band (only when the clip is selected) ──
+  const bandLocal = (e) => {
+    const r = bandRef.current?.getBoundingClientRect();
+    if (!r) return { x: 0, y: 0 };
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const marqueeDown = (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const p = bandLocal(e);
+    marqueeRef.current = { x0: p.x, y0: p.y, x1: p.x, y1: p.y, moved: false, pointerId: e.pointerId };
+    setMarquee({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  const marqueeMove = (e) => {
+    const st = marqueeRef.current;
+    if (!st) return;
+    const p = bandLocal(e);
+    if (!st.moved && (Math.abs(p.x - st.x0) > 3 || Math.abs(p.y - st.y0) > 3)) st.moved = true;
+    st.x1 = p.x; st.y1 = p.y;
+    setMarquee({ x0: st.x0, y0: st.y0, x1: p.x, y1: p.y });
+  };
+  const marqueeUp = (e) => {
+    const st = marqueeRef.current;
+    if (!st) return;
+    marqueeRef.current = null;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    setMarquee(null);
+    if (!st.moved) { onSelectKeys?.(clip.id, [], null); return; }
+    const minX = Math.min(st.x0, st.x1);
+    const maxX = Math.max(st.x0, st.x1);
+    const minY = Math.min(st.y0, st.y1);
+    const maxY = Math.max(st.y0, st.y1);
+    const hits = dots.filter((d) => {
+      const x = d.t * pxPerSec;
+      const yTop = bandH - (1 + (d.stack || 0) * KF_SLOT_H) - KF_SLOT_H / 2;
+      return x >= minX - 2 && x <= maxX + 2 && yTop >= minY - KF_SLOT_H && yTop <= maxY + KF_SLOT_H;
+    }).map(idOf);
+    onSelectKeys?.(clip.id, hits, hits.length ? hits[hits.length - 1] : null);
+  };
+
   return (
-    <div className="scene-clip-keyframes" style={{ height: bandH }}>
+    <div ref={bandRef} className="scene-clip-keyframes" style={{ height: bandH }}>
+      {/* Marquee capture layer — below dots so they keep priority. */}
+      {clipSelected && (
+        <div
+          className="scene-kf-marquee-capture"
+          onPointerDown={marqueeDown}
+          onPointerMove={marqueeMove}
+          onPointerUp={marqueeUp}
+          onPointerCancel={marqueeUp}
+        />
+      )}
       {/* Alternating row stripes — subtle dark/light to separate property rows */}
       {rowLabels.map(({ row }) => (
         <div
@@ -1486,28 +1741,74 @@ function ClipKeyframeDots({
           {abbr}
         </span>
       ))}
-      {dots.map((d) => {
-        const isSel = selectedKey?.clipId === clip.id
-          && selectedKey.name === d.channel
-          && selectedKey.idx === d.idx
-          && (selectedKey.comp ?? null) === (d.comp ?? null);
-        return (
-          <KeyframeDot
-            key={`${d.channel}:${d.comp ?? '_'}:${d.idx}`}
-            dot={d}
-            clip={clip}
-            pxPerSec={pxPerSec}
-            selected={isSel}
-            onSelect={() => onSelectKey?.(clip.id, d.channel, d.idx, d.comp, d.t)}
-            onMove={(newT) => onMoveKey?.(clip.id, d.channel, d.idx, d.comp, newT)}
+      {dots.map((d) => (
+        <KeyframeDot
+          key={`${d.channel}:${d.comp ?? '_'}:${d.idx}`}
+          dot={d}
+          pxPerSec={pxPerSec}
+          selected={isSel(d)}
+          onToggle={() => toggleKey(d)}
+          onDragBegin={() => dotDragBegin(d)}
+          onDragMove={dotDragMove}
+          onDragEnd={dotDragEnd}
+          onClickNoDrag={() => onSelectKey?.(clip.id, d.channel, d.idx, d.comp, d.t)}
+        />
+      ))}
+      {/* Selection box: drag the body to MOVE all selected keys, drag either
+          edge to SCALE their timing (faster/slower). No separate dial widgets —
+          the dashed box edges are the scale grips. Sits below the dots so
+          individual diamonds stay clickable. */}
+      {hasSel && (
+        <div
+          className="scene-kf-selbox"
+          style={{ left: minSelT * pxPerSec, width: Math.max(1, (maxSelT - minSelT) * pxPerSec) }}
+        >
+          <div
+            className="scene-kf-selbox-move"
+            title="Drag to move the selected keyframes in time"
+            onPointerDown={boxMoveDown}
+            onPointerMove={boxMoveMove}
+            onPointerUp={boxMoveUp}
+            onPointerCancel={boxMoveUp}
           />
-        );
-      })}
+          {canScale && (
+            <div
+              className="scene-kf-selbox-edge scene-kf-selbox-edge--l"
+              title="Drag to scale the selected keys' timing (slower/faster)"
+              onPointerDown={handleDown('left')}
+              onPointerMove={handleMove}
+              onPointerUp={handleUp}
+              onPointerCancel={handleUp}
+            />
+          )}
+          {canScale && (
+            <div
+              className="scene-kf-selbox-edge scene-kf-selbox-edge--r"
+              title="Drag to scale the selected keys' timing (slower/faster)"
+              onPointerDown={handleDown('right')}
+              onPointerMove={handleMove}
+              onPointerUp={handleUp}
+              onPointerCancel={handleUp}
+            />
+          )}
+        </div>
+      )}
+      {marquee && (
+        <div
+          className="scene-kf-marquee"
+          style={{
+            left: Math.min(marquee.x0, marquee.x1),
+            top: Math.min(marquee.y0, marquee.y1),
+            width: Math.abs(marquee.x1 - marquee.x0),
+            height: Math.abs(marquee.y1 - marquee.y0)
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function KeyframeDot({ dot, clip, pxPerSec, selected, onSelect, onMove }) {
+function KeyframeDot({ dot, pxPerSec, selected, onToggle, onDragBegin, onDragMove, onDragEnd, onClickNoDrag }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const fmtVal = (v) => {
@@ -1520,27 +1821,24 @@ function KeyframeDot({ dot, clip, pxPerSec, selected, onSelect, onMove }) {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    onSelect?.();
-    dragRef.current = {
-      startClientX: e.clientX,
-      origT: dot.t,
-      moved: false,
-      pointerId: e.pointerId
-    };
+    if (e.ctrlKey || e.metaKey) { onToggle?.(); return; } // additive toggle, no drag
+    onDragBegin?.();
+    dragRef.current = { startClientX: e.clientX, moved: false, pointerId: e.pointerId };
     try { ref.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   };
   const onPointerMove = (e) => {
     const st = dragRef.current;
     if (!st) return;
-    const deltaT = (e.clientX - st.startClientX) / pxPerSec;
-    if (!st.moved && Math.abs(deltaT) < (3 / pxPerSec)) return;
+    if (!st.moved && Math.abs(e.clientX - st.startClientX) < 3) return;
     st.moved = true;
-    const clamped = Math.max(0, Math.min(clip.duration, st.origT + deltaT));
-    onMove?.(clamped);
+    onDragMove?.((e.clientX - st.startClientX) / pxPerSec);
   };
   const onPointerUp = (e) => {
-    if (!dragRef.current) return;
+    const st = dragRef.current;
+    if (!st) return;
     try { ref.current?.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (!st.moved) onClickNoDrag?.(); // plain click → select this key + seek
+    onDragEnd?.();
     dragRef.current = null;
   };
   const label = dot.comp ? `${dot.channel}.${dot.comp}` : dot.channel;
@@ -1552,7 +1850,7 @@ function KeyframeDot({ dot, clip, pxPerSec, selected, onSelect, onMove }) {
         + (selected ? ' is-selected' : '')
       }
       style={{ left: `${dot.t * pxPerSec}px`, bottom: `${1 + (dot.stack || 0) * KF_SLOT_H}px` }}
-      title={`${label} = ${fmtVal(dot.v)} @ ${dot.t.toFixed(2)}s — drag to move, click to seek`}
+      title={`${label} = ${fmtVal(dot.v)} @ ${dot.t.toFixed(2)}s — drag to move · ctrl-click to multi-select · marquee to box-select`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

@@ -57,7 +57,7 @@ export function AssetBrowserPanel({
   return (
     <div className="scene-panel scene-panel--left scene-panel--assets">
       <div className="scene-panel-head scene-asset-panel-head">
-        <span>assets</span>
+        <span>workspace</span>
         {hasRoot && (
           <span className="scene-asset-count">{totalItems}</span>
         )}

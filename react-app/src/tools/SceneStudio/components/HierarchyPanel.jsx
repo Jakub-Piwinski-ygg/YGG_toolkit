@@ -19,7 +19,8 @@ export function HierarchyPanel({
   onSelect,
   onToggleVisibility,
   onRemove,
-  onReorder // (draggedId, targetId, mode) — mode: 'above' | 'below' | 'inside' | 'canvasRoot'
+  onReorder, // (draggedId, targetId, mode) — mode: 'above' | 'below' | 'inside' | 'canvasRoot'
+  onRenameScene // (name) — rename the active scene (shown as the panel head title)
 }) {
   const trees = useMemo(() => buildLayerTree(scene), [scene]);
   const activeCanvasId = scene.activeCanvasId || scene.canvases?.[0]?.id;
@@ -95,7 +96,20 @@ export function HierarchyPanel({
           <div key={canvas.id} className="scene-canvas-block">
             <div className="scene-canvas-head">
               <span className="scene-canvas-icon">▼</span>
-              <span className="scene-canvas-name">{canvas.name}</span>
+              <span className="scene-canvas-name" title={scene.name}>{scene.name || 'Scene'}</span>
+              {onRenameScene && (
+                <button
+                  className="scene-icon-btn scene-canvas-rename"
+                  title="Rename scene"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const name = window.prompt('Rename scene', scene.name || 'Scene');
+                    if (name && name.trim()) onRenameScene(name.trim());
+                  }}
+                >
+                  ✎
+                </button>
+              )}
               <span className="scene-canvas-count">{scene.layers.filter((l) => l.canvasId === canvas.id).length}</span>
             </div>
 

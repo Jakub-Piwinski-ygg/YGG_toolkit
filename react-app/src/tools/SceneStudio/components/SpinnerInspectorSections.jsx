@@ -26,6 +26,40 @@ const BOUNCE_CURVES = [
   { value: 'overshoot', label: 'overshoot (sharp)' },
 ];
 
+/**
+ * The "set clip duration = computed time" action for a spinner action clip.
+ * Returns { duration, label, title } or null when the action has no
+ * meaningful auto-duration (e.g. holdResult). Rendered at the top of the
+ * clip inspector by ClipSection so the calc button is always one click away.
+ */
+export function spinnerClipDurationAction(config, clip) {
+  if (!config) return null;
+  const action = clip?.action;
+  const sp = clip?.spinner || {};
+  if (action === 'startSpin') {
+    const d = spinnerStartSpinDuration(config, sp.perReelStartDelay);
+    return { duration: d, label: `set duration = spin-up (${d.toFixed(2)}s)`,
+      title: 'Set duration to the spin-up time (all reels reach full speed)' };
+  }
+  if (action === 'spin') {
+    return { duration: SPINNER_DEFAULT_SPIN_DURATION,
+      label: `set duration = ${SPINNER_DEFAULT_SPIN_DURATION}s (idle)`,
+      title: 'Set a default ~2s idle spin' };
+  }
+  if (action === 'stopSpin') {
+    const d = spinnerStopSpinDuration(config, sp.perReelStopDelay);
+    return { duration: d, label: `set duration = until all landed (${d.toFixed(2)}s)`,
+      title: 'Set duration to the exact time until all reels land and every land animation finishes' };
+  }
+  if (action === 'presentWin') {
+    const stagger = Number(sp.reelWinStagger ?? 0);
+    const d = spinnerPresentWinDuration(config, stagger, sp.perReelWinDelay);
+    return { duration: d, label: `set duration = until all wins played (${d.toFixed(2)}s)`,
+      title: "Set duration so every reel's win animation finishes (stagger·(reels-1) + win anim length)" };
+  }
+  return null;
+}
+
 // ── SpinnerSection ────────────────────────────────────────────────────────────
 
 /**
@@ -175,18 +209,6 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
             onChange={(d) => patchSp({ perReelStopDelay: d })}
           />
         )}
-        {config && (
-          <button
-            className="scene-btn scene-btn--ghost"
-            title="Set duration to the exact time until all reels land and every land animation finishes"
-            onClick={() => patchClip({
-              duration: Math.max(0.05, spinnerStopSpinDuration(config, sp.perReelStopDelay)),
-              autoFitDuration: false
-            })}
-          >
-            set duration = until all landed ({spinnerStopSpinDuration(config, sp.perReelStopDelay).toFixed(2)}s)
-          </button>
-        )}
       </div>
     );
   }
@@ -199,18 +221,6 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
           Ramps each reel from rest to spin speed. At the end of this clip every reel is at full speed.
           The "+" button adds a spin clip to the right.
         </div>
-        {config && (
-          <button
-            className="scene-btn scene-btn--ghost"
-            title="Set duration to the spin-up time (all reels reach full speed)"
-            onClick={() => patchClip({
-              duration: Math.max(0.05, spinnerStartSpinDuration(config, sp.perReelStartDelay)),
-              autoFitDuration: false
-            })}
-          >
-            set duration = spin-up ({spinnerStartSpinDuration(config, sp.perReelStartDelay).toFixed(2)}s)
-          </button>
-        )}
       </div>
     );
   }
@@ -223,13 +233,6 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
           Reels scroll at constant speed (the idle hold). Extend this clip to control spin duration.
           The "+" button adds a stopSpin clip to the right.
         </div>
-        <button
-          className="scene-btn scene-btn--ghost"
-          title="Set a default ~2s idle spin"
-          onClick={() => patchClip({ duration: SPINNER_DEFAULT_SPIN_DURATION, autoFitDuration: false })}
-        >
-          set duration = {SPINNER_DEFAULT_SPIN_DURATION}s (idle)
-        </button>
       </div>
     );
   }
@@ -260,18 +263,6 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
             delays={sp.perReelWinDelay}
             onChange={(d) => patchSp({ perReelWinDelay: d })}
           />
-        )}
-        {config && (
-          <button
-            className="scene-btn scene-btn--ghost"
-            title="Set duration so every reel's win animation finishes (stagger·(reels-1) + win anim length)"
-            onClick={() => patchClip({
-              duration: Math.max(0.05, spinnerPresentWinDuration(config, stagger, sp.perReelWinDelay)),
-              autoFitDuration: false
-            })}
-          >
-            set duration = until all wins played ({spinnerPresentWinDuration(config, stagger, sp.perReelWinDelay).toFixed(2)}s)
-          </button>
         )}
       </div>
     );

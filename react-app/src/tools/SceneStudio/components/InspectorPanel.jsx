@@ -23,7 +23,7 @@ import {
 import { ChannelSubplot, ClipGraphEditor } from './ClipGraphEditor.jsx';
 import { CurveEditor, CurveThumbnail } from './CurveEditor.jsx';
 import { DragNumberField } from './DragNumberField.jsx';
-import { SpinnerSection, SpinnerClipSection } from './SpinnerInspectorSections.jsx';
+import { SpinnerSection, SpinnerClipSection, spinnerClipDurationAction } from './SpinnerInspectorSections.jsx';
 import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 
 const BLEND_OPTIONS = ['normal', 'additive', 'screen', 'multiply'];
@@ -94,7 +94,9 @@ export function InspectorPanel({
   defaultTangentMode = 'auto',
   onSwapAsset,
   onSwapAssetFromBrowserId,
-  onPatchAsset
+  onPatchAsset,
+  onEditSpinner,
+  studioMode = 'animate'
 }) {
   const layer = scene.layers.find((l) => l.id === selectedLayerId);
   const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
@@ -163,6 +165,19 @@ export function InspectorPanel({
   return (
     <div className="scene-panel scene-panel--right">
       <div className="scene-panel-head">inspector</div>
+
+      {/* Spinner re-edit — top of the inspector, setup mode only. */}
+      {asset?.type === 'spinner' && studioMode === 'setup' && onEditSpinner && (
+        <button
+          type="button"
+          className="scene-btn scene-btn--primary"
+          style={{ width: '100%', marginBottom: 8 }}
+          onClick={() => onEditSpinner(selectedLayerId)}
+          title="Re-open the setup wizard to edit the grid, symbols, timing & initial board, then rebuild this spinner"
+        >
+          ✎ edit spinner in setup wizard
+        </button>
+      )}
 
       <label className="scene-field">
         <span>name</span>
@@ -508,12 +523,31 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
     ? (clip.anim || '(setup pose)')
     : (animatedChannels.length ? animatedChannels.join(' · ') : 'static');
 
+  // "Set clip duration = computed time" action — moved to the very top of the
+  // clip section (above name) so it's always one click away for spine/spinner.
+  const durationAction = isSpinner
+    ? spinnerClipDurationAction(spinnerConfig, clip)
+    : (isSpine && hasAnimDuration)
+      ? { duration: cycleDuration, label: 'set duration = 1 cycle',
+          title: 'Set clip duration to one animation cycle at current speed' }
+      : null;
+
   return (
     <div className="scene-field-group scene-clip-section">
       <div className="scene-field-group-head">
         clip · {headerLabel}
         <span className="scene-pill scene-pill--clip">on {track.layerId === layer.id ? layer.name : '(other layer)'}</span>
       </div>
+
+      {durationAction && (
+        <button
+          className="scene-btn scene-btn--ghost scene-clip-duration-action"
+          title={durationAction.title}
+          onClick={() => patchClip({ duration: Math.max(0.05, durationAction.duration), autoFitDuration: false })}
+        >
+          {durationAction.label}
+        </button>
+      )}
 
       <label className="scene-field">
         <span>name</span>
@@ -620,13 +654,6 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
               <span className="scene-clip-anim-meta-text">
                 anim: {Number(rawAnimDuration.toFixed(3))}s · cycle @ speed: {Number(cycleDuration.toFixed(3))}s
               </span>
-              <button
-                className="scene-btn scene-btn--ghost"
-                onClick={() => patchClip({ duration: Math.max(0.05, cycleDuration), autoFitDuration: false })}
-                title="Set clip duration to one animation cycle at current speed"
-              >
-                set duration = 1 cycle
-              </button>
             </div>
           ) : (
             <div className="scene-empty" style={{ padding: '6px 12px', fontSize: 10 }}>

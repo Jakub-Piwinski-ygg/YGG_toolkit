@@ -33,11 +33,18 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
   failsafe.)* Filters defined but not UI-wired; editable/auto clip-naming for
   static-PNG clips still open.
 
+- **Timeline keyframe multi-select (2026-06-15)**: marquee box-select keys within a
+  selected clip; drag the selection (dot or box body) to move; box edges scale
+  timing; Ctrl+C/V/Delete on keys **and** clips; clip-expansion on drag past edges
+  (`transformClipKeys`). Frozen-column timeline (sticky labels), Setup-mode default,
+  spinner re-edit wizard, "frame in front" grey-out. See the session note.
+
 ## Sub-objects & docs
 
 - [[Spinner Design]] — deterministic slot-machine Spinner object (Phase 5).
 - Full design: [[Scene Studio Design]].
-- Sessions: [[Scene Studio Phase Status]], [[Next Phase Scene Tool]].
+- Sessions: [[Scene Studio Phase Status]], [[Next Phase Scene Tool]],
+  [[Session 2026-06-15 Scene Studio Keyframe Multiselect Timeline and Overlays]].
 - Unity export sessions: [[Spinner Unity Phase 2]] … [[Spinner Unity Phase 5]].
 
 > [!success] Shipped
