@@ -604,10 +604,13 @@ async function collectProjectJson(dirHandle, relDir, depth, out) {
     for await (const [name, h] of iter) {
       if (name.startsWith('.')) continue;
       if (h.kind === 'file') {
-        if (name.toLowerCase() !== 'project.json') continue;
+        // Match the canonical `project.json` AND the download-fallback naming
+        // `<name>.project.json` so a folder containing either auto-loads.
+        const lower = name.toLowerCase();
+        if (lower !== 'project.json' && !lower.endsWith('.project.json')) continue;
         try {
           const file = await h.getFile();
-          out.push({ dirPath: normalizeRelPath(relDir), text: await file.text() });
+          out.push({ dirPath: normalizeRelPath(relDir), name, text: await file.text() });
         } catch { /* unreadable */ }
         continue;
       }
@@ -627,7 +630,11 @@ async function findProjectJson(rootHandle) {
   const out = [];
   await collectProjectJson(rootHandle, '', 0, out);
   if (!out.length) return null;
+  // Shallowest first; among equals prefer the canonical `project.json`, then
+  // by path for a stable "first project file found".
+  const isCanonical = (c) => (c.name || '').toLowerCase() === 'project.json';
   out.sort((a, b) => splitRelPath(a.dirPath).length - splitRelPath(b.dirPath).length
+    || (isCanonical(b) - isCanonical(a))
     || a.dirPath.localeCompare(b.dirPath));
   return out[0];
 }

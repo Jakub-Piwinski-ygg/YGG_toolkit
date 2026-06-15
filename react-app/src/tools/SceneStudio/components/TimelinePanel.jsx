@@ -65,14 +65,36 @@ function shiftClipChannels(channels, shift, duration) {
 
 const DEFAULT_PX_PER_SEC = 120;
 const MIN_PX_PER_SEC = 30;
-const MAX_PX_PER_SEC = 360;
+const MAX_PX_PER_SEC = 1440;   // ~4× deeper than the old 360 cap, for frame-level work
 const ROW_H = 40;
 const RULER_H = 24;
 const ADJACENT_ADD_MIN_GAP = 0.2;
 
 // Channel display order (bottom → top in the clip band).
 const KF_CHANNELS = ['position', 'scale', 'rotation', 'alpha', 'tint'];
-const KF_SLOT_H = 11;    // vertical pitch per channel row
+const KF_SLOT_H = 11;    // vertical pitch per channel row (collapsed reference)
+
+// ── Expanded-clip layout (Unity AnimationTrack style) ─────────────────
+// Only the SELECTED clip expands to show full per-channel keyframe rows; the
+// track it lives on grows to fit, and the other clips on that track flatten to
+// a single summary row. These constants drive both the track height and the
+// clip's keyframe band so the two always agree.
+const EXP_ROW_H = 16;        // pitch per channel row when expanded (big hit area)
+const EXP_SUMMARY_H = 16;    // the "all keys" summary row on top
+const EXP_BAND_BASE = 4;     // padding below the lowest channel row
+const EXP_BAND_GAP = 4;      // gap between channel rows and the summary row
+const EXP_HEADER_H = 18;     // clip label/select strip above the band
+const CLIP_VPAD = 6;         // .scene-clip top+bottom inset (3 + 3)
+
+/** Keyframe band height for an expanded clip with `nRows` channel rows. */
+function expandedBandH(nRows) {
+  return EXP_BAND_BASE + nRows * EXP_ROW_H + EXP_BAND_GAP + EXP_SUMMARY_H;
+}
+/** Full track row height needed to show `clip` expanded. */
+function expandedTrackHeight(clip) {
+  const { maxStack } = buildClipDots(clip);
+  return CLIP_VPAD + EXP_HEADER_H + expandedBandH(maxStack);
+}
 
 /**
  * Build the display dot list for one clip.
@@ -101,7 +123,7 @@ function buildClipDots(clip) {
         if (!sub?.keys?.length) continue;
         for (let i = 0; i < sub.keys.length; i++) {
           const k = sub.keys[i];
-          dots.push({ channel: name, comp, idx: i, t: k.t, v: k.v, stack: row });
+          dots.push({ channel: name, comp, idx: i, kid: k.kid, t: k.t, v: k.v, stack: row });
         }
         rowLabels.push({ key: `${name}.${comp}`, abbr: `${CH_ABBR[name]}.${comp}`, row });
         row++;
@@ -110,25 +132,36 @@ function buildClipDots(clip) {
       // Linked: one row for the whole channel
       for (let i = 0; i < ch.keys.length; i++) {
         const k = ch.keys[i];
-        dots.push({ channel: name, comp: null, idx: i, t: k.t, v: k.v, stack: row });
+        dots.push({ channel: name, comp: null, idx: i, kid: k.kid, t: k.t, v: k.v, stack: row });
       }
       rowLabels.push({ key: name, abbr: CH_ABBR[name], row });
       row++;
     }
   }
 
-  dots.sort((a, b) => a.t - b.t || a.stack - b.stack);
+  // Stable render order (by row, then stable kid) — NOT by time. Diamonds are
+  // positioned by CSS `left`, so time order is irrelevant to layout, and a
+  // time-based order would reshuffle the DOM nodes whenever a dragged key
+  // crosses a neighbour, dropping its pointer capture mid-drag.
+  dots.sort((a, b) => a.stack - b.stack || String(a.kid ?? '').localeCompare(String(b.kid ?? '')));
   return { dots, maxStack: row || 1, rowLabels };
 }
 
-/** Row height for a track — grows to fit all per-channel keyframe rows. */
-function trackRowHeight(track) {
-  let maxStack = 1;
-  for (const c of track.clips || []) {
-    const { maxStack: s } = buildClipDots(c);
-    if (s > maxStack) maxStack = s;
+/**
+ * Group a clip's keyframes by (≈equal) time into summary columns. Each column
+ * is `{ t, members: [{ channel, comp, idx, kid }] }`. Used for the flattened
+ * (unselected) clip display — one diamond per time — and for the expanded
+ * clip's top summary row, which drags every key at that time together.
+ */
+function clipSummaryColumns(clip) {
+  const { dots } = buildClipDots(clip);
+  const groups = new Map();
+  for (const d of dots) {
+    const tk = d.t.toFixed(4);
+    if (!groups.has(tk)) groups.set(tk, { t: d.t, members: [] });
+    groups.get(tk).members.push({ channel: d.channel, comp: d.comp ?? null, idx: d.idx, kid: d.kid });
   }
-  return ROW_H + (maxStack - 1) * KF_SLOT_H;
+  return [...groups.values()].sort((a, b) => a.t - b.t);
 }
 
 /**
@@ -195,12 +228,29 @@ export function TimelinePanel({
   const totalW = Math.max(600, Math.min(36000, Math.round(duration * pxPerSec)));
   const setFlow = useCallback((nextFlow) => onPatchFlow?.(nextFlow), [onPatchFlow]);
 
-  // Per-track row height — taller when a clip stacks keyframes on a frame.
+  // Zoom-aware gridlines (seconds / sub-second / per-frame). The ruler labels
+  // the second + sub-second lines; the lane overlay draws all three faintly.
+  const gridlines = useMemo(() => buildGridlines(duration, pxPerSec, fps), [duration, pxPerSec, fps]);
+  const rulerTicks = useMemo(() => gridlines.filter((g) => g.level !== 'frame'), [gridlines]);
+
+  // Manual vs automatic timeline length. Once the user types a length, the
+  // scene flips to manual and clips are bounded by it; otherwise the length
+  // auto-grows/shrinks to the content (handled in SceneStudioInner) and clips
+  // may extend up to the absolute cap so a drag can grow the timeline.
+  const manualDuration = !!scene.stage?.manualDuration;
+  const dragMax = manualDuration ? duration : 300;
+
+  // Per-track row height. A track stays a compact single row UNLESS it holds the
+  // selected clip — then it expands to fit that clip's full per-channel keyframe
+  // rows (Unity AnimationTrack style); its other clips flatten to a summary row.
   const trackHeights = useMemo(() => {
     const m = new Map();
-    for (const track of tracks) m.set(track.id, trackRowHeight(track));
+    for (const track of tracks) {
+      const expandedClip = (track.clips || []).find((c) => c.id === selectedClipId && c.channels);
+      m.set(track.id, expandedClip ? expandedTrackHeight(expandedClip) : ROW_H);
+    }
     return m;
-  }, [tracks]);
+  }, [tracks, selectedClipId]);
   const heightOf = (track) => trackHeights.get(track.id) || ROW_H;
 
   const defaultClipDurationForLayer = useCallback((layerId, speed = 1, animOverride = null, spinnerAction = null) => {
@@ -495,8 +545,10 @@ export function TimelinePanel({
         clips: t.clips.map((c) => {
           if (c.id !== clipId) return c;
           const nc = { ...c, ...patch };
-          nc.start = clampFinite(nc.start, 0, duration, c.start);
-          nc.duration = clampFinite(nc.duration, 0.05, 300, c.duration);
+          // Bound to dragMax: the manual length when set, else the absolute cap
+          // so a drag can push the clip past the current (auto) length and grow it.
+          nc.start = clampFinite(nc.start, 0, dragMax, c.start);
+          nc.duration = clampFinite(nc.duration, 0.05, dragMax, c.duration);
           // Keyframe-bounds guard: a clip can't be shrunk past its furthest
           // key. For a left-edge resize (start + duration both change, right
           // edge fixed) we re-derive start so the right edge stays put.
@@ -653,7 +705,8 @@ export function TimelinePanel({
         return;
       }
       e.preventDefault();
-      const next = pxPerSec + (e.deltaY < 0 ? 12 : -12);
+      // Multiplicative so the feel is even across the wide 30–1440 range.
+      const next = pxPerSec * (e.deltaY < 0 ? 1.15 : 1 / 1.15);
       setTimelineZoom(next);
     };
     wrap.addEventListener('wheel', onWheel, { passive: false });
@@ -758,7 +811,7 @@ export function TimelinePanel({
         const cs = item.start;
         const ce = item.start + item.duration;
         let minStart = 0;
-        let maxEnd = duration;
+        let maxEnd = dragMax;
         for (const s of others) {
           const sEnd = s.start + s.duration;
           if (sEnd <= cs) minStart = Math.max(minStart, sEnd);
@@ -775,12 +828,12 @@ export function TimelinePanel({
       return {
         ...track,
         clips: track.clips
-          .map((c) => (startMap.has(c.id) ? { ...c, start: clamp(startMap.get(c.id) + d, 0, duration) } : c))
+          .map((c) => (startMap.has(c.id) ? { ...c, start: clamp(startMap.get(c.id) + d, 0, dragMax) } : c))
           .sort((a, b) => a.start - b.start)
       };
     });
     setFlow({ ...(scene.flow || {}), tracks: nextTracks });
-  }, [tracks, duration, scene.flow, setFlow]);
+  }, [tracks, dragMax, scene.flow, setFlow]);
 
   const endGroupMove = useCallback(() => { groupDragRef.current = null; }, []);
 
@@ -1074,7 +1127,12 @@ export function TimelinePanel({
           {selectedLayerId && (
             <button className="scene-btn" onClick={addClipOnSelected}>+ clip on selected</button>
           )}
-          <label className="scene-timeline-length" title="Timeline length (seconds)">
+          <label
+            className="scene-timeline-length"
+            title={manualDuration
+              ? 'Timeline length (seconds) — set manually. Click "auto" to fit the content.'
+              : 'Timeline length (seconds) — auto-fits the content. Type a value to set it manually.'}
+          >
             <span>length</span>
             <input
               className="scene-duration-input"
@@ -1085,6 +1143,14 @@ export function TimelinePanel({
               value={Number(duration.toFixed(2))}
               onChange={(e) => onFlowAction?.('setDuration', Number(e.target.value))}
             />
+            <button
+              type="button"
+              className={'scene-btn scene-btn--sm scene-length-auto' + (manualDuration ? '' : ' scene-btn--primary')}
+              onClick={() => onFlowAction?.(manualDuration ? 'setDurationAuto' : 'setDuration', duration)}
+              title={manualDuration ? 'Auto-fit the timeline length to the content' : 'Length is auto-fitting the content'}
+            >
+              auto
+            </button>
           </label>
           <label className="scene-timeline-fps" title="Frames per second — affects keyframe snap and move-by-frame">
             <span>fps</span>
@@ -1131,9 +1197,13 @@ export function TimelinePanel({
               onPointerUp={onScrubPointerUp}
               onPointerCancel={onScrubPointerUp}
             >
-              {buildTicks(duration).map((t) => (
-                <div key={t.value} className="scene-tick" style={{ left: t.value * pxPerSec }}>
-                  <span>{t.label}</span>
+              {rulerTicks.map((t) => (
+                <div
+                  key={t.value}
+                  className={'scene-tick' + (t.level === 'sub' ? ' scene-tick--sub' : '')}
+                  style={{ left: t.value * pxPerSec }}
+                >
+                  <span>{fmtTickLabel(t.value)}</span>
                 </div>
               ))}
               <div className="scene-playhead" style={{ left: flowState.time * pxPerSec, top: 0, bottom: 0 }} />
@@ -1217,7 +1287,7 @@ export function TimelinePanel({
                       selected={selectedSet.has(c.id)}
                       primary={c.id === selectedClipId}
                       inMultiSelection={selectedSet.has(c.id) && selectedSet.size > 1}
-                      duration={duration}
+                      duration={dragMax}
                       pxPerSec={pxPerSec}
                       siblings={track.clips.filter((other) => other.id !== c.id)}
                       onSelect={(e) => handleClipClick(track, c, e)}
@@ -1244,6 +1314,7 @@ export function TimelinePanel({
                       }}
                       onMoveKey={(clipId, name, idx, comp, newT) => onMoveKey?.(clipId, name, idx, comp, newT)}
                       onTransformKeys={onTransformKeys}
+                      onSeekClipLocal={(localT) => onFlowAction?.('seek', c.start + localT)}
                     />
                   );
                 })}
@@ -1321,6 +1392,21 @@ export function TimelinePanel({
             />
           )}
 
+          {/* Lane gridlines (seconds / sub-second / per-frame) — faint, over the
+              lanes, beneath the playhead. Offset past the frozen label column. */}
+          <div
+            className="scene-timeline-gridlines"
+            style={{ left: LABEL_COL_W, top: RULER_H, width: totalW }}
+          >
+            {gridlines.map((g) => (
+              <div
+                key={g.value}
+                className={`scene-gridline scene-gridline--${g.level}`}
+                style={{ left: g.value * pxPerSec }}
+              />
+            ))}
+          </div>
+
           {/* Global playhead spanning the lane area (offset past the label col). */}
           <div
             className="scene-playhead"
@@ -1351,7 +1437,7 @@ const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', t
 
 const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', presentWin: '#c5a', holdResult: '#88a' };
 
-function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys }) {
+function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys, onSeekClipLocal }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -1538,14 +1624,13 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
       </div>
       <ClipKeyframeDots
         clip={clip}
-        clipSelected={selected}
+        expanded={primary}
         pxPerSec={pxPerSec}
-        selectedKey={selectedKey}
         selectedKeys={selectedKeys}
         onSelectKey={onSelectKey}
         onSelectKeys={onSelectKeys}
-        onMoveKey={onMoveKey}
         onTransformKeys={onTransformKeys}
+        onSeekClipLocal={onSeekClipLocal}
       />
       <div className="scene-clip-edge scene-clip-edge--right" />
       {selected && canAddRight && (
@@ -1574,27 +1659,70 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
  * Wrapper has `pointer-events: none` so empty bands don't block the
  * clip's own drag/resize; each diamond re-enables its own events.
  */
+const DOT_BIG = 15;
+const DOT_SM = 11;
+
+function fmtKeyVal(v) {
+  if (typeof v === 'number') return v.toFixed(2);
+  if (v && typeof v === 'object' && typeof v.x === 'number') return `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`;
+  if (v && typeof v === 'object' && typeof v.r === 'number') return `rgb(${v.r.toFixed(2)}, ${v.g.toFixed(2)}, ${v.b.toFixed(2)})`;
+  return String(v);
+}
+
+/**
+ * Keyframe band for a single clip. Two modes:
+ *
+ *   - FLAT (unselected clip): every channel's keys collapse to ONE summary
+ *     diamond per distinct time, on a single centred row — decorative, so the
+ *     clip reads cleanly. Selecting the clip is how you start editing its keys.
+ *   - EXPANDED (the selected clip): full per-channel rows rendered BIG with
+ *     large hit areas, plus a Unity-style summary row on top whose diamonds
+ *     drag every key at that time together. Marquee box-select, group move,
+ *     and edge-scale all operate here. Keys are identified by stable `kid`, so
+ *     a selected set drags freely past non-selected neighbours.
+ */
 function ClipKeyframeDots({
-  clip, clipSelected, pxPerSec, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys
+  clip, expanded, pxPerSec, selectedKeys = [], onSelectKey, onSelectKeys, onTransformKeys, onSeekClipLocal
 }) {
   const bandRef = useRef(null);
-  const dotDragRef = useRef(null);     // group move via dragging a selected dot
+  const dotDragRef = useRef(null);     // group move via dragging a selected dot / summary col
   const handleDragRef = useRef(null);  // scale via selection-box edge handle
   const marqueeRef = useRef(null);
   const [marquee, setMarquee] = useState(null); // band-local { x0,y0,x1,y1 }
 
   const { dots, maxStack, rowLabels } = buildClipDots(clip);
+  const summary = clipSummaryColumns(clip);
   if (!dots.length) return null;
-  const bandH = 6 + (maxStack - 1) * KF_SLOT_H + 6;
 
-  const idStr = (name, comp, idx) => `${name}|${comp || ''}|${idx}`;
-  const idOf = (d) => ({ name: d.channel, comp: d.comp ?? null, idx: d.idx });
+  const idOf = (d) => ({ name: d.channel, comp: d.comp ?? null, idx: d.idx, kid: d.kid });
   const selList = (selectedKeys || []).filter((k) => k.clipId === clip.id);
-  const selSet = new Set(selList.map((k) => idStr(k.name, k.comp, k.idx)));
-  const isSel = (d) => selSet.has(idStr(d.channel, d.comp, d.idx));
-  const selListBare = () => selList.map((k) => ({ name: k.name, comp: k.comp ?? null, idx: k.idx }));
+  const selSet = new Set(selList.map((k) => k.kid).filter((k) => k != null));
+  const isSel = (kid) => selSet.has(kid);
+  const selListBare = () => selList.map((k) => ({ name: k.name, comp: k.comp ?? null, idx: k.idx, kid: k.kid }));
 
-  const selDots = dots.filter(isSel);
+  // ── FLAT: one decorative summary diamond per distinct time ──
+  if (!expanded) {
+    return (
+      <div className="scene-clip-keyframes scene-clip-keyframes--flat">
+        {summary.map((col) => (
+          <span
+            key={col.t.toFixed(4)}
+            className="scene-clip-keyframe scene-clip-keyframe--summary"
+            style={{ left: `${col.t * pxPerSec}px` }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // ── EXPANDED ──
+  const bandH = expandedBandH(maxStack);
+  const rowBaseline = (row) => EXP_BAND_BASE + row * EXP_ROW_H;
+  const summaryBaseline = EXP_BAND_BASE + maxStack * EXP_ROW_H + EXP_BAND_GAP;
+  const dotBottom = (baseline, slotH) => baseline + (slotH - DOT_BIG) / 2;
+  const centreFromTop = (baseline, slotH) => bandH - (baseline + slotH / 2);
+
+  const selDots = dots.filter((d) => isSel(d.kid));
   const hasSel = selDots.length > 0;
   const minSelT = hasSel ? Math.min(...selDots.map((d) => d.t)) : 0;
   const maxSelT = hasSel ? Math.max(...selDots.map((d) => d.t)) : 0;
@@ -1602,7 +1730,7 @@ function ClipKeyframeDots({
 
   // ── Dragging a dot → move the whole selection (or just that dot) ──
   const dotDragBegin = (d) => {
-    const inSel = isSel(d);
+    const inSel = isSel(d.kid);
     const list = inSel ? selListBare() : [idOf(d)];
     if (!inSel) onSelectKeys?.(clip.id, list, idOf(d)); // single-select for highlight
     dotDragRef.current = { snapshot: clip, list };
@@ -1615,11 +1743,24 @@ function ClipKeyframeDots({
   const dotDragEnd = () => { dotDragRef.current = null; };
 
   const toggleKey = (d) => {
-    const s = idStr(d.channel, d.comp, d.idx);
     const cur = selListBare();
-    const exists = selSet.has(s);
-    const next = exists ? cur.filter((k) => idStr(k.name, k.comp, k.idx) !== s) : [...cur, idOf(d)];
+    const exists = isSel(d.kid);
+    const next = exists ? cur.filter((k) => k.kid !== d.kid) : [...cur, idOf(d)];
     onSelectKeys?.(clip.id, next, exists ? (next[next.length - 1] || null) : idOf(d));
+  };
+
+  // ── Summary row: drag a column to move EVERY key at that time together ──
+  const summaryColList = (col) =>
+    col.members.map((m) => ({ name: m.channel, comp: m.comp ?? null, idx: m.idx, kid: m.kid }));
+  const summaryDragBegin = (col) => {
+    const list = summaryColList(col);
+    onSelectKeys?.(clip.id, list, list[list.length - 1] || null);
+    dotDragRef.current = { snapshot: clip, list };
+  };
+  const summaryClick = (col) => {
+    const list = summaryColList(col);
+    onSelectKeys?.(clip.id, list, list[list.length - 1] || null);
+    onSeekClipLocal?.(col.t);
   };
 
   // ── Scale handles on the selection box ──
@@ -1670,7 +1811,7 @@ function ClipKeyframeDots({
     dotDragRef.current = null;
   };
 
-  // ── Marquee selection over the band (only when the clip is selected) ──
+  // ── Marquee selection over the band ──
   const bandLocal = (e) => {
     const r = bandRef.current?.getBoundingClientRect();
     if (!r) return { x: 0, y: 0 };
@@ -1706,58 +1847,93 @@ function ClipKeyframeDots({
     const maxY = Math.max(st.y0, st.y1);
     const hits = dots.filter((d) => {
       const x = d.t * pxPerSec;
-      const yTop = bandH - (1 + (d.stack || 0) * KF_SLOT_H) - KF_SLOT_H / 2;
-      return x >= minX - 2 && x <= maxX + 2 && yTop >= minY - KF_SLOT_H && yTop <= maxY + KF_SLOT_H;
+      const yTop = centreFromTop(rowBaseline(d.stack || 0), EXP_ROW_H);
+      return x >= minX - 2 && x <= maxX + 2 && yTop >= minY - EXP_ROW_H && yTop <= maxY + EXP_ROW_H;
     }).map(idOf);
     onSelectKeys?.(clip.id, hits, hits.length ? hits[hits.length - 1] : null);
   };
 
   return (
-    <div ref={bandRef} className="scene-clip-keyframes" style={{ height: bandH }}>
+    <div ref={bandRef} className="scene-clip-keyframes scene-clip-keyframes--expanded" style={{ height: bandH }}>
       {/* Marquee capture layer — below dots so they keep priority. */}
-      {clipSelected && (
-        <div
-          className="scene-kf-marquee-capture"
-          onPointerDown={marqueeDown}
-          onPointerMove={marqueeMove}
-          onPointerUp={marqueeUp}
-          onPointerCancel={marqueeUp}
-        />
-      )}
-      {/* Alternating row stripes — subtle dark/light to separate property rows */}
+      <div
+        className="scene-kf-marquee-capture"
+        onPointerDown={marqueeDown}
+        onPointerMove={marqueeMove}
+        onPointerUp={marqueeUp}
+        onPointerCancel={marqueeUp}
+      />
+      {/* Alternating per-channel row stripes */}
       {rowLabels.map(({ row }) => (
         <div
           key={`stripe-${row}`}
           className={`scene-clip-row-stripe scene-clip-row-stripe--${row % 2 === 0 ? 'a' : 'b'}`}
-          style={{ bottom: 1 + row * KF_SLOT_H, height: KF_SLOT_H }}
+          style={{ bottom: rowBaseline(row), height: EXP_ROW_H }}
         />
       ))}
+      {/* Summary row stripe (sits above the channel rows) */}
+      <div
+        className="scene-clip-row-stripe scene-clip-row-stripe--summary"
+        style={{ bottom: summaryBaseline, height: EXP_SUMMARY_H }}
+      />
       {rowLabels.map(({ key, abbr, row }) => (
         <span
           key={`lbl-${key}`}
           className={`scene-clip-ch-label scene-clip-ch-label--${key.split('.')[0]}`}
-          style={{ bottom: 1 + row * KF_SLOT_H }}
+          style={{ bottom: rowBaseline(row) + 3 }}
         >
           {abbr}
         </span>
       ))}
-      {dots.map((d) => (
+      <span
+        className="scene-clip-ch-label scene-clip-ch-label--summary"
+        style={{ bottom: summaryBaseline + 4 }}
+      >
+        all
+      </span>
+      {/* Summary diamonds — drag a column to move every key at that time.
+          Keyed by the column's member kids (stable while they move together)
+          rather than its time, so the diamond never remounts mid-drag and keeps
+          its pointer capture. */}
+      {summary.map((col) => (
         <KeyframeDot
-          key={`${d.channel}:${d.comp ?? '_'}:${d.idx}`}
-          dot={d}
+          key={`sum:${col.members.map((m) => m.kid).sort().join(',') || col.t.toFixed(4)}`}
+          left={col.t * pxPerSec}
+          bottom={dotBottom(summaryBaseline, EXP_SUMMARY_H)}
+          big
+          summary
+          channel="summary"
+          title={`${col.members.length} key(s) @ ${col.t.toFixed(2)}s — drag to move them all together`}
+          selected={col.members.every((m) => isSel(m.kid)) && col.members.length > 0}
           pxPerSec={pxPerSec}
-          selected={isSel(d)}
-          onToggle={() => toggleKey(d)}
-          onDragBegin={() => dotDragBegin(d)}
+          onDragBegin={() => summaryDragBegin(col)}
           onDragMove={dotDragMove}
           onDragEnd={dotDragEnd}
-          onClickNoDrag={() => onSelectKey?.(clip.id, d.channel, d.idx, d.comp, d.t)}
+          onClickNoDrag={() => summaryClick(col)}
         />
       ))}
-      {/* Selection box: drag the body to MOVE all selected keys, drag either
-          edge to SCALE their timing (faster/slower). No separate dial widgets —
-          the dashed box edges are the scale grips. Sits below the dots so
-          individual diamonds stay clickable. */}
+      {/* Per-channel diamonds (big hit areas) */}
+      {dots.map((d) => {
+        const label = d.comp ? `${d.channel}.${d.comp}` : d.channel;
+        return (
+          <KeyframeDot
+            key={d.kid ?? `${d.channel}:${d.comp ?? '_'}:${d.idx}`}
+            left={d.t * pxPerSec}
+            bottom={dotBottom(rowBaseline(d.stack || 0), EXP_ROW_H)}
+            big
+            channel={d.channel}
+            title={`${label} = ${fmtKeyVal(d.v)} @ ${d.t.toFixed(2)}s — drag to move · ctrl-click to multi-select · marquee to box-select`}
+            selected={isSel(d.kid)}
+            pxPerSec={pxPerSec}
+            onToggle={() => toggleKey(d)}
+            onDragBegin={() => dotDragBegin(d)}
+            onDragMove={dotDragMove}
+            onDragEnd={dotDragEnd}
+            onClickNoDrag={() => onSelectKey?.(clip.id, d.channel, d.idx, d.comp, d.t)}
+          />
+        );
+      })}
+      {/* Selection box: body = move all selected keys, edges = scale timing. */}
       {hasSel && (
         <div
           className="scene-kf-selbox"
@@ -1808,20 +1984,14 @@ function ClipKeyframeDots({
   );
 }
 
-function KeyframeDot({ dot, pxPerSec, selected, onToggle, onDragBegin, onDragMove, onDragEnd, onClickNoDrag }) {
+function KeyframeDot({ left, bottom, big, summary, channel, title, selected, pxPerSec, onToggle, onDragBegin, onDragMove, onDragEnd, onClickNoDrag }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
-  const fmtVal = (v) => {
-    if (typeof v === 'number') return v.toFixed(2);
-    if (v && typeof v === 'object' && typeof v.x === 'number') return `(${v.x.toFixed(1)}, ${v.y.toFixed(1)})`;
-    if (v && typeof v === 'object' && typeof v.r === 'number') return `rgb(${v.r.toFixed(2)}, ${v.g.toFixed(2)}, ${v.b.toFixed(2)})`;
-    return String(v);
-  };
   const onPointerDown = (e) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) { onToggle?.(); return; } // additive toggle, no drag
+    if ((e.ctrlKey || e.metaKey) && onToggle) { onToggle(); return; } // additive toggle, no drag
     onDragBegin?.();
     dragRef.current = { startClientX: e.clientX, moved: false, pointerId: e.pointerId };
     try { ref.current?.setPointerCapture(e.pointerId); } catch { /* ignore */ }
@@ -1841,16 +2011,17 @@ function KeyframeDot({ dot, pxPerSec, selected, onToggle, onDragBegin, onDragMov
     onDragEnd?.();
     dragRef.current = null;
   };
-  const label = dot.comp ? `${dot.channel}.${dot.comp}` : dot.channel;
   return (
     <span
       ref={ref}
       className={
-        `scene-clip-keyframe scene-clip-keyframe--${dot.channel}`
+        'scene-clip-keyframe'
+        + (summary ? ' scene-clip-keyframe--summary' : ` scene-clip-keyframe--${channel}`)
+        + (big ? ' scene-clip-keyframe--big' : '')
         + (selected ? ' is-selected' : '')
       }
-      style={{ left: `${dot.t * pxPerSec}px`, bottom: `${1 + (dot.stack || 0) * KF_SLOT_H}px` }}
-      title={`${label} = ${fmtVal(dot.v)} @ ${dot.t.toFixed(2)}s — drag to move · ctrl-click to multi-select · marquee to box-select`}
+      style={{ left: `${left}px`, bottom: `${bottom}px` }}
+      title={title}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -1938,17 +2109,53 @@ function evalPresetCurve(curve, p) {
   return x;
 }
 
-function buildTicks(duration) {
+// ── Zoom-aware ruler ticks + gridlines ────────────────────────────────
+const TICK_TARGET_PX = 76;   // desired spacing between labelled ticks
+const FRAME_GRID_MIN_PX = 7; // only draw per-frame gridlines once frames are this wide
+
+/** Smallest "nice" time step ≥ the target spacing at the current zoom. */
+function niceTimeStep(pxPerSec, fps) {
+  const raw = TICK_TARGET_PX / Math.max(1, pxPerSec);
+  const frame = 1 / Math.max(1, fps);
+  const candidates = [frame, 2 * frame, 5 * frame, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300];
+  for (const c of candidates) if (c >= raw - 1e-9) return c;
+  return candidates[candidates.length - 1];
+}
+
+function fmtTickLabel(value) {
+  const n = Number(value.toFixed(3));
+  return Number.isInteger(n) ? `${n}s` : `${n}s`;
+}
+
+/**
+ * Build the timeline gridlines for the current zoom / fps. Returns
+ * `[{ value, level }]` where level is:
+ *   - 'second' : a whole-second line (strong, labelled in the ruler)
+ *   - 'sub'    : a sub-second line at the chosen nice step (.25/.5/.75…)
+ *   - 'frame'  : a per-frame line (faint), only emitted once frames are wide
+ *               enough to read (FRAME_GRID_MIN_PX).
+ * Deduped so a frame line never doubles a second/sub line.
+ */
+function buildGridlines(duration, pxPerSec, fps) {
   const out = [];
-  const step = duration > 120 ? 10 : duration > 30 ? 5 : 1;
-  const maxTicks = 800;
-  for (let t = 0, i = 0; t <= duration + 0.0001 && i < maxTicks; t += step, i++) {
-    out.push({ value: t, label: `${Math.round(t)}s` });
+  const seen = new Set();
+  const push = (value, level) => {
+    const k = value.toFixed(4);
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push({ value, level });
+  };
+  const step = niceTimeStep(pxPerSec, fps);
+  for (let i = 0; i * step <= duration + 1e-6 && i < 1500; i++) {
+    const v = i * step;
+    push(v, Math.abs(v - Math.round(v)) < 1e-6 ? 'second' : 'sub');
   }
-  if (!out.length || out[out.length - 1].value < duration) {
-    out.push({ value: duration, label: `${Math.round(duration)}s` });
+  if (!seen.has(duration.toFixed(4))) push(duration, 'sub');
+  const frame = 1 / Math.max(1, fps);
+  if (frame * pxPerSec >= FRAME_GRID_MIN_PX) {
+    for (let i = 0; i * frame <= duration + 1e-6 && i < 4000; i++) push(i * frame, 'frame');
   }
-  return out;
+  return out.sort((a, b) => a.value - b.value);
 }
 
 function clamp(v, min, max) {

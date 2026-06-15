@@ -104,6 +104,54 @@ function findFreeSlotIn(clips, prefStart, slotDuration, duration) {
   return { start, duration: dur };
 }
 
+/** Locate a clip (and its track) by id across the scene's flow tracks. */
+function findClipById(scene, clipId) {
+  for (const tr of scene?.flow?.tracks || []) {
+    const c = tr.clips?.find((cl) => cl.id === clipId);
+    if (c) return { track: tr, clip: c };
+  }
+  return { track: null, clip: null };
+}
+
+/**
+ * Resolve a keyframe-selection entry to its live array index by stable `kid`
+ * (falling back to its cached `idx` for legacy entries). Returns -1 if the key
+ * no longer exists. The timeline selection identifies keys by kid so it survives
+ * the re-sorts that move / delete / paste trigger; consumers that need an index
+ * (graph editor, move-by-frame) resolve it here against the live scene.
+ */
+function resolveSelIdx(clip, sel) {
+  const keys = channelKeyList(clip?.channels, sel.name, sel.comp);
+  if (!keys) return -1;
+  if (sel.kid != null) {
+    const i = keys.findIndex((k) => k.kid === sel.kid);
+    if (i >= 0) return i;
+  }
+  return (typeof sel.idx === 'number' && sel.idx >= 0 && sel.idx < keys.length) ? sel.idx : -1;
+}
+
+/** Stamp a selection entry with its key's `kid` when the caller passed idx only. */
+function selKeyWithKid(clip, sel) {
+  if (!sel || sel.kid != null) return sel;
+  const keys = channelKeyList(clip?.channels, sel.name, sel.comp);
+  const k = keys?.[sel.idx];
+  return k?.kid != null ? { ...sel, kid: k.kid } : sel;
+}
+
+// ── Resizable-panel sizing (persisted to localStorage) ────────────────
+const PANEL_SIZES = {
+  left:     { key: 'ss.leftW',     def: 260, min: 260, max: 560 },  // hierarchy/workspace — grow rightward
+  right:    { key: 'ss.rightW',    def: 300, min: 300, max: 640 },  // inspector — grow leftward
+  timeline: { key: 'ss.timelineH', def: 220, min: 120, max: 600 }
+};
+function readStoredSize(spec) {
+  try {
+    const v = Number(localStorage.getItem(spec.key));
+    if (Number.isFinite(v) && v > 0) return Math.max(spec.min, Math.min(spec.max, v));
+  } catch { /* ignore */ }
+  return spec.def;
+}
+
 /** Total layer count across all scenes in a session-draft project. */
 function sessionLayerCount(project) {
   if (!project?.scenes) return 0;
@@ -242,6 +290,40 @@ export default function SceneStudioInner() {
   const [studioMode, setStudioMode] = useState('setup');
   const studioModeRef = useRef(studioMode);
   studioModeRef.current = studioMode;
+
+  // ── Resizable panels (drag-to-resize, persisted) ──────────────────────
+  const [leftW, setLeftW] = useState(() => readStoredSize(PANEL_SIZES.left));
+  const [rightW, setRightW] = useState(() => readStoredSize(PANEL_SIZES.right));
+  const [timelineH, setTimelineH] = useState(() => readStoredSize(PANEL_SIZES.timeline));
+  const centerStackRef = useRef(null);
+  useEffect(() => { try { localStorage.setItem(PANEL_SIZES.left.key, String(Math.round(leftW))); } catch { /* ignore */ } }, [leftW]);
+  useEffect(() => { try { localStorage.setItem(PANEL_SIZES.right.key, String(Math.round(rightW))); } catch { /* ignore */ } }, [rightW]);
+  useEffect(() => { try { localStorage.setItem(PANEL_SIZES.timeline.key, String(Math.round(timelineH))); } catch { /* ignore */ } }, [timelineH]);
+
+  /**
+   * Start a panel-resize drag. Uses window listeners (not pointer capture) so
+   * the drag survives the cursor leaving the thin handle. `sign` is +1 when
+   * dragging toward larger values grows the panel, -1 otherwise.
+   */
+  const beginPanelResize = useCallback((e, { axis, base, min, max, sign, set }) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    const startPos = axis === 'x' ? e.clientX : e.clientY;
+    const onMove = (ev) => {
+      const pos = axis === 'x' ? ev.clientX : ev.clientY;
+      set(Math.max(min, Math.min(max, base + sign * (pos - startPos))));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
 
   /**
    * Switch studio mode. Entering setup mode pins the playhead to 0, stops
@@ -558,8 +640,14 @@ export default function SceneStudioInner() {
       if (action === 'setDuration') {
         const n = Number(payload);
         const d = Number.isFinite(n) ? Math.max(0.5, Math.min(300, n)) : (curScene?.stage?.duration || 5);
-        setScene((s) => ({ ...s, stage: { ...s.stage, duration: d } }));
+        // Typing a length flips the timeline to MANUAL — auto fit stops winning.
+        setScene((s) => ({ ...s, stage: { ...s.stage, duration: d, manualDuration: true } }));
         return flowSeek(curScene, prev, Math.min(prev.time, d));
+      }
+      if (action === 'setDurationAuto') {
+        // Hand the length back to auto-fit (the effect resizes to the content).
+        setScene((s) => ({ ...s, stage: { ...s.stage, manualDuration: false } }));
+        return prev;
       }
       return prev;
     });
@@ -584,6 +672,28 @@ export default function SceneStudioInner() {
       setFlowState((prev) => flowResolveSignal(prev, signal));
     }
   }, [flowState.emitted]);
+
+  // ── Dynamic timeline length ──────────────────────────────────────────
+  // Unless the user pinned the length manually (stage.manualDuration), the
+  // timeline auto-fits to the content: it grows when a clip is dragged/extended
+  // past the end and shrinks back to the last clip when one is removed. Clips
+  // can be dragged up to the absolute cap (see dragMax in TimelinePanel), so a
+  // drag pushes the content end out and this effect follows it.
+  useEffect(() => {
+    if (scene.stage?.manualDuration) return;
+    let contentEnd = 0;
+    for (const tr of scene.flow?.tracks || []) {
+      for (const c of tr.clips || []) {
+        const end = (Number(c.start) || 0) + (Number(c.duration) || 0);
+        if (end > contentEnd) contentEnd = end;
+      }
+    }
+    const target = contentEnd > 0 ? Math.max(1, Math.min(300, contentEnd)) : 5;
+    const cur = Number(scene.stage?.duration);
+    if (!Number.isFinite(cur) || Math.abs(cur - target) > 1e-3) {
+      setScene((s) => (s.stage?.manualDuration ? s : { ...s, stage: { ...s.stage, duration: target } }));
+    }
+  }, [scene, setScene]);
 
   // ── Session restore: on mount, check IDB for a saved scene ────────────
   useEffect(() => {
@@ -1600,19 +1710,28 @@ export default function SceneStudioInner() {
   // ── Timeline keyframe selection + clipboard ─────────────────────────
 
   const handleSelectKey = useCallback((ref) => {
-    setSelectedKey(ref);
-    setSelectedKeys(ref ? [ref] : []);
+    if (!ref) { setSelectedKey(null); setSelectedKeys([]); return; }
+    const { clip } = findClipById(sceneRef.current, ref.clipId);
+    const stamped = clip ? selKeyWithKid(clip, ref) : ref;
+    setSelectedKey(stamped);
+    setSelectedKeys([stamped]);
   }, []);
 
   /**
    * Multi-select keyframes within a single clip (marquee + ctrl/shift-click).
-   * `list` is the full set of { clipId, name, comp, idx }; `primary` drives the
-   * inspector / move-by-frame. All entries must share one clipId.
+   * `list` is the full set of { clipId, name, comp, kid, idx }; `primary` drives
+   * the inspector / move-by-frame. All entries must share one clipId. Entries
+   * arriving from the graph editor may carry idx only — stamp the kid here so
+   * every selection is identified by its stable key id from then on.
    */
   const handleSelectKeys = useCallback((list, primary) => {
     const arr = Array.isArray(list) ? list : [];
-    setSelectedKeys(arr);
-    setSelectedKey(primary ?? (arr.length ? arr[arr.length - 1] : null));
+    const clipId = arr[0]?.clipId ?? primary?.clipId ?? null;
+    const { clip } = clipId ? findClipById(sceneRef.current, clipId) : { clip: null };
+    const stamp = (s) => (clip && s ? selKeyWithKid(clip, s) : s);
+    const stamped = arr.map(stamp);
+    setSelectedKeys(stamped);
+    setSelectedKey(primary ? stamp(primary) : (stamped.length ? stamped[stamped.length - 1] : null));
   }, []);
 
   // Keep the multi-selection cleared whenever the primary key clears (covers
@@ -1811,37 +1930,32 @@ export default function SceneStudioInner() {
     if (!sel) return;
     const fps = sceneRef.current.stage?.fps || 60;
     const dt = dir / fps;
-    const tracks = sceneRef.current.flow?.tracks || [];
-    for (const tr of tracks) {
-      const clip = tr.clips?.find((c) => c.id === sel.clipId);
-      if (!clip) continue;
-      const ch = clip.channels?.[sel.name];
-      let keyT;
-      if (sel.comp && ch?.split) {
-        keyT = ch.perComp?.[sel.comp]?.keys?.[sel.idx]?.t;
-      } else {
-        keyT = ch?.keys?.[sel.idx]?.t;
-      }
-      if (typeof keyT !== 'number') return;
-      const newT = Math.max(0, Math.min(clip.duration, keyT + dt));
-      handleMoveKey(sel.clipId, sel.name, sel.idx, sel.comp, newT);
-      return;
-    }
+    const { clip } = findClipById(sceneRef.current, sel.clipId);
+    if (!clip) return;
+    const idx = resolveSelIdx(clip, sel);
+    if (idx < 0) return;
+    const keys = channelKeyList(clip.channels, sel.name, sel.comp);
+    const keyT = keys?.[idx]?.t;
+    if (typeof keyT !== 'number') return;
+    const newT = Math.max(0, Math.min(clip.duration, keyT + dt));
+    handleMoveKey(sel.clipId, sel.name, idx, sel.comp, newT);
   }, [handleMoveKey]);
 
   /** Delete every selected keyframe (whole marquee selection). */
   const handleDeleteSelectedKeys = useCallback(() => {
     const sel = selectedKeysRef.current;
     if (!sel?.length) return false;
-    // clipId → ('name|comp' → idx[])
+    // clipId → ('name|comp' → Set(kid)) — delete by stable kid, not index.
     const byClip = new Map();
     for (const s of sel) {
+      if (s.kid == null) continue;
       if (!byClip.has(s.clipId)) byClip.set(s.clipId, new Map());
       const byList = byClip.get(s.clipId);
       const lk = `${s.name}|${s.comp || ''}`;
-      if (!byList.has(lk)) byList.set(lk, []);
-      byList.get(lk).push(s.idx);
+      if (!byList.has(lk)) byList.set(lk, new Set());
+      byList.get(lk).add(s.kid);
     }
+    if (!byClip.size) return false;
     setScene((prev) => {
       const tracks = (prev.flow?.tracks || []).map((tr) => ({
         ...tr,
@@ -1849,24 +1963,22 @@ export default function SceneStudioInner() {
           const byList = byClip.get(c.id);
           if (!byList) return c;
           const channels = { ...(c.channels || {}) };
-          for (const [lk, idxs] of byList) {
+          for (const [lk, kidSet] of byList) {
+            if (!kidSet.size) continue;
             const [name, comp] = lk.split('|');
             const ch = channels[name];
             if (!ch) continue;
-            const desc = [...new Set(idxs)].sort((a, b) => b - a);
             if (comp && ch.split) {
               const sub = ch.perComp?.[comp];
               if (!sub?.keys) continue;
-              const keys = sub.keys.slice();
-              for (const i of desc) if (i >= 0 && i < keys.length) keys.splice(i, 1);
+              const keys = sub.keys.filter((k) => !kidSet.has(k.kid));
               const perComp = { ...ch.perComp };
               if (keys.length) perComp[comp] = { ...sub, keys };
               else delete perComp[comp];
               if (Object.keys(perComp).length) channels[name] = { ...ch, perComp };
               else delete channels[name];
             } else if (Array.isArray(ch.keys)) {
-              const keys = ch.keys.slice();
-              for (const i of desc) if (i >= 0 && i < keys.length) keys.splice(i, 1);
+              const keys = ch.keys.filter((k) => !kidSet.has(k.kid));
               if (keys.length) channels[name] = { ...ch, keys };
               else delete channels[name];
             }
@@ -1895,7 +2007,9 @@ export default function SceneStudioInner() {
     const items = [];
     for (const s of sel) {
       const keys = channelKeyList(clip.channels, s.name, s.comp);
-      const k = keys?.[s.idx];
+      let k = null;
+      if (s.kid != null) k = keys?.find((kk) => kk.kid === s.kid);
+      if (!k) k = keys?.[s.idx];
       if (!k) continue;
       items.push({ name: s.name, comp: s.comp ?? null, t: k.t,
         key: { v: k.v, out: k.out, tm: k.tm, ti: k.ti, to: k.to } });
@@ -2024,44 +2138,33 @@ export default function SceneStudioInner() {
     return handlePasteSelection();
   }, [handleCopySelection, handlePasteSelection]);
 
-  // Drop stale selectedKey if its clip / channel / idx no longer exist.
-  // Handles both linked (ch.keys) and split (ch.perComp[comp].keys) channels.
+  // Keep selectedKey's cached idx in sync with its stable kid (keys re-sort on
+  // move / paste), and drop it if its clip / channel / key no longer exist.
   useEffect(() => {
     if (!selectedKey) return;
-    const tracks = scene.flow?.tracks || [];
-    for (const tr of tracks) {
-      const c = tr.clips?.find((cl) => cl.id === selectedKey.clipId);
-      if (!c) continue;
-      const ch = c.channels?.[selectedKey.name];
-      let len;
-      if (selectedKey.comp && ch?.split) {
-        len = ch.perComp?.[selectedKey.comp]?.keys?.length || 0;
-      } else {
-        len = ch?.keys?.length || 0;
-      }
-      if (selectedKey.idx >= len) setSelectedKey(null);
-      return;
-    }
-    setSelectedKey(null);
+    const { clip } = findClipById(scene, selectedKey.clipId);
+    if (!clip) { setSelectedKey(null); return; }
+    const idx = resolveSelIdx(clip, selectedKey);
+    if (idx < 0) { setSelectedKey(null); return; }
+    if (idx !== selectedKey.idx) setSelectedKey((p) => (p ? { ...p, idx } : p));
   }, [scene, selectedKey]);
 
-  // Prune any selected keyframes that no longer exist (e.g. after delete/undo).
+  // Re-derive every selected keyframe's idx from its kid after any scene change
+  // (the post-sort re-derivation that keeps the live selection pointing at the
+  // right keys), and prune any whose key no longer exists (delete / undo).
   useEffect(() => {
     if (!selectedKeys.length) return;
-    const channelsFor = (clipId) => {
-      for (const tr of scene.flow?.tracks || []) {
-        const c = tr.clips?.find((cl) => cl.id === clipId);
-        if (c) return c.channels || {};
-      }
-      return null;
-    };
-    const valid = selectedKeys.filter((s) => {
-      const channels = channelsFor(s.clipId);
-      if (!channels) return false;
-      const keys = channelKeyList(channels, s.name, s.comp);
-      return !!keys && s.idx >= 0 && s.idx < keys.length;
-    });
-    if (valid.length !== selectedKeys.length) setSelectedKeys(valid);
+    let changed = false;
+    const next = [];
+    for (const s of selectedKeys) {
+      const { clip } = findClipById(scene, s.clipId);
+      if (!clip) { changed = true; continue; }
+      const idx = resolveSelIdx(clip, s);
+      if (idx < 0) { changed = true; continue; }
+      if (idx !== s.idx) { changed = true; next.push({ ...s, idx }); }
+      else next.push(s);
+    }
+    if (changed) setSelectedKeys(next);
   }, [scene, selectedKeys]);
 
   // Global keyboard shortcuts: Delete, Ctrl+D, Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z.
@@ -2417,7 +2520,28 @@ export default function SceneStudioInner() {
         />
       )}
 
-      <div className="scene-studio-body">
+      <div
+        className="scene-studio-body"
+        style={{ gridTemplateColumns: `${leftW}px 1fr ${rightW}px` }}
+      >
+        {/* Drag handle: widen the hierarchy/workspace column (grow rightward). */}
+        <div
+          className="scene-resize-handle scene-resize-handle--col"
+          style={{ left: leftW, marginLeft: -4 }}
+          title="Drag to resize the hierarchy / workspace panel"
+          onPointerDown={(e) => beginPanelResize(e, {
+            axis: 'x', base: leftW, min: PANEL_SIZES.left.min, max: PANEL_SIZES.left.max, sign: 1, set: setLeftW
+          })}
+        />
+        {/* Drag handle: widen the inspector (grow leftward). */}
+        <div
+          className="scene-resize-handle scene-resize-handle--col"
+          style={{ right: rightW, marginRight: -4 }}
+          title="Drag to resize the inspector panel"
+          onPointerDown={(e) => beginPanelResize(e, {
+            axis: 'x', base: rightW, min: PANEL_SIZES.right.min, max: PANEL_SIZES.right.max, sign: -1, set: setRightW
+          })}
+        />
         <div className="scene-left-stack">
           <HierarchyPanel
             scene={scene}
@@ -2445,7 +2569,26 @@ export default function SceneStudioInner() {
           />
         </div>
 
-        <div className={'scene-center-stack' + (studioMode === 'animate' ? '' : ' scene-center-stack--no-timeline')}>
+        <div
+          ref={centerStackRef}
+          className={'scene-center-stack' + (studioMode === 'animate' ? '' : ' scene-center-stack--no-timeline')}
+          style={studioMode === 'animate' ? { gridTemplateRows: `1fr ${timelineH}px` } : undefined}
+        >
+          {studioMode === 'animate' && (
+            <div
+              className="scene-resize-handle scene-resize-handle--row"
+              style={{ bottom: timelineH, marginBottom: -4 }}
+              title="Drag to resize the timeline height"
+              onPointerDown={(e) => beginPanelResize(e, {
+                axis: 'y',
+                base: timelineH,
+                min: PANEL_SIZES.timeline.min,
+                max: Math.max(PANEL_SIZES.timeline.min, Math.min(PANEL_SIZES.timeline.max, (centerStackRef.current?.clientHeight || 600) - 160)),
+                sign: -1,
+                set: setTimelineH
+              })}
+            />
+          )}
           <div ref={dropRef} className="scene-viewport-wrap">
             <PixiErrorBoundary>
               <PixiViewport

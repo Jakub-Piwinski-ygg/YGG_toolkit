@@ -75,7 +75,34 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   background: var(--bg-1, #13151a);
   border: 1px solid var(--border, #2e3340);
 }
-.scene-mode-btn { min-width: 64px; }
+/* Spine-style mode toggle: bigger buttons with a stick-figure icon + label. */
+.scene-mode-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 58px;
+  height: 46px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-1, #a8afc0);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.scene-mode-btn:hover { background: var(--bg-2, #1a1d24); color: var(--text-0, #e8eaf0); }
+.scene-mode-btn.is-active {
+  background: linear-gradient(rgba(79, 158, 255, 0.16), rgba(79, 158, 255, 0.16)), var(--bg-2, #1a1d24);
+  border-color: var(--accent, #4f9eff);
+  color: var(--accent, #4f9eff);
+}
+.scene-mode-icon { display: block; }
 .scene-timeline-tl-picker {
   display: inline-flex;
   align-items: center;
@@ -186,7 +213,20 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   grid-template-columns: 260px 1fr 300px;
   min-height: 0;
   overflow: hidden;
+  position: relative; /* positioning context for the column resize handles */
 }
+
+/* Drag-to-resize handles — thin strips straddling a panel boundary. */
+.scene-resize-handle {
+  position: absolute;
+  z-index: 30;
+  background: transparent;
+  transition: background 0.12s;
+}
+.scene-resize-handle:hover,
+.scene-resize-handle:active { background: rgba(79, 158, 255, 0.4); }
+.scene-resize-handle--col { top: 0; bottom: 0; width: 8px; cursor: col-resize; }
+.scene-resize-handle--row { left: 0; right: 0; height: 8px; cursor: row-resize; }
 
 .scene-left-stack {
   display: grid;
@@ -206,6 +246,7 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   grid-template-rows: 1fr 220px;
   min-height: 0;
   min-width: 0;
+  position: relative; /* positioning context for the timeline-height handle */
 }
 /* Setup mode hides the timeline — let the viewport fill the whole column. */
 .scene-center-stack--no-timeline {
@@ -1074,6 +1115,14 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   font-size: 9px;
   color: var(--text-2, #6a7288);
 }
+/* Sub-second ruler ticks — shorter + fainter than whole-second ticks. */
+.scene-tick--sub {
+  height: 55%;
+  top: 45%;
+  border-left-color: rgba(106, 114, 136, 0.18);
+}
+.scene-tick--sub > span { font-size: 8px; opacity: 0.6; }
+
 .scene-playhead {
   position: absolute;
   top: 0;
@@ -1082,6 +1131,26 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   pointer-events: none;
   z-index: 3;
 }
+
+/* Lane gridlines overlay — faint vertical lines over the lanes, beneath the
+   playhead (z 3) and the sticky labels (z 5). Offset past the label column. */
+.scene-timeline-gridlines {
+  position: absolute;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.scene-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+.scene-gridline--second { background: rgba(106, 114, 136, 0.30); }
+.scene-gridline--sub    { background: rgba(106, 114, 136, 0.15); }
+.scene-gridline--frame  { background: rgba(106, 114, 136, 0.07); }
+
+.scene-length-auto { margin-left: 4px; }
 
 .scene-timeline-lane {
   position: relative;
@@ -1651,6 +1720,37 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 .scene-clip-keyframe--rotation { background: #ffd166; }
 .scene-clip-keyframe--alpha    { background: #a8afc0; }
 .scene-clip-keyframe--tint     { background: #ff6b6b; }
+.scene-clip-keyframe--summary  { background: #e8eaf0; }
+
+/* Bigger diamonds + hit area for the expanded (selected) clip's rows. */
+.scene-clip-keyframe--big {
+  width: 15px;
+  height: 15px;
+  margin-left: -7.5px;
+  border-radius: 3px;
+}
+
+/* FLAT clip (unselected): one decorative summary diamond per time, on a single
+   vertically-centred row. Non-interactive — selecting the clip starts editing. */
+.scene-clip-keyframes--flat { top: 0; bottom: 0; }
+.scene-clip-keyframes--flat .scene-clip-keyframe {
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%) rotate(45deg);
+  pointer-events: none;
+  width: 9px;
+  height: 9px;
+  margin-left: -4.5px;
+  opacity: 0.85;
+}
+
+/* Summary row (top of the expanded band) — slightly brighter than the channel
+   stripes so the "all keys" row reads as the master row. */
+.scene-clip-row-stripe--summary {
+  background: rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+.scene-clip-ch-label--summary { color: #e8eaf0; }
 
 /* Marquee select over a selected clip's keyframe band. The capture layer sits
    BELOW the dots (earlier in DOM, same stacking) so dots keep click priority;

@@ -1009,8 +1009,92 @@ export function tracksForLayer(scene, layerId) {
 }
 
 /** Keep flow.nodes/edges in sync with timeline-style tracks+markers. */
+// ── Stable keyframe ids (kid) ─────────────────────────────────────────
+//
+// Every keyframe carries a `kid` so the timeline selection can identify a key
+// independently of its array index. Without this, sorting keys after a move /
+// delete / paste shifts indices and the live selection points at the wrong
+// key (the "re-click to unstick" glitch) and forced index-stability prevents a
+// selected set being dragged past a neighbour. Stamping happens here in
+// `deriveFlowGraph` (the choke point every flow mutation + load passes through)
+// so it is idempotent and we never persist a key without one. New keys created
+// through `insertOrUpdateKey` get a `kf…`-prefixed id; this pass only fills the
+// gaps (loaded projects, legacy scenes) with `k…`-prefixed ids — distinct
+// prefixes guarantee the two sources never collide inside one key list.
+let _kidSeq = 0;
+function nextKid() { return `k${(_kidSeq++).toString(36)}`; }
+
+function stampKeyList(keys) {
+  if (!Array.isArray(keys) || !keys.length) return keys;
+  let changed = false;
+  const out = keys.map((k) => {
+    if (k && k.kid) return k;
+    changed = true;
+    return { ...k, kid: nextKid() };
+  });
+  return changed ? out : keys;
+}
+
+function stampChannelKids(ch) {
+  if (!ch) return ch;
+  if (ch.mode === 'path' && ch.path) {
+    const prog = ch.path.progress;
+    if (prog?.keys) {
+      const nk = stampKeyList(prog.keys);
+      if (nk !== prog.keys) return { ...ch, path: { ...ch.path, progress: { ...prog, keys: nk } } };
+    }
+    return ch;
+  }
+  if (ch.split && ch.perComp) {
+    let changed = false;
+    const perComp = {};
+    for (const c of Object.keys(ch.perComp)) {
+      const sub = ch.perComp[c];
+      const nk = stampKeyList(sub?.keys);
+      if (sub?.keys && nk !== sub.keys) { changed = true; perComp[c] = { ...sub, keys: nk }; }
+      else perComp[c] = sub;
+    }
+    return changed ? { ...ch, perComp } : ch;
+  }
+  if (Array.isArray(ch.keys)) {
+    const nk = stampKeyList(ch.keys);
+    return nk !== ch.keys ? { ...ch, keys: nk } : ch;
+  }
+  return ch;
+}
+
+function stampClipKids(clip) {
+  if (!clip?.channels) return clip;
+  let changed = false;
+  const channels = {};
+  for (const name of Object.keys(clip.channels)) {
+    const ch = clip.channels[name];
+    const nc = stampChannelKids(ch);
+    if (nc !== ch) changed = true;
+    channels[name] = nc;
+  }
+  return changed ? { ...clip, channels } : clip;
+}
+
+/** Idempotently stamp a `kid` onto every keyframe across a track list. */
+function stampTrackKids(tracks) {
+  let changed = false;
+  const out = tracks.map((t) => {
+    if (!t.clips?.length) return t;
+    let tChanged = false;
+    const clips = t.clips.map((c) => {
+      const nc = stampClipKids(c);
+      if (nc !== c) tChanged = true;
+      return nc;
+    });
+    if (tChanged) { changed = true; return { ...t, clips }; }
+    return t;
+  });
+  return changed ? out : tracks;
+}
+
 export function deriveFlowGraph(flow) {
-  const tracks = Array.isArray(flow?.tracks) ? flow.tracks : [];
+  const tracks = stampTrackKids(Array.isArray(flow?.tracks) ? flow.tracks : []);
   const markers = Array.isArray(flow?.markers) ? flow.markers : [];
   const nodes = [];
   const edges = [];

@@ -1,5 +1,43 @@
 # Scene Studio — status po sesji (2026-06-02, sesja 2)
 
+## Redesign ścieżki keyframe + głęboki zoom + skalowalne panele (2026-06-15) ✅
+
+Trzy bramkowane fazy z `SCENE_STUDIO_KICKOFF.md`, każda zweryfikowana na żywo przez
+użytkownika przed kolejną (build zielony). Working tree, niezacommitowane.
+
+- **Faza 1 — redesign ścieżki keyframe + stabilne id kluczy (`kid`).** Każdy keyframe
+  ma teraz stabilne `kid` (stempel idempotentny w `deriveFlowGraph`, nowe klucze w
+  `insertOrUpdateKey`; prefiksy `k…`/`kf…` bez kolizji, przeżywa save/load). `kid` jest
+  kanoniczną tożsamością zaznaczenia; cache `idx` jest **re-derywowany z kid** po każdej
+  zmianie sceny (koniec glitcha "trzeba kliknąć ponownie"). `transformClipKeys` mapuje
+  czasy i **sortuje swobodnie** (bez clampu) → zaznaczony zestaw przechodzi przez
+  sąsiadów. Zaznaczony klip **rozwija się** (duże wiersze per-kanał + górny wiersz "all"
+  w stylu Unity, który przeciąga wszystkie klucze danego czasu); niezaznaczone klipy
+  **spłaszczają się** do jednego diamentu na czas. Drag-stabilny pointer-capture
+  (stały porządek DOM po kid + summary kluczowany po zbiorze kid).
+- **Faza 2 — zoom + dynamiczna długość.** Max zoom 360 → **1440 px/s** (~4× głębiej),
+  kółko multiplikatywne. `niceTimeStep` dobiera krok linijki wg zoomu/fps (etykiety
+  gęstnieją `1s → 0.5s → 0.25s`); `buildGridlines` rysuje trzy poziomy — sekundy,
+  pod-sekundy (.25/.5/.75) i **per-frame** (gdy klatka ≥7px). **Dynamiczna długość
+  timeline**: flaga `stage.manualDuration` — wpisanie długości = ręczne; inaczej efekt
+  auto-dopasowuje długość do treści (rośnie przy wyciąganiu klipu, kurczy się do
+  ostatniego klipu), przycisk „auto" wraca do auto-fit. Klipy do capu 300s (`dragMax`).
+  ⚠️ Istniejące sceny ładują się w trybie auto (długość skacze do treści do czasu
+  ręcznego przypięcia).
+- **Faza 3 — panele + przyciski trybu + auto-load.** **Skalowalne panele** (drag,
+  zapis w localStorage): wysokość timeline (cap by viewport ≥160px), szerokość
+  inspektora (rośnie w lewo, min = 300), szerokość hierarchii/workspace (rośnie w prawo,
+  min = 260) — `beginPanelResize` na listenerach window, paski `.scene-resize-handle`.
+  **Przyciski Setup/Animate** w stylu Spine: większe, z ikonami patyczaka (T-poza /
+  bieg) + etykieta. **Auto-load** poszerzony o `<name>.project.json` (kanoniczny
+  `project.json` nadal preferowany).
+- **ODŁOŻONE — overlay device-view (C).** Pominięte na życzenie użytkownika; kod Pixi
+  (`loadDeviceGuideTexture`, sprite `deviceGuide`) nietknięty; mapowanie guide→stage
+  (cover vs biały safe-rect) do potwierdzenia.
+
+Notatka sesji (EN): `brain/50-Sessions/Session 2026-06-15 Scene Studio Keyframe Track
+Redesign Zoom and Panels.md`.
+
 ## Phase 4 — eksport WebM (2026-06-14) ✅
 
 Pierwszy eksporter web-media (poza Unity): aktywny timeline 0→duration renderowany

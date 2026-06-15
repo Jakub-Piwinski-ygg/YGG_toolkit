@@ -72,18 +72,20 @@ export function StudioToolbar({
       </select>
       <div className="scene-toolbar-mode" role="group" aria-label="Studio mode">
         <button
-          className={'scene-btn scene-mode-btn' + (studioMode === 'setup' ? ' scene-btn--primary' : '')}
+          className={'scene-mode-btn' + (studioMode === 'setup' ? ' is-active' : '')}
           onClick={() => onSetStudioMode?.('setup')}
           title="Setup mode — position each object's default pose per orientation. No timeline."
         >
-          ⚙ setup
+          <SetupPoseIcon />
+          <span>setup</span>
         </button>
         <button
-          className={'scene-btn scene-mode-btn' + (studioMode === 'animate' ? ' scene-btn--primary' : '')}
+          className={'scene-mode-btn' + (studioMode === 'animate' ? ' is-active' : '')}
           onClick={() => onSetStudioMode?.('animate')}
           title="Animate mode — create timelines and keyframe objects over time."
         >
-          ▶ animate
+          <RunPoseIcon />
+          <span>animate</span>
         </button>
       </div>
 
@@ -220,5 +222,36 @@ export function StudioToolbar({
         title="Export the scene as a .unitypackage: assets + import settings, prefab per canvas, baked animation, Timeline builder"
       >⇪ unity</button>
     </div>
+  );
+}
+
+/** T-pose stick figure — Setup mode (Spine-style "rest pose"). */
+function SetupPoseIcon() {
+  return (
+    <svg className="scene-mode-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="4.5" r="2.1" />
+        <line x1="12" y1="6.6" x2="12" y2="15" />
+        <line x1="4.5" y1="9.2" x2="19.5" y2="9.2" />
+        <line x1="12" y1="15" x2="8" y2="21" />
+        <line x1="12" y1="15" x2="16" y2="21" />
+      </g>
+    </svg>
+  );
+}
+
+/** Running stick figure — Animate mode. */
+function RunPoseIcon() {
+  return (
+    <svg className="scene-mode-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="14" cy="4.6" r="2.1" />
+        <line x1="13.4" y1="6.6" x2="10.5" y2="13.5" />
+        <line x1="12.4" y1="9" x2="18" y2="7.4" />
+        <line x1="12.4" y1="9" x2="7.5" y2="11.5" />
+        <line x1="10.5" y1="13.5" x2="15.5" y2="18.5" />
+        <line x1="10.5" y1="13.5" x2="5.5" y2="17.5" />
+      </g>
+    </svg>
   );
 }

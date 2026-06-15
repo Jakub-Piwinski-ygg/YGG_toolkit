@@ -3,7 +3,7 @@ type: session
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-06-14
+updated: 2026-06-15
 lang: en
 source: react-app/SCENE_STUDIO_PHASE_STATUS.md
 tags: [session, scene-studio, changelog, spinner, unity]
@@ -14,6 +14,37 @@ tags: [session, scene-studio, changelog, spinner, unity]
 > [!info] Translated from Polish
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
+
+## Keyframe track redesign + deep zoom + resizable panels (2026-06-15) ✅
+
+Three gated phases from `SCENE_STUDIO_KICKOFF.md`, each user-verified live before the
+next (build green). Working tree, uncommitted. Full write-up:
+[[Session 2026-06-15 Scene Studio Keyframe Track Redesign Zoom and Panels]].
+
+- **Phase 1 — keyframe track redesign + stable key ids (`kid`).** Keys carry a stable
+  `kid` (idempotent stamp in `deriveFlowGraph`, new keys in `insertOrUpdateKey`; `k…`/`kf…`
+  prefixes never collide, survives save/load). `kid` is the canonical selection identity;
+  the cached `idx` is **re-derived from kid** after every scene change (kills the
+  "re-click to unstick" glitch). `transformClipKeys` maps times then **sorts freely** (no
+  clamp) → a selected set passes through neighbours. Selected clip **expands** (big
+  per-channel rows + Unity "all" summary row that drags every key at a time); unselected
+  clips **flatten** to one diamond per time. Drag-stable pointer capture (stable kid DOM
+  order + summary keyed by member-kid set).
+- **Phase 2 — zoom + dynamic length.** Max zoom 360 → **1440 px/s** (~4× deeper),
+  multiplicative wheel. `niceTimeStep` picks a zoom/fps-aware ruler step (labels densify
+  `1s → 0.5s → 0.25s`); `buildGridlines` draws seconds / sub-second (.25/.5/.75) /
+  **per-frame** lines (once frames ≥7px). **Dynamic timeline length**: `stage.manualDuration`
+  — typing a length pins it, else an effect auto-fits to content (grow on drag-out, shrink
+  to last clip); an "auto" toggle returns to auto-fit. Clips drag up to the 300s cap
+  (`dragMax`). ⚠️ Existing scenes load in auto mode (length snaps to content until pinned).
+- **Phase 3 — panels + mode buttons + auto-load.** **Resizable panels** (drag, persisted):
+  timeline height (capped so viewport ≥160px), inspector width (grow leftward, min 300),
+  hierarchy/workspace width (grow rightward, min 260) via `beginPanelResize` + thin
+  `.scene-resize-handle` strips. **Setup/Animate buttons** Spine-style: bigger, stick-figure
+  art (T-pose / running) + label. **Auto-load** broadened to `<name>.project.json`
+  (canonical `project.json` still preferred).
+- **DEFERRED — device-view overlay (C).** Skipped at user request; Pixi code untouched;
+  guide→stage mapping (cover vs white safe-rect) still to confirm.
 
 ## Phase 4 — WebM export (2026-06-14) ✅
 

@@ -222,6 +222,11 @@ export const SPRITE_PROP_TO_CHANNEL = {
 /** Sub-frame tolerance (~ 1/240s) for "two keys at the same time". */
 export const KEY_EPSILON = 1 / 240;
 
+// Stable id for keys created here. `kf`-prefixed so it never collides with the
+// `k`-prefixed ids `deriveFlowGraph` stamps onto legacy keys (see sceneModel).
+let _kfSeq = 0;
+function nextKeyId() { return `kf${(_kfSeq++).toString(36)}`; }
+
 // ── Channel value helpers ─────────────────────────────────────────────
 
 function isVec2(v) {
@@ -566,13 +571,13 @@ export function channelKeyDots(channel) {
     for (const comp of Object.keys(channel.perComp)) {
       const keys = channel.perComp[comp]?.keys || [];
       for (let i = 0; i < keys.length; i++) {
-        out.push({ comp, idx: i, t: keys[i].t, v: keys[i].v });
+        out.push({ comp, idx: i, t: keys[i].t, v: keys[i].v, kid: keys[i].kid });
       }
     }
     return out;
   }
   const keys = channel.keys || [];
-  return keys.map((k, i) => ({ comp: null, idx: i, t: k.t, v: k.v }));
+  return keys.map((k, i) => ({ comp: null, idx: i, t: k.t, v: k.v, kid: k.kid }));
 }
 
 /**
@@ -597,7 +602,7 @@ export function insertOrUpdateKey(channel, t, v, opts = {}) {
     }
   }
 
-  const k = { t, v: cloneValue(v), out: defaultOut };
+  const k = { t, v: cloneValue(v), out: defaultOut, kid: nextKeyId() };
   // Optional per-key tangent mode for new keys (P4 global default-ease).
   if (opts.tm && TANGENT_MODES.includes(opts.tm)) k.tm = opts.tm;
   let insertAt = keys.findIndex((kk) => kk.t > t);
@@ -648,9 +653,13 @@ export function moveKeyTime(channel, idx, newT) {
 
 // ── Multi-key transform (marquee move / scale) ────────────────────────
 //
-// A selection identity is `{ name, comp, idx }`:
-//   - comp null  → a linked channel's `keys[idx]`.
-//   - comp set   → a split channel's `perComp[comp].keys[idx]`.
+// A selection identity is `{ name, comp, kid }`:
+//   - comp null  → a linked channel's key with that `kid`.
+//   - comp set   → a split channel's `perComp[comp]` key with that `kid`.
+//
+// Identity is by stable `kid` (not array index) so a selected set can be
+// dragged freely past non-selected neighbours — the list is just re-sorted by
+// time and the selection follows its keys. See `deriveFlowGraph` for stamping.
 
 /** The key array a `{ name, comp }` identity points at, or null. */
 export function channelKeyList(channels, name, comp) {
@@ -665,15 +674,16 @@ export function channelKeyList(channels, name, comp) {
  * selection). `mapT(t)` is the per-key time transform — `t => t + delta` for a
  * move, `t => pivot + (t - pivot) * factor` for a scale.
  *
- * Selected keys are clamped so they never cross a neighbouring NON-selected key
- * on the same list, which keeps every key's index stable (so the live selection
- * survives the drag). When selected keys map past the clip's [0, duration]
- * range the clip itself grows — `start` moves earlier and/or `duration` extends
- * — but only within `bounds.leftRoom` / `bounds.rightRoom` seconds (free space
- * to the neighbouring clips / timeline edges); overflow beyond that clamps.
+ * Selected keys take their mapped time and the whole list is re-sorted by time;
+ * because keys are identified by stable `kid`, a selected key may pass right
+ * THROUGH a non-selected neighbour (no index clamp). When selected keys map
+ * past the clip's [0, duration] range the clip itself grows — `start` moves
+ * earlier and/or `duration` extends — but only within `bounds.leftRoom` /
+ * `bounds.rightRoom` seconds (free space to the neighbouring clips / timeline
+ * edges); overflow beyond that clamps.
  *
  * @param {object} clip            clip snapshot { start, duration, channels }
- * @param {Array}  selected        [{ name, comp, idx }]
+ * @param {Array}  selected        [{ name, comp, kid }]
  * @param {(t:number)=>number} mapT
  * @param {{leftRoom?:number,rightRoom?:number}} bounds
  * @returns {{ start, duration, channels } | null}  new clip fields, or null
@@ -687,23 +697,24 @@ export function transformClipKeys(clip, selected, mapT, bounds = {}) {
   const EPS = 1e-4;
 
   const listKeyOf = (name, comp) => `${name}|${comp || ''}`;
-  const selByList = new Map(); // listKey → Set(idx)
+  const selByList = new Map(); // listKey → Set(kid)
   for (const s of selected) {
+    if (s.kid == null) continue;
     const lk = listKeyOf(s.name, s.comp);
     if (!selByList.has(lk)) selByList.set(lk, new Set());
-    selByList.get(lk).add(s.idx);
+    selByList.get(lk).add(s.kid);
   }
+  if (!selByList.size) return null;
 
   // Raw mapped time of every selected key → overall overflow past [0, dur].
   let gMin = Infinity;
   let gMax = -Infinity;
-  for (const [lk, idxSet] of selByList) {
+  for (const [lk, kidSet] of selByList) {
     const [name, comp] = lk.split('|');
     const keys = channelKeyList(channels, name, comp || null);
     if (!keys) continue;
-    for (const idx of idxSet) {
-      const k = keys[idx];
-      if (!k) continue;
+    for (const k of keys) {
+      if (!kidSet.has(k.kid)) continue;
       const nt = mapT(k.t);
       if (nt < gMin) gMin = nt;
       if (nt > gMax) gMax = nt;
@@ -717,31 +728,23 @@ export function transformClipKeys(clip, selected, mapT, bounds = {}) {
   const newStart = Math.max(0, clip.start - leftShift);
 
   // Transform one key list: ALL keys shift by +leftShift (origin moved left);
-  // selected take mapped time, clamped between their non-selected neighbours so
-  // indices never reorder. Non-selected keep their (shifted) time.
+  // selected take their mapped time. Re-sort by time (kid keeps identity), then
+  // nudge any exactly-coincident keys apart so two never stack on one frame.
   const transformList = (keys, name, comp) => {
-    const idxSet = selByList.get(listKeyOf(name, comp));
-    const tmp = keys.map((k, i) => {
-      const sel = idxSet?.has(i);
+    const kidSet = selByList.get(listKeyOf(name, comp));
+    const mapped = keys.map((k) => {
+      const sel = kidSet?.has(k.kid);
       let nt = (sel ? mapT(k.t) : k.t) + leftShift;
       nt = Math.max(0, Math.min(newDuration, nt));
-      return { k, sel, nt };
+      return { ...k, t: nt };
     });
-    for (let i = 0; i < tmp.length; i++) {
-      if (!tmp[i].sel) continue;
-      let lo = 0;
-      for (let j = i - 1; j >= 0; j--) if (!tmp[j].sel) { lo = tmp[j].nt + EPS; break; }
-      let hi = newDuration;
-      for (let j = i + 1; j < tmp.length; j++) if (!tmp[j].sel) { hi = tmp[j].nt - EPS; break; }
-      tmp[i].nt = Math.max(lo, Math.min(Math.max(lo, hi), tmp[i].nt));
-    }
-    // Guard against scale compressing consecutive selected keys onto each other.
+    mapped.sort((a, b) => a.t - b.t);
     let prev = -Infinity;
-    for (let i = 0; i < tmp.length; i++) {
-      if (tmp[i].nt <= prev) tmp[i].nt = prev + EPS;
-      prev = tmp[i].nt;
+    for (let i = 0; i < mapped.length; i++) {
+      if (mapped[i].t <= prev) mapped[i] = { ...mapped[i], t: prev + EPS };
+      prev = mapped[i].t;
     }
-    return tmp.map(({ k, nt }) => ({ ...k, t: nt }));
+    return mapped;
   };
 
   const newChannels = {};
