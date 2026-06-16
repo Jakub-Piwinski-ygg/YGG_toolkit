@@ -365,6 +365,29 @@ export function isPathChannel(ch) {
 }
 
 /**
+ * Smallest clip-local key time of ONE channel (linked, split, or path-mode
+ * progress keys). Returns null when the channel has no keys. Lets the
+ * interpreter leave a property at its base / setup value until this channel's
+ * first keyframe is reached, instead of clamping to the first key's value from
+ * the clip's start (Unity-style "no key yet → setup pose").
+ */
+export function channelFirstKeyTime(ch) {
+  if (!ch) return null;
+  let m = Infinity;
+  if (ch.mode === 'path' && ch.path) {
+    for (const k of ch.path.progress?.keys || []) if (k.t < m) m = k.t;
+  } else if (Array.isArray(ch.keys)) {
+    for (const k of ch.keys) if (k.t < m) m = k.t;
+  }
+  if (ch.split && ch.perComp) {
+    for (const c of Object.values(ch.perComp)) {
+      for (const k of (c?.keys || [])) if (k.t < m) m = k.t;
+    }
+  }
+  return Number.isFinite(m) ? m : null;
+}
+
+/**
  * Largest clip-local key time across all of a clip's channels (linked,
  * split, and path-mode progress keys). Used to stop a clip being resized
  * shorter than its furthest keyframe, which would orphan keys outside it.
@@ -610,6 +633,52 @@ export function insertOrUpdateKey(channel, t, v, opts = {}) {
   keys.splice(insertAt, 0, k);
   keys.sort((a, b) => a.t - b.t);
   return { keys };
+}
+
+/**
+ * Base (setup) value for a logical channel, read from a transform pose. Used
+ * to seed a clip-start key so a mid-clip keyframe ramps FROM the setup value
+ * (where the clip begins) rather than snapping straight to the new key.
+ */
+export function baseChannelValue(channelName, baseT = {}) {
+  switch (channelName) {
+    case 'position': return { x: baseT.x ?? 0, y: baseT.y ?? 0 };
+    case 'scale':    return { x: baseT.scaleX ?? 1, y: baseT.scaleY ?? 1 };
+    case 'rotation': return baseT.rotation ?? 0;
+    case 'alpha':    return typeof baseT.alpha === 'number' ? baseT.alpha : 1;
+    case 'tint':     return baseT.tint ? { ...baseT.tint } : { r: 1, g: 1, b: 1 };
+    default:         return null;
+  }
+}
+
+/**
+ * Insert a key into a LINKED channel, auto-seeding a key at clip-local t=0 with
+ * `baseV` when this is the channel's first key and it lands mid-clip (localT >
+ * 0). The seed produces a ramp from the setup value at clip start to the new
+ * key, eased by `opts.tm` (the top-bar default ease). No seed once a key
+ * already exists, or when the new key sits at the clip start.
+ */
+export function insertKeyWithStartRamp(channel, localT, v, baseV, opts = {}) {
+  const eps = opts.eps ?? KEY_EPSILON;
+  let ch = channel || { keys: [] };
+  if (!ch.keys?.length && baseV != null && localT > eps) {
+    ch = insertOrUpdateKey(ch, 0, baseV, opts);
+  }
+  return insertOrUpdateKey(ch, localT, v, opts);
+}
+
+/**
+ * Split-component variant of {@link insertKeyWithStartRamp}: seeds the
+ * component's own clip-start key with `baseV` (a scalar) when it's the first
+ * key on that component and lands mid-clip.
+ */
+export function insertCompKeyWithStartRamp(sub, localT, v, baseV, opts = {}) {
+  const eps = opts.eps ?? KEY_EPSILON;
+  let s = sub || { keys: [] };
+  if (!s.keys?.length && Number.isFinite(Number(baseV)) && localT > eps) {
+    s = insertOrUpdateKey(s, 0, Number(baseV), opts);
+  }
+  return insertOrUpdateKey(s, localT, v, opts);
 }
 
 export function removeKey(channel, idx) {

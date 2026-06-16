@@ -225,6 +225,13 @@ export function TimelinePanel({
   const scrubbingRef = useRef(false);
   const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
   const [dragPreview, setDragPreview] = useState(null);
+  // Two independent "magnet" modes, both on by default:
+  //  - stickPlayheadToItems: while scrubbing, the playhead snaps to keyframes
+  //    and clip starts/ends.
+  //  - stickItemsToPlayhead: while dragging clips/keyframes, they snap to the
+  //    current playhead time.
+  const [stickPlayheadToItems, setStickPlayheadToItems] = useState(true);
+  const [stickItemsToPlayhead, setStickItemsToPlayhead] = useState(true);
   const totalW = Math.max(600, Math.min(36000, Math.round(duration * pxPerSec)));
   const setFlow = useCallback((nextFlow) => onPatchFlow?.(nextFlow), [onPatchFlow]);
 
@@ -271,14 +278,15 @@ export function TimelinePanel({
     const layer = scene.layers.find((l) => l.id === layerId);
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     const isSpinner = asset?.type === 'spinner';
-    const defaultLoop = !isSpinner && (layer?.spine?.loop !== false);
     const base = {
       id: uid('C'),
       name: null,
       start: slot.start,
       duration: slot.duration,
       anim: null,
-      loop: defaultLoop,
+      // New clips default to "hold last frame" (loop = false); the inspector's
+      // loop/hold toggle flips this per clip.
+      loop: false,
       curve: 'linear',
       speed: 1,
       mixDuration: null,
@@ -291,26 +299,47 @@ export function TimelinePanel({
     return base;
   }, [scene.layers, scene.assets]);
 
-  const ensureTrackForLayer = (layerId) => {
-    const existing = tracks.find((t) => t.layerId === layerId);
-    return existing || { id: uid('T'), layerId, name: null, clips: [] };
-  };
-
-  const addClipOnSelected = () => {
-    if (!selectedLayerId) return;
-    const track = ensureTrackForLayer(selectedLayerId);
-    const layer = scene.layers.find((l) => l.id === selectedLayerId);
+  /**
+   * Free slot at the playhead for the ghost "New Clip" preview on `track`.
+   * Unlike findFreeSlot, this does NOT push the slot past a clip the playhead
+   * is inside — when the playhead sits over an existing clip it returns null so
+   * the ghost simply isn't drawn. Only genuine free space (empty track or a gap
+   * between clips, with at least ADJACENT_ADD_MIN_GAP of room) yields a slot.
+   */
+  const ghostSlotForTrack = (track) => {
+    if (!track) return null;
+    const start = flowState.time;
+    for (const c of track.clips || []) {
+      if (start >= c.start && start < c.start + c.duration) return null; // inside a clip
+    }
+    const layer = scene.layers.find((l) => l.id === track.layerId);
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     const isSpinner = asset?.type === 'spinner';
     const spinnerAction = isSpinner ? nextActionForSpinnerTrack(track.clips) : null;
-    const start = clamp(flowState.time, 0, Math.max(0, duration - 0.25));
-    const wantedDuration = defaultClipDurationForLayer(selectedLayerId, 1, null, spinnerAction);
-    const slot = findFreeSlot(track, start, wantedDuration);
+    const wantedDuration = defaultClipDurationForLayer(track.layerId, 1, null, spinnerAction);
+    // Trim against the next clip on the track / end of timeline.
+    let maxEnd = duration;
+    for (const c of [...(track.clips || [])].sort((a, b) => a.start - b.start)) {
+      if (c.start >= start) { maxEnd = Math.min(maxEnd, c.start); break; }
+    }
+    const dur = Math.min(wantedDuration, maxEnd - start);
+    if (dur < ADJACENT_ADD_MIN_GAP) return null; // not enough room
+    return { start, duration: dur };
+  };
+
+  /**
+   * Drop a "New Clip" at the playhead on `track`, at exactly the ghost slot
+   * (so clicking the ghost matches what it previews). Spinner tracks get the
+   * contextually-next action.
+   */
+  const createNewClipOnTrack = (track) => {
+    const slot = ghostSlotForTrack(track);
     if (!slot) return;
-    const clip = defaultClipForLayer(selectedLayerId, slot, spinnerAction);
-    const nextTracks = tracks.filter((t) => t.id !== track.id);
-    nextTracks.push({ ...track, clips: [...track.clips, clip].sort((a, b) => a.start - b.start) });
-    setFlow({ ...(scene.flow || {}), tracks: nextTracks });
+    const layer = scene.layers.find((l) => l.id === track.layerId);
+    const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
+    const isSpinner = asset?.type === 'spinner';
+    const spinnerAction = isSpinner ? nextActionForSpinnerTrack(track.clips) : null;
+    addClipToTrack(track.id, slot, null, isSpinner ? { action: spinnerAction } : null);
   };
 
   /**
@@ -339,16 +368,20 @@ export function TimelinePanel({
    * slot of full length fits in the remaining timeline, shrink it.
    * Returns { start, duration } or null when the timeline is too full.
    */
-  const findFreeSlot = (track, prefStart, slotDuration = 1) => {
+  // `maxBound` caps where a slot may end. Defaults to the current timeline
+  // length, but callers adding after the last clip on an auto-length timeline
+  // pass `dragMax` so the new clip can extend past the end (the timeline then
+  // auto-grows to fit it — see SceneStudioInner).
+  const findFreeSlot = (track, prefStart, slotDuration = 1, maxBound = duration) => {
     const clips = [...(track?.clips || [])].sort((a, b) => a.start - b.start);
-    let start = clamp(prefStart, 0, Math.max(0, duration - 0.05));
+    let start = clamp(prefStart, 0, Math.max(0, maxBound - 0.05));
     // Push start past any clip that contains it
     for (const c of clips) {
       if (start >= c.start && start < c.start + c.duration) start = c.start + c.duration;
     }
-    if (start >= duration) return null;
-    // Trim against the next clip / end of scene
-    let maxEnd = duration;
+    if (start >= maxBound) return null;
+    // Trim against the next clip / end of bound
+    let maxEnd = maxBound;
     for (const c of clips) {
       if (c.start >= start) { maxEnd = Math.min(maxEnd, c.start); break; }
     }
@@ -482,12 +515,19 @@ export function TimelinePanel({
     onSelectLayer?.(layerId);
   };
 
-  const addClipToTrack = (trackId, slot, extraChannels = null, extraProps = null) => {
+  const addClipToTrack = (trackId, slot, extraChannels = null, extraProps = null, allowGrow = false) => {
     const track = tracks.find((t) => t.id === trackId);
     if (!track) return;
     const spinnerAction = extraProps?.action || null;
-    const wantedDuration = defaultClipDurationForLayer(track.layerId, 1, null, spinnerAction);
-    const resolved = findFreeSlot(track, slot.start, wantedDuration) || slot;
+    // Honour an inherited anim/speed (adjacent-add copies the source clip) so
+    // the new clip is sized to that animation's cycle, not the generic 1s.
+    const animOverride = extraProps?.anim ?? null;
+    const speedOverride = Number.isFinite(Number(extraProps?.speed)) && Number(extraProps?.speed) > 0 ? Number(extraProps.speed) : 1;
+    const wantedDuration = defaultClipDurationForLayer(track.layerId, speedOverride, animOverride, spinnerAction);
+    // When growing past the end of an auto-length timeline, let the slot reach
+    // up to dragMax instead of clamping to the current length.
+    const maxBound = (allowGrow && !manualDuration) ? dragMax : duration;
+    const resolved = findFreeSlot(track, slot.start, wantedDuration, maxBound) || slot;
     const clip = { ...defaultClipForLayer(track.layerId, resolved, spinnerAction) };
     if (extraChannels && Object.keys(extraChannels).length) clip.channels = extraChannels;
     if (extraProps) Object.assign(clip, extraProps);
@@ -593,7 +633,12 @@ export function TimelinePanel({
         if (!Number.isFinite(rawDur) || rawDur <= 0) return clip;
         const speedSafe = Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
         const nextStart = clip.start;
-        const rightBound = idx < ordered.length - 1 ? ordered[idx + 1].start : duration;
+        // The LAST clip on an auto-length timeline may fit to its full anim
+        // cycle and push the timeline out (auto-grow follows). Using the current
+        // `duration` here would clamp a freshly-added end clip to ~0s, since it
+        // starts exactly at the old timeline end.
+        const isLastClip = idx === ordered.length - 1;
+        const rightBound = !isLastClip ? ordered[idx + 1].start : (manualDuration ? duration : dragMax);
         const target = Math.max(0.05, Math.min(rawDur / speedSafe, Math.max(0.05, rightBound - nextStart)));
         trackChanged = true;
         changed = true;
@@ -614,23 +659,34 @@ export function TimelinePanel({
     const layer = scene.layers.find((l) => l.id === track.layerId);
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     const isSpinner = asset?.type === 'spinner';
+    const isSpine = asset?.type === 'spine';
     const spinnerAction = isSpinner ? nextSpinnerAction(clip.action || 'startSpin') : null;
-    const wantedDuration = defaultClipDurationForLayer(track.layerId, 1, null, spinnerAction);
+    // Spine: the new clip inherits the source clip's animation + speed, so it's
+    // a meaningful full-cycle clip the user can re-point — not a 1s stub.
+    const inheritSpeed = isSpine && Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
+    const extraProps = isSpinner ? { action: spinnerAction }
+      : isSpine ? { anim: clip.anim ?? null, speed: inheritSpeed }
+      : null;
+    const wantedDuration = defaultClipDurationForLayer(track.layerId, inheritSpeed, isSpine ? (clip.anim ?? null) : null, spinnerAction);
     const seeded = isSpinner ? null : seedChannelsFromClipEdge(clip, side);
     if (side === 'left') {
       const gap = clip.start - leftBound;
       if (gap < ADJACENT_ADD_MIN_GAP) return;
       const d = Math.min(wantedDuration, gap);
-      addClipToTrack(track.id, { start: clip.start - d, duration: d }, seeded,
-        isSpinner ? { action: spinnerAction } : null);
+      addClipToTrack(track.id, { start: clip.start - d, duration: d }, seeded, extraProps);
       return;
     }
     const clipEnd = clip.start + clip.duration;
-    const gap = rightBound - clipEnd;
+    // Adding after the LAST clip on an auto-length timeline extends the
+    // timeline by the new clip's duration (auto-grow follows it). Otherwise the
+    // new clip is bounded by the next clip / the manual timeline length.
+    const isLast = idx === siblings.length - 1;
+    const allowGrow = isLast && !manualDuration;
+    const rightCap = allowGrow ? dragMax : rightBound;
+    const gap = rightCap - clipEnd;
     if (gap < ADJACENT_ADD_MIN_GAP) return;
     const d = Math.min(wantedDuration, gap);
-    addClipToTrack(track.id, { start: clipEnd, duration: d }, seeded,
-      isSpinner ? { action: spinnerAction } : null);
+    addClipToTrack(track.id, { start: clipEnd, duration: d }, seeded, extraProps, allowGrow);
   };
 
   /**
@@ -650,7 +706,9 @@ export function TimelinePanel({
     const targets = [];
     targets.push(0);
     targets.push(duration);
-    targets.push(flowState.time);
+    // Snap clip edges to the playhead only when the "stick items → playhead"
+    // magnet is on (Alt still disables all snapping via `disable`).
+    if (stickItemsToPlayhead) targets.push(flowState.time);
     const ownTrack = tracks.find((t) => t.id === ownTrackId);
     for (const c of ownTrack?.clips || []) {
       if (c.id === ownClipId) continue;
@@ -727,19 +785,43 @@ export function TimelinePanel({
     return clamp(xInScroll / pxPerSec, 0, duration);
   }, [duration, pxPerSec]);
 
+  // Mode A — the playhead snaps to every keyframe time and clip start/end.
+  const playheadSnapTargets = useMemo(() => {
+    const out = [];
+    for (const track of tracks) {
+      for (const c of track.clips || []) {
+        out.push(c.start, c.start + c.duration);
+        for (const d of buildClipDots(c).dots) out.push(c.start + d.t);
+      }
+    }
+    return out;
+  }, [tracks]);
+
+  const snapPlayhead = useCallback((t) => {
+    if (!stickPlayheadToItems || !playheadSnapTargets.length) return t;
+    const threshold = 8 / pxPerSec;
+    let best = t;
+    let bestDiff = threshold;
+    for (const target of playheadSnapTargets) {
+      const d = Math.abs(target - t);
+      if (d <= bestDiff) { best = target; bestDiff = d; }
+    }
+    return best;
+  }, [stickPlayheadToItems, playheadSnapTargets, pxPerSec]);
+
   const onScrubPointerDown = useCallback((e) => {
     if (e.button !== 0) return;
     // Skip drags that originated on a clip — clips own their own pointers.
     if (e.target.closest('.scene-clip')) return;
     scrubbingRef.current = true;
-    onFlowAction?.('seek', timeFromClientX(e.clientX));
+    onFlowAction?.('seek', snapPlayhead(timeFromClientX(e.clientX)));
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-  }, [onFlowAction, timeFromClientX]);
+  }, [onFlowAction, timeFromClientX, snapPlayhead]);
 
   const onScrubPointerMove = useCallback((e) => {
     if (!scrubbingRef.current) return;
-    onFlowAction?.('seek', timeFromClientX(e.clientX));
-  }, [onFlowAction, timeFromClientX]);
+    onFlowAction?.('seek', snapPlayhead(timeFromClientX(e.clientX)));
+  }, [onFlowAction, timeFromClientX, snapPlayhead]);
 
   const onScrubPointerUp = useCallback((e) => {
     if (!scrubbingRef.current) return;
@@ -1013,6 +1095,18 @@ export function TimelinePanel({
     ? scene.layers.find((l) => l.id === selectedLayerId)
     : null;
 
+  // Which existing track shows the in-lane "New Clip" ghost — the one holding
+  // the selected clip, else the first track of the selected object.
+  const ghostTargetTrackId = useMemo(() => {
+    if (!selectedLayerId) return null;
+    if (selectedClipId) {
+      const t = tracks.find((tk) => (tk.clips || []).some((c) => c.id === selectedClipId));
+      if (t) return t.id;
+    }
+    const t = tracks.find((tk) => tk.layerId === selectedLayerId);
+    return t ? t.id : null;
+  }, [tracks, selectedLayerId, selectedClipId]);
+
   return (
     <div className="scene-timeline">
       <div className="scene-timeline-head">
@@ -1071,6 +1165,24 @@ export function TimelinePanel({
         {/* Right: keyframe tools, then timeline length + fps at the far right. */}
         <div className="scene-timeline-right">
           <button
+            className={'scene-btn' + (stickPlayheadToItems ? ' scene-btn--primary' : '')}
+            onClick={() => setStickPlayheadToItems((v) => !v)}
+            title={stickPlayheadToItems
+              ? 'Snap playhead ON — scrubbing snaps the playhead to keyframes and clip starts/ends. Click to turn off.'
+              : 'Snap playhead OFF — the playhead scrubs freely. Click to snap it to keyframes & clip edges.'}
+          >
+            {stickPlayheadToItems ? '🧲 play' : '○ play'}
+          </button>
+          <button
+            className={'scene-btn' + (stickItemsToPlayhead ? ' scene-btn--primary' : '')}
+            onClick={() => setStickItemsToPlayhead((v) => !v)}
+            title={stickItemsToPlayhead
+              ? 'Snap to playhead ON — dragging clips/keyframes snaps them to the playhead. Click to turn off.'
+              : 'Snap to playhead OFF — clips/keyframes drag freely past the playhead. Click to snap them to it.'}
+          >
+            {stickItemsToPlayhead ? '🧲 keys' : '○ keys'}
+          </button>
+          <button
             className={'scene-btn' + (autoKey ? ' scene-btn--primary' : '')}
             onClick={onToggleAutoKey}
             title={autoKey
@@ -1100,33 +1212,9 @@ export function TimelinePanel({
             <option value="alpha">alpha</option>
             <option value="tint">tint</option>
           </select>
-          <button
-            className="scene-btn"
-            disabled={!selectedKey}
-            onClick={() => onMoveKeyByFrame?.(-1)}
-            title={selectedKey ? `Move selected key 1 frame left (1/${fps} s)` : 'No key selected'}
-          >
-            ← frame
-          </button>
-          <button
-            className="scene-btn"
-            disabled={!selectedKey}
-            onClick={() => onMoveKeyByFrame?.(1)}
-            title={selectedKey ? `Move selected key 1 frame right (1/${fps} s)` : 'No key selected'}
-          >
-            frame →
-          </button>
-          <button
-            className="scene-btn"
-            disabled={!selectedKey}
-            onClick={() => { if (selectedKey) onDeleteKey?.(); }}
-            title={selectedKey ? 'Delete selected keyframe (Del)' : 'No key selected'}
-          >
-            del key
-          </button>
-          {selectedLayerId && (
-            <button className="scene-btn" onClick={addClipOnSelected}>+ clip on selected</button>
-          )}
+          {/* Frame-nav (← / →) and del-key buttons removed — arrow keys step the
+              playhead and Delete removes the selected key(s). "New Clip" is now
+              the in-lane ghost on the selected track, not a toolbar button. */}
           <label
             className="scene-timeline-length"
             title={manualDuration
@@ -1141,6 +1229,7 @@ export function TimelinePanel({
               min={0.5}
               max={300}
               value={Number(duration.toFixed(2))}
+              disabled={!manualDuration}
               onChange={(e) => onFlowAction?.('setDuration', Number(e.target.value))}
             />
             <button
@@ -1268,6 +1357,24 @@ export function TimelinePanel({
                     style={{ left: dragPreview.slot.start * pxPerSec, width: Math.max(8, dragPreview.slot.duration * pxPerSec) }}
                   />
                 )}
+                {/* "New Clip" ghost — at the playhead on the selected track, only
+                    when there's a free slot. Click it (or the toolbar button) to
+                    drop the clip. */}
+                {track.id === ghostTargetTrackId && !dragPreview && (() => {
+                  const slot = ghostSlotForTrack(track);
+                  if (!slot) return null;
+                  return (
+                    <button
+                      className="scene-clip-ghost"
+                      style={{ left: slot.start * pxPerSec, width: Math.max(8, slot.duration * pxPerSec) }}
+                      title={`New Clip · ${fmtSec(slot.start)}–${fmtSec(slot.start + slot.duration)} — click to add`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); createNewClipOnTrack(track); }}
+                    >
+                      ＋ New Clip
+                    </button>
+                  );
+                })()}
                 {track.clips.map((c) => {
                   const trackLayer = scene.layers.find((l) => l.id === track.layerId);
                   const trackAsset = trackLayer ? scene.assets.find((a) => a.id === trackLayer.assetId) : null;
@@ -1289,6 +1396,8 @@ export function TimelinePanel({
                       inMultiSelection={selectedSet.has(c.id) && selectedSet.size > 1}
                       duration={dragMax}
                       pxPerSec={pxPerSec}
+                      flowTime={flowState.time}
+                      stickToPlayhead={stickItemsToPlayhead}
                       siblings={track.clips.filter((other) => other.id !== c.id)}
                       onSelect={(e) => handleClipClick(track, c, e)}
                       onPatch={(patch) => patchClip(track.id, c.id, patch)}
@@ -1437,7 +1546,7 @@ const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', t
 
 const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', presentWin: '#c5a', holdResult: '#88a' };
 
-function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys, onSeekClipLocal }) {
+function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, flowTime = 0, stickToPlayhead = false, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys, onSeekClipLocal }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -1626,6 +1735,8 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
         clip={clip}
         expanded={primary}
         pxPerSec={pxPerSec}
+        flowTime={flowTime}
+        stickToPlayhead={stickToPlayhead}
         selectedKeys={selectedKeys}
         onSelectKey={onSelectKey}
         onSelectKeys={onSelectKeys}
@@ -1682,7 +1793,7 @@ function fmtKeyVal(v) {
  *     a selected set drags freely past non-selected neighbours.
  */
 function ClipKeyframeDots({
-  clip, expanded, pxPerSec, selectedKeys = [], onSelectKey, onSelectKeys, onTransformKeys, onSeekClipLocal
+  clip, expanded, pxPerSec, flowTime = 0, stickToPlayhead = false, selectedKeys = [], onSelectKey, onSelectKeys, onTransformKeys, onSeekClipLocal
 }) {
   const bandRef = useRef(null);
   const dotDragRef = useRef(null);     // group move via dragging a selected dot / summary col
@@ -1728,17 +1839,28 @@ function ClipKeyframeDots({
   const maxSelT = hasSel ? Math.max(...selDots.map((d) => d.t)) : 0;
   const canScale = selDots.length >= 2 && (maxSelT - minSelT) > 1e-3;
 
+  // Snap the drag so the anchor key lands on the playhead when "stick items →
+  // playhead" is on and the anchor is within a few px of it. `anchorT` is the
+  // dragged key's clip-local time; returns the (possibly adjusted) delta.
+  const snapDeltaToPlayhead = (anchorT, deltaT) => {
+    if (!stickToPlayhead || anchorT == null) return deltaT;
+    const threshold = 8 / pxPerSec;
+    const anchorAbs = clip.start + anchorT + deltaT;
+    if (Math.abs(anchorAbs - flowTime) <= threshold) return flowTime - clip.start - anchorT;
+    return deltaT;
+  };
+
   // ── Dragging a dot → move the whole selection (or just that dot) ──
   const dotDragBegin = (d) => {
     const inSel = isSel(d.kid);
     const list = inSel ? selListBare() : [idOf(d)];
     if (!inSel) onSelectKeys?.(clip.id, list, idOf(d)); // single-select for highlight
-    dotDragRef.current = { snapshot: clip, list };
+    dotDragRef.current = { snapshot: clip, list, anchorT: d.t };
   };
   const dotDragMove = (deltaT) => {
     const st = dotDragRef.current;
     if (!st) return;
-    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: deltaT });
+    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: snapDeltaToPlayhead(st.anchorT, deltaT) });
   };
   const dotDragEnd = () => { dotDragRef.current = null; };
 
@@ -1755,7 +1877,7 @@ function ClipKeyframeDots({
   const summaryDragBegin = (col) => {
     const list = summaryColList(col);
     onSelectKeys?.(clip.id, list, list[list.length - 1] || null);
-    dotDragRef.current = { snapshot: clip, list };
+    dotDragRef.current = { snapshot: clip, list, anchorT: col.t };
   };
   const summaryClick = (col) => {
     const list = summaryColList(col);
@@ -1796,14 +1918,15 @@ function ClipKeyframeDots({
     if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
-    dotDragRef.current = { snapshot: clip, list: selListBare() };
+    // Anchor on the selection's left edge so it can snap to the playhead.
+    dotDragRef.current = { snapshot: clip, list: selListBare(), anchorT: minSelT };
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     dotDragRef.current.startX = e.clientX;
   };
   const boxMoveMove = (e) => {
     const st = dotDragRef.current;
     if (!st || st.startX == null) return;
-    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: (e.clientX - st.startX) / pxPerSec });
+    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: snapDeltaToPlayhead(st.anchorT, (e.clientX - st.startX) / pxPerSec) });
   };
   const boxMoveUp = (e) => {
     if (!dotDragRef.current) return;

@@ -29,6 +29,42 @@ import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 const BLEND_OPTIONS = ['normal', 'additive', 'screen', 'multiply'];
 const CURVES = CURVE_PRESETS;
 
+/**
+ * Single segmented toggle that replaces the old separate "loop" checkbox and
+ * "hold last frame after end" checkbox. A clip is either:
+ *   - Loop  → animation repeats for the clip's duration (clip.loop = true)
+ *   - Hold  → animation plays once and freezes on its last frame
+ *             (clip.loop = false)
+ * In both modes the post-clip pose is held (clearAfterEnd = false) — the old
+ * "snap back to setup pose" behaviour is dropped in favour of this one switch.
+ * Loop is the default for new clips (seeded from the layer's "loop animation").
+ */
+function LoopHoldToggle({ clip, patchClip }) {
+  const isLoop = clip.loop !== false;
+  return (
+    <div
+      className="scene-loophold"
+      role="group"
+      title="Loop: the animation repeats for the clip's duration. Hold last frame: it plays once and freezes on its final frame until the next clip."
+    >
+      <button
+        type="button"
+        className={`scene-loophold-btn${isLoop ? ' on' : ''}`}
+        onClick={() => patchClip({ loop: true, clearAfterEnd: false })}
+      >
+        ↻ loop
+      </button>
+      <button
+        type="button"
+        className={`scene-loophold-btn${!isLoop ? ' on' : ''}`}
+        onClick={() => patchClip({ loop: false, clearAfterEnd: false })}
+      >
+        ⏸ hold last frame
+      </button>
+    </div>
+  );
+}
+
 const PROP_META = {
   x:        { label: 'x',        step: 1,    unit: 'px',  toDisplay: (v) => v,           fromDisplay: (v) => v },
   y:        { label: 'y',        step: 1,    unit: 'px',  toDisplay: (v) => v,           fromDisplay: (v) => v },
@@ -294,7 +330,7 @@ export function InspectorPanel({
         )}
       </div>
 
-      {asset?.type === 'spine' && (
+      {asset?.type === 'spine' && !selectedClip && (
         <SpineSection
           layer={layer}
           descriptor={assetDescriptors[asset.id]}
@@ -413,6 +449,15 @@ function SpineSection({ layer, descriptor, onPatchLayer }) {
         />
         <span>loop animation</span>
       </label>
+      <label className="scene-field">
+        <span>default mix (s)</span>
+        <input
+          type="number" step={0.05} min={0}
+          value={Number((spine.defaultMix || 0).toFixed(3))}
+          title="Skeleton-wide mix (crossfade) duration, mirroring Unity's SkeletonDataAsset 'Default Mix'. Used wherever a clip doesn't set its own mix. 0 = hard cuts."
+          onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) setSpine({ defaultMix: n }); }}
+        />
+      </label>
       {skins.length > 1 && (
         <label className="scene-field">
           <span>skin</span>
@@ -528,7 +573,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
   const durationAction = isSpinner
     ? spinnerClipDurationAction(spinnerConfig, clip)
     : (isSpine && hasAnimDuration)
-      ? { duration: cycleDuration, label: 'set duration = 1 cycle',
+      ? { duration: cycleDuration, label: 'Match anim time',
           title: 'Set clip duration to one animation cycle at current speed' }
       : null;
 
@@ -539,14 +584,45 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
         <span className="scene-pill scene-pill--clip">on {track.layerId === layer.id ? layer.name : '(other layer)'}</span>
       </div>
 
+      {/* Spine: the per-clip animation picker sits at the very top — it's the
+          first thing you set on a new clip. The cycle-match button + loop/hold
+          toggle follow it so the most-used controls are grouped together. */}
+      {isSpine && (
+        <label className="scene-field">
+          <span>animation</span>
+          <select value={clip.anim ?? ''} onChange={(e) => setClipAnimation(e.target.value)}>
+            <option value="">— layer default —</option>
+            {animations.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
+      )}
+
       {durationAction && (
         <button
-          className="scene-btn scene-btn--ghost scene-clip-duration-action"
+          className="scene-btn scene-clip-duration-action"
           title={durationAction.title}
           onClick={() => patchClip({ duration: Math.max(0.05, durationAction.duration), autoFitDuration: false })}
         >
           {durationAction.label}
         </button>
+      )}
+
+      {isSpine && (
+        hasAnimDuration ? (
+          <div className="scene-clip-anim-meta">
+            <span className="scene-clip-anim-meta-text">
+              anim: {Number(rawAnimDuration.toFixed(3))}s · cycle @ speed: {Number(cycleDuration.toFixed(3))}s
+            </span>
+          </div>
+        ) : (
+          <div className="scene-empty" style={{ padding: '6px 12px', fontSize: 10 }}>
+            animation duration unavailable — run the scene once so Spine metadata can load
+          </div>
+        )
+      )}
+
+      {isSpine && (
+        <LoopHoldToggle clip={clip} patchClip={patchClip} />
       )}
 
       <label className="scene-field">
@@ -588,14 +664,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
       )}
 
       {!isSpinner && !isSpine && (
-        <label className="scene-field scene-field--check">
-          <input
-            type="checkbox"
-            checked={clip.loop !== false}
-            onChange={(e) => patchClip({ loop: e.target.checked })}
-          />
-          <span>loop</span>
-        </label>
+        <LoopHoldToggle clip={clip} patchClip={patchClip} />
       )}
 
       {/* Spine clip — grouped to mirror the Unity "Spine Animation State Clip"
@@ -642,33 +711,10 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           </label>
 
           <div className="scene-field-group-sub">Spine Animation State Clip</div>
-          <label className="scene-field">
-            <span>animation</span>
-            <select value={clip.anim ?? ''} onChange={(e) => setClipAnimation(e.target.value)}>
-              <option value="">— layer default —</option>
-              {animations.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </label>
-          {hasAnimDuration ? (
-            <div className="scene-clip-anim-meta">
-              <span className="scene-clip-anim-meta-text">
-                anim: {Number(rawAnimDuration.toFixed(3))}s · cycle @ speed: {Number(cycleDuration.toFixed(3))}s
-              </span>
-            </div>
-          ) : (
-            <div className="scene-empty" style={{ padding: '6px 12px', fontSize: 10 }}>
-              animation duration unavailable — run the scene once so Spine metadata can load
-            </div>
-          )}
-          <label className="scene-field scene-field--check">
-            <input type="checkbox" checked={clip.loop !== false}
-              onChange={(e) => patchClip({ loop: e.target.checked })} />
-            <span>loop</span>
-          </label>
           <label className="scene-field scene-field--check">
             <input type="checkbox" checked={clip.dontPause === true}
               onChange={(e) => patchClip({ dontPause: e.target.checked })} />
-            <span title="Keep playing when the PlayableDirector pauses">don't pause with director</span>
+            <span title="Keep playing when the PlayableDirector pauses. Exported to Unity; the scrub-based web preview has no separate director clock, so this has no live effect.">don't pause with director <em className="scene-export-only">(export only)</em></span>
           </label>
           <label className="scene-field scene-field--check">
             <input type="checkbox" checked={clip.dontEnd === true}

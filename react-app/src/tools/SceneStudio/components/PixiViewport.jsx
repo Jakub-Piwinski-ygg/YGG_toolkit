@@ -10,6 +10,7 @@ import {
   drawStageFrame,
   loadDeviceGuideTexture,
   rebuildScene,
+  resetAnimationState,
   resizeRenderer,
   sceneStructuralHash,
   setStageFrameZOrder,
@@ -132,6 +133,12 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         const stage = sceneRef.current.stage.orientations[sceneRef.current.stage.activeOrientation];
         fitViewportToStage(built.viewport, initialSize.w, initialSize.h, stage.w, stage.h);
         drawStageFrame(built.stageFrame, stage.w, stage.h, built.viewport.scale.x, overlayModeRef.current);
+        // Apply the initial overlay z-order NOW. The overlayMode effect runs
+        // before this async mount resolves (refs still null → it no-ops), so
+        // without this the stageFrame stays below content and the blue border +
+        // centre cross sit hidden behind the artwork in 'frame in front' mode
+        // until the user toggles the overlay select.
+        setStageFrameZOrder(built.viewport, built.stageFrame, built.content, overlayModeRef.current);
         fittedOnceRef.current = true;
         // Draw the dim overlay (and any device guide) for the initial mode now
         // that the Pixi refs are assigned — the effects ran before this resolved.
@@ -255,7 +262,11 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       const r = hostRef.current.getBoundingClientRect();
       fitViewportToStage(viewport, r.width, r.height, stage.w, stage.h);
     }
-    drawStageFrame(frame, stage.w, stage.h, viewport?.scale?.x ?? 1);
+    // Pass the active overlay mode (was previously omitted, which forced the
+    // 'behind' dark-fill look on every orientation/size change and pushed the
+    // blue border + centre cross behind the content). Keeping the mode here
+    // means the frame renders identically in setup AND animate.
+    drawStageFrame(frame, stage.w, stage.h, viewport?.scale?.x ?? 1, overlayModeRef.current);
     if (app) app.render();
   }, [
     scene.stage.activeOrientation,
@@ -360,6 +371,17 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   }, [overlayMode, scene.stage.activeOrientation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useImperativeHandle(ref, () => ({
+    /**
+     * Reset every animated object to its clean setup state (clear Spine tracks
+     * + setup pose, idle the spinner board, rewind videos) and redraw the base
+     * pose. Called when the editor enters setup mode.
+     */
+    resetToSetup() {
+      resetAnimationState(handlesRef.current, sceneRef.current);
+      syncTransforms(appRef.current, handlesRef.current, sceneRef.current);
+      requestRender();
+    },
+
     screenToWorld(clientX, clientY) {
       const vp = viewportRef.current;
       const canvas = appRef.current?.canvas;

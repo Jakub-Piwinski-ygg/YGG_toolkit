@@ -17,7 +17,7 @@ import { resolveTransform } from './orientationManager.js';
 import { resolveAssetUrl } from './persist.js';
 import { buildLayerTree, tracksForLayer } from './sceneModel.js';
 import { clipAt, lastClipAt, remapClipTime } from './flowInterpreter.js';
-import { CHANNEL_DEFS, CHANNEL_NAMES, clipLocalSeconds, evalChannel, isPathChannel } from './animation/keyframes.js';
+import { CHANNEL_DEFS, CHANNEL_NAMES, channelFirstKeyTime, clipLocalSeconds, evalChannel, isPathChannel } from './animation/keyframes.js';
 import { resolvePointHandles } from './animation/pathSpline.js';
 import { Spine } from '@esotericsoftware/spine-pixi-v8';
 import { buildSpineFromUrls, loadSkeletonData, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
@@ -866,16 +866,53 @@ function autoMixDurationForTransition(obj, layer, track, clip) {
   return prevInterrupted ? 0.12 : 0;
 }
 
+function skeletonDefaultMix(obj) {
+  const dm = Number(obj?.state?.data?.defaultMix);
+  return Number.isFinite(dm) && dm >= 0 ? dm : 0;
+}
+
+function clamp01(v, fallback = 0) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(1, n));
+}
+
+/**
+ * Clip weight [0,1] from the Timeline clip blend — `easeIn` ramps the weight up
+ * at the clip's start, `easeOut` (and the Spine `clipEndMixOut`) ramps it down
+ * at the end. This is the web analogue of a Unity Timeline clip's ease in/out:
+ * it fades the Spine track-entry alpha so the clip blends with whatever sits
+ * underneath (lower tracks / held pose) at its edges. Returns 1 in the middle.
+ */
+function clipWeightEnvelope(clip, t) {
+  const start = Number(clip.start) || 0;
+  const end = start + (Number(clip.duration) || 0);
+  const easeIn = Number(clip.easeIn) > 0 ? Number(clip.easeIn) : 0;
+  const easeOut = Math.max(
+    Number(clip.easeOut) > 0 ? Number(clip.easeOut) : 0,
+    Number(clip.clipEndMixOut) > 0 ? Number(clip.clipEndMixOut) : 0
+  );
+  let w = 1;
+  if (easeIn > 0 && t < start + easeIn) w = Math.min(w, (t - start) / easeIn);
+  if (easeOut > 0 && t > end - easeOut) w = Math.min(w, (end - t) / easeOut);
+  return Math.max(0, Math.min(1, w));
+}
+
 function resolveMixDuration(obj, layer, track, clip) {
-  // "use blend duration" defers the mix to the transition heuristic (the web
-  // analogue of the Spine Timeline clip blend) instead of the explicit value.
+  // "default mix duration" → use the skeleton's AnimationStateData.defaultMix,
+  // mirroring Unity's Timeline clip "Use Default" mix mode.
+  if (clip?.defaultMixDuration === true) return skeletonDefaultMix(obj);
+  // "use blend duration" → defer to the Timeline clip-blend heuristic (the web
+  // analogue of Spine Timeline's "Use Blend Duration").
   if (clip?.useBlendDuration === true) return autoMixDurationForTransition(obj, layer, track, clip);
   const explicit = Number(clip?.mixDuration);
   if (clip?.mixDuration != null) {
     if (!Number.isFinite(explicit) || explicit < 0) return 0;
-    return explicit;
+    return explicit; // explicit 0 means a hard cut — no residual blend
   }
-  return autoMixDurationForTransition(obj, layer, track, clip);
+  // No explicit value → fall back to the skeleton's default mix (Unity-like).
+  // This is 0 by default, so an untouched clip does NOT silently blend.
+  return skeletonDefaultMix(obj);
 }
 
 /**
@@ -915,28 +952,62 @@ export function applyFlowAtTime(handles, scene, t) {
 
     if (asset.type === 'spine' && obj.state && obj.skeleton) {
       applySpineMultiTrack(obj, layer, tracks, t);
-      // Alpha + tint channels also apply on Spine layers so the user
-      // can fade / colourise the whole skeleton from the timeline.
-      applyPngChannels(obj, layer, tracks, t, orientation, { alphaAndTintOnly: true });
+      // Transform channels (position/scale/rotation/alpha/tint) apply to the
+      // Spine container too — same hold / setup-until-first-key behaviour as a
+      // PNG, on top of the skeletal animation. Parity across object types.
+      applyPngChannels(obj, layer, tracks, t, orientation);
       continue;
     }
 
     if (asset.type === 'spinner' && obj.__spinner) {
       applySpinnerAtTime(obj, layer, tracks, t);
-      // Alpha/tint channels still apply so the whole machine can be faded
-      // or colourised from a second (transform) track.
-      applyPngChannels(obj, layer, tracks, t, orientation, { alphaAndTintOnly: true });
+      applyPngChannels(obj, layer, tracks, t, orientation);
       continue;
     }
 
     if (asset.type === 'video' && obj.texture?.source?.resource?.source) {
       applyVideoClip(obj, tracks[0], t, runtimePlaying, runtimeHeld);
-      applyPngChannels(obj, layer, tracks, t, orientation, { alphaAndTintOnly: true });
+      applyPngChannels(obj, layer, tracks, t, orientation);
       continue;
     }
 
     if (asset.type === 'png' || asset.type === 'pngSequence') {
       applyPngChannels(obj, layer, tracks, t, orientation);
+    }
+  }
+}
+
+/**
+ * Reset every animated object back to its clean setup state. Used when the
+ * user switches into setup mode so nothing bleeds the last animated pose:
+ *   - Spine: clear all AnimationState tracks, snap the skeleton to its setup
+ *     pose, and wipe the per-track flow cache so animate mode re-arms cleanly.
+ *   - Spinner: re-show the idle board (empty tracks at t=0).
+ *   - Video: pause and rewind to frame 0.
+ * The container transforms (x/y/scale/rotation/alpha/tint) are restored to the
+ * base pose by the subsequent `syncTransforms` pass.
+ */
+export function resetAnimationState(handles, scene) {
+  if (!handles || !scene) return;
+  for (const layer of scene.layers) {
+    const obj = handles.get(layer.id);
+    if (!obj || obj.destroyed) continue;
+    if (obj.state && obj.skeleton) {
+      try { obj.state.clearTracks(); } catch { /* ignore */ }
+      try {
+        if (typeof obj.skeleton.setToSetupPose === 'function') obj.skeleton.setToSetupPose();
+        else if (typeof obj.skeleton.setupPose === 'function') obj.skeleton.setupPose();
+      } catch { /* ignore */ }
+      if (obj.__flow) obj.__flow.perTrack = new Map();
+      try { obj.update?.(0); } catch { /* ignore */ }
+    }
+    if (obj.__spinner) {
+      try { applySpinnerAtTime(obj, layer, [], 0); } catch { /* ignore */ }
+    }
+    const video = obj.texture?.source?.resource?.source;
+    if (video && video.nodeName?.toLowerCase() === 'video') {
+      try { video.pause(); } catch { /* ignore */ }
+      try { video.currentTime = 0; } catch { /* ignore */ }
     }
   }
 }
@@ -953,20 +1024,68 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
   const perTrack = obj.__flow.perTrack;
   const seen = new Set();
 
+  // Mirror Unity's SkeletonDataAsset "Default Mix" — the AnimationStateData
+  // mix used wherever a clip doesn't specify its own mix. Default 0 (no blend)
+  // so the editor is WYSIWYG; set layer.spine.defaultMix to e.g. 0.2 for full
+  // Unity-import parity. Kept in sync every frame so inspector edits take hold.
+  try {
+    const dm = Number(layer.spine?.defaultMix);
+    if (obj.state?.data) obj.state.data.defaultMix = Number.isFinite(dm) && dm >= 0 ? dm : 0;
+  } catch { /* ignore */ }
+
   tracks.forEach((track, idx) => {
     seen.add(idx);
     const clip = clipAt(track, t);
     const cache = perTrack.get(idx) || {};
     if (!clip) {
-      // No clip here → hold the Spine's base SETUP pose (Unity "no clip" / hold
-      // behaviour). Use a 0-second empty animation so it snaps deterministically
-      // even while scrubbing (a non-zero mix freezes mid-blend when paused,
-      // which looked like a broken pose between clips).
-      if (cache.activeClipId !== null) {
-        try { obj.state.setEmptyAnimation(idx, 0); }
-        catch { /* ignore */ }
-        perTrack.set(idx, { activeClipId: null, anim: null, loop: null, mixDuration: 0 });
+      // No clip active here. Unity Timeline holds the LAST clip's final pose
+      // until the next clip / end of timeline, so that's the default: keep the
+      // last animation set and freeze it on its final frame. A clip can opt
+      // back into the old "snap to setup pose" behaviour via `clearAfterEnd`
+      // (exposed per-clip in the inspector). Before the first clip on a track
+      // (no `held`) we still fall back to the setup pose.
+      const held = lastClipAt(track, t);
+      const heldAnim = held ? (held.anim ?? layer.spine?.defaultAnimation ?? null) : null;
+      // Hold the last clip's final pose unless it opted to clear. `dontEnd`
+      // ("don't end with clip", Unity parity) forces the hold even when
+      // clearAfterEnd would otherwise snap back to the setup pose.
+      const shouldHold = !!held && (held.dontEnd === true || held.clearAfterEnd !== true) && !!heldAnim;
+      if (!shouldHold) {
+        // Use a 0-second empty animation so it snaps deterministically even
+        // while scrubbing (a non-zero mix freezes mid-blend when paused).
+        if (cache.activeClipId !== null) {
+          try { obj.state.setEmptyAnimation(idx, 0); }
+          catch { /* ignore */ }
+          perTrack.set(idx, { activeClipId: null, anim: null, loop: null, mixDuration: 0 });
+        }
+        return;
       }
+      const loop = held.loop !== false;
+      const heldAnimDuration = getSpineAnimationDuration(obj, heldAnim);
+      const heldClipIn = Number(held.clipIn) > 0 ? Number(held.clipIn) : 0;
+      // Freeze at the clip's very last frame (non-loop clamps to the anim end;
+      // a looping clip holds whatever phase it ended on).
+      const heldT = held.start + held.duration - 1e-4;
+      // Carry the clip's ease-out weight into the held pose so a faded-out clip
+      // stays faded instead of snapping back to full alpha at the boundary.
+      const baseHeldAlpha = Number.isFinite(Number(held.alpha)) ? Math.min(1, Math.max(0, Number(held.alpha))) : 1;
+      const heldAlpha = baseHeldAlpha * clipWeightEnvelope(held, heldT);
+      if (cache.activeClipId !== held.id || cache.anim !== heldAnim || cache.loop !== loop || cache.held !== true) {
+        try {
+          const e = obj.state.setAnimation(idx, heldAnim, !!loop);
+          if (e) { e.mixDuration = 0; e.alpha = heldAlpha; }
+        } catch { /* anim missing — ignore */ }
+        perTrack.set(idx, { activeClipId: held.id, anim: heldAnim, loop, mixDuration: 0, held: true });
+      }
+      try {
+        const tr = obj.state?.tracks?.[idx];
+        if (tr) {
+          tr.trackTime = remapClipTime(held, heldT, heldAnimDuration) + heldClipIn;
+          tr.alpha = heldAlpha;
+          tr.timeScale = 0; // hold — don't advance during continued playback
+        }
+      } catch { /* ignore */ }
+      // Still flush the pose now (paused scrub) at the bottom of this fn.
       return;
     }
     const anim = clip.anim ?? layer.spine?.defaultAnimation ?? null;
@@ -976,8 +1095,13 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     // Spine-Timeline clip parity (see SCENE_STUDIO.md): clip-in offset into the
     // source animation, entry alpha, and hold-previous blending.
     const clipIn = Number(clip.clipIn) > 0 ? Number(clip.clipIn) : 0;
-    const clipAlpha = Number.isFinite(Number(clip.alpha)) ? Math.min(1, Math.max(0, Number(clip.alpha))) : 1;
-    if (cache.activeClipId !== clip.id || cache.anim !== anim || cache.loop !== loop) {
+    const baseAlpha = Number.isFinite(Number(clip.alpha)) ? Math.min(1, Math.max(0, Number(clip.alpha))) : 1;
+    // Timeline clip blend (ease in/out, clip-end mix-out) fades the entry alpha
+    // at the clip's edges; the static `alpha` is the mid-clip strength.
+    const clipAlpha = baseAlpha * clipWeightEnvelope(clip, t);
+    // `cache.held` → the previous frame was a frozen post-clip hold on this
+    // slot; re-arm the animation so timeScale / mix reset cleanly.
+    if (cache.activeClipId !== clip.id || cache.anim !== anim || cache.loop !== loop || cache.held) {
       try {
         if (anim) {
           const e = obj.state.setAnimation(idx, anim, !!loop);
@@ -985,6 +1109,12 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
             e.mixDuration = mixDuration;
             e.alpha = clipAlpha;
             e.holdPrevious = clip.holdPrevious === true;
+            // Spine track-entry thresholds (Spine 4.3 names) — parity with the
+            // Unity Animation State Clip's event / attachment / draw-order
+            // thresholds. Affect which timelines apply mid-mix.
+            e.eventThreshold = clamp01(clip.eventThreshold, 0);
+            e.mixAttachmentThreshold = clamp01(clip.attachmentThreshold, 0);
+            e.mixDrawOrderThreshold = clamp01(clip.drawOrderThreshold, 0);
             if (mixDuration > 0) {
               const sinceClipStart = Math.max(0, t - clip.start);
               e.mixTime = Math.min(mixDuration, sinceClipStart);
@@ -994,13 +1124,14 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
           obj.state.setEmptyAnimation(idx, mixDuration);
         }
       } catch { /* anim missing — ignore */ }
-      perTrack.set(idx, { activeClipId: clip.id, anim, loop, mixDuration });
+      perTrack.set(idx, { activeClipId: clip.id, anim, loop, mixDuration, held: false });
     }
     try {
       const tr = obj.state?.tracks?.[idx];
       if (tr) {
         tr.trackTime = remapClipTime(clip, t, animDuration) + clipIn;
-        tr.alpha = clipAlpha;
+        tr.alpha = clipAlpha; // re-applied every frame so the ease envelope animates
+        tr.timeScale = 1; // un-freeze (in case the slot was holding a moment ago)
         if (mixDuration > 0) {
           const sinceClipStart = Math.max(0, t - clip.start);
           tr.mixTime = Math.min(mixDuration, sinceClipStart);
@@ -1063,41 +1194,65 @@ function applyVideoClip(obj, track, t, runtimePlaying, runtimeHeld) {
   }
 }
 
+/** A channel contributes a pose only when it has linked keys, any split
+ *  sub-list with keys, or it's a path-mode position. */
+function channelIsLive(ch) {
+  if (!ch) return false;
+  const hasLinked = ch.keys?.length;
+  const hasSplit = ch.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length);
+  return !!(hasLinked || hasSplit || isPathChannel(ch));
+}
+
 /**
- * Walk every logical channel on the latest active clip per track on a PNG
- * layer and override the base pose written by `syncTransforms`. Channels
- * are clip-local — `clipLocalSeconds` honours loop + speed and clamps
- * times past the end of a non-looping clip so the sprite holds its last
- * keyframe instead of snapping back to base pose. Multiple tracks
- * animating the same channel = last-wins (array order).
+ * Walk every logical channel across ALL clips up to time `t` on a layer and
+ * override the base pose written by `syncTransforms`. Channels are clip-local —
+ * `clipLocalSeconds` honours loop + speed and clamps times past the end of a
+ * non-looping clip so the value holds its last keyframe instead of snapping
+ * back to base pose.
+ *
+ * Crucially this resolves PER CHANNEL by folding across clips in chronological
+ * order: a value keyed on an earlier clip (e.g. alpha → 1) PERSISTS into later
+ * clips on the same track that don't re-key it, instead of reverting to the
+ * object's setup pose. This matches how a static object holds its last keyed
+ * value for the rest of the timeline. A later clip that DOES re-key the channel
+ * takes over from its first key onward. Multiple tracks animating the same
+ * channel = last-wins (track array order).
  */
-function applyPngChannels(obj, layer, tracks, t, orientation, opts = {}) {
+function applyPngChannels(obj, layer, tracks, t, orientation) {
   if (!tracks.length) return;
   const baseT = orientation === 'portrait'
     ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
     : layer.transforms?.landscape;
   if (!baseT) return;
 
-  const namesToApply = opts.alphaAndTintOnly
-    ? CHANNEL_NAMES.filter((n) => n === 'alpha' || n === 'tint')
-    : CHANNEL_NAMES;
-
   for (const track of tracks) {
-    const clip = lastClipAt(track, t);
-    if (!clip?.channels) continue;
-    const localT = clipLocalSeconds(clip, t, { clampPastEnd: true });
-    for (const name of namesToApply) {
-      const ch = clip.channels[name];
-      if (!ch) continue;
-      // A channel is "live" when it has linked keys OR any split sub-list
-      // has keys OR it's a path-mode position. Skip empty channels so they
-      // don't override base pose.
-      const hasLinked = ch.keys?.length;
-      const hasSplit = ch.split && ch.perComp && Object.values(ch.perComp).some((c) => c?.keys?.length);
-      if (!hasLinked && !hasSplit && !isPathChannel(ch)) continue;
-      const val = evalChannel(ch, localT, name);
-      if (val == null) continue;
-      CHANNEL_DEFS[name]?.apply?.(obj, val);
+    if (!track?.clips?.length) continue;
+    // Clips that have started by now, oldest first, so the fold below ends on
+    // the most recent contributor for each channel.
+    const clips = track.clips
+      .filter((c) => c.start <= t && c.channels)
+      .sort((a, b) => a.start - b.start);
+    if (!clips.length) continue;
+
+    for (const name of CHANNEL_NAMES) {
+      let val; // undefined = no override yet → keep base pose
+      for (const clip of clips) {
+        const ch = clip.channels[name];
+        if (!channelIsLive(ch)) continue;
+        // Per-clip opt-out: once the playhead is past a clip that asked to
+        // clear, it stops contributing (mirrors the Spine hold/clear path).
+        if (clip.clearAfterEnd === true && t >= clip.start + clip.duration) continue;
+        // Un-wrapped, speed-scaled local time — detects "before this channel's
+        // first key" on the clip's first pass. Before that key the clip does
+        // NOT contribute, so an earlier clip's held value carries through.
+        const rawLocal = Math.max(0, t - clip.start) * validSpeed(clip);
+        const firstT = channelFirstKeyTime(ch);
+        if (firstT != null && rawLocal < firstT - 1e-6) continue;
+        const localT = clipLocalSeconds(clip, t, { clampPastEnd: true });
+        const v = evalChannel(ch, localT, name);
+        if (v != null) val = v;
+      }
+      if (val !== undefined) CHANNEL_DEFS[name]?.apply?.(obj, val);
     }
   }
 }

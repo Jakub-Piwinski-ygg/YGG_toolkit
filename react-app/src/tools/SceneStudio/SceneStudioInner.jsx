@@ -65,6 +65,7 @@ import { patchTransform, resetPortrait } from './engine/orientationManager.js';
 import { groupSpineFiles } from './engine/spineLoader.js';
 import {
   channelLayout,
+  baseChannelValue,
   channelKeyList,
   clipLocalSeconds,
   composeRgbValue,
@@ -72,6 +73,8 @@ import {
   evalChannel,
   evalScalarKeys,
   insertOrUpdateKey,
+  insertKeyWithStartRamp,
+  insertCompKeyWithStartRamp,
   isPathChannel,
   splitChannel,
   transformClipKeys,
@@ -338,6 +341,9 @@ export default function SceneStudioInner() {
       setSelectedClipIds([]);
       setSelectedKey(null);
       setFlowState((prev) => flowSeek(sceneRef.current, flowStop(prev), 0));
+      // Wipe all live animation state so setup shows the clean setup pose —
+      // Spine tracks cleared + setup pose, spinner board idled, videos rewound.
+      pixiViewportRef.current?.resetToSetup();
     }
   }, []);
 
@@ -1035,10 +1041,11 @@ export default function SceneStudioInner() {
       if (existing?.split && (layout === 'vec2' || layout === 'rgb')) {
         const comps = layout === 'vec2' ? ['x', 'y'] : ['r', 'g', 'b'];
         const nextPerComp = { ...(existing.perComp || {}) };
+        const baseV = baseChannelValue(channelName, baseT);
         for (const c of comps) {
           if (typeof bag[c] !== 'number' || !Number.isFinite(bag[c])) continue;
           const compKeys = nextPerComp[c]?.keys || [];
-          nextPerComp[c] = insertOrUpdateKey({ keys: compKeys }, localT, bag[c], { tm: defaultEaseRef.current });
+          nextPerComp[c] = insertCompKeyWithStartRamp({ keys: compKeys }, localT, bag[c], baseV?.[c], { tm: defaultEaseRef.current });
         }
         nextClipChannels[channelName] = { ...existing, perComp: nextPerComp };
         touched = true;
@@ -1062,7 +1069,7 @@ export default function SceneStudioInner() {
       } else {
         v = typeof bag.scalar === 'number' ? bag.scalar : (existing?.keys?.length ? evalChannel(existing, localT, channelName) : 0);
       }
-      nextClipChannels[channelName] = insertOrUpdateKey(existing || { keys: [] }, localT, v, { tm: defaultEaseRef.current });
+      nextClipChannels[channelName] = insertKeyWithStartRamp(existing || { keys: [] }, localT, v, baseChannelValue(channelName, baseT), { tm: defaultEaseRef.current });
       touched = true;
     }
     if (!touched) {
@@ -1811,22 +1818,24 @@ export default function SceneStudioInner() {
                 const full = currentValue(name, ch);
                 const compVal = (full && typeof full === 'object') ? Number(full[comp] ?? 0) : 0;
                 const sub = ch.perComp?.[comp] || { keys: [] };
-                const nextSub = insertOrUpdateKey(sub, localT, compVal, { tm: defaultEaseRef.current });
+                const baseV = baseChannelValue(name, baseT);
+                const nextSub = insertCompKeyWithStartRamp(sub, localT, compVal, baseV?.[comp], { tm: defaultEaseRef.current });
                 ch = { ...ch, split: true, perComp: { ...(ch.perComp || {}), [comp]: nextSub } };
               } else if (ch?.split) {
                 // Whole-channel key on an already-split channel: key every comp.
                 const comps = layout === 'vec2' ? ['x', 'y'] : layout === 'rgb' ? ['r', 'g', 'b'] : [];
                 const full = currentValue(name, ch);
+                const baseV = baseChannelValue(name, baseT);
                 const nextPerComp = { ...(ch.perComp || {}) };
                 for (const cc of comps) {
                   const sub = nextPerComp[cc] || { keys: [] };
-                  nextPerComp[cc] = insertOrUpdateKey(sub, localT, Number(full?.[cc] ?? 0), { tm: defaultEaseRef.current });
+                  nextPerComp[cc] = insertCompKeyWithStartRamp(sub, localT, Number(full?.[cc] ?? 0), baseV?.[cc], { tm: defaultEaseRef.current });
                 }
                 ch = { ...ch, perComp: nextPerComp };
               } else {
                 // Linked write.
                 const v = currentValue(name, ch);
-                ch = insertOrUpdateKey(ch || { keys: [] }, localT, v, { tm: defaultEaseRef.current });
+                ch = insertKeyWithStartRamp(ch || { keys: [] }, localT, v, baseChannelValue(name, baseT), { tm: defaultEaseRef.current });
               }
               channels[name] = ch;
             }
