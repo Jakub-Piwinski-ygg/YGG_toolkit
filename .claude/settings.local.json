@@ -57,7 +57,8 @@
       "PowerShell(npx skills add sickn33/antigravity-awesome-skills@ui-ux-designer -g -y)",
       "PowerShell(npx skills add tristanmanchester/agent-skills@designing-beautiful-websites -g -y)",
       "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/**)",
-      "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/configs/**)"
+      "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/configs/**)",
+      "Bash(git rev-list *)"
     ]
   }
 }

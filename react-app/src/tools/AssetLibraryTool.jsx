@@ -17,16 +17,26 @@ export const assetLibraryMeta = {
 };
 
 const LIB_BASE = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') + '/assetLibrary/';
-const DEFAULT_SEQ_FPS = 4;
+const DEFAULT_SEQ_FPS = 12;
 const MIN_SEQ_FPS = 0.1;
 const MAX_SEQ_FPS = 30;
 const GRID_SEQ_PREVIEW_FRAMES = 12;
 const PREVIEW_FPS_KEY = 'textureLibrary.previewFps';
 const LEGACY_PREVIEW_FPS_KEY = 'assetLibrary.previewFps';
 
+const DEFAULT_COLS = 5;
+const MIN_COLS = 1;
+const MAX_COLS = 10;
+const COLS_KEY = 'textureLibrary.gridCols';
+
 function clampSeqFps(v) {
   if (!Number.isFinite(v)) return DEFAULT_SEQ_FPS;
   return Math.min(MAX_SEQ_FPS, Math.max(MIN_SEQ_FPS, v));
+}
+
+function clampCols(v) {
+  if (!Number.isFinite(v)) return DEFAULT_COLS;
+  return Math.min(MAX_COLS, Math.max(MIN_COLS, Math.round(v)));
 }
 
 function sampleFrames(list, max) {
@@ -773,6 +783,7 @@ export function AssetLibraryTool() {
   const [openMenu, setOpenMenu] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [seqPreviewFps, setSeqPreviewFps] = useState(DEFAULT_SEQ_FPS);
+  const [gridCols, setGridCols] = useState(DEFAULT_COLS);
   const loggedRef = useRef(false);
 
   const loadAll = async () => {
@@ -822,6 +833,25 @@ export function AssetLibraryTool() {
       // ignore storage failures
     }
   }, [seqPreviewFps]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = window.localStorage.getItem(COLS_KEY);
+      if (saved != null) setGridCols(clampCols(Number(saved)));
+    } catch {
+      // ignore storage failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(COLS_KEY, String(gridCols));
+    } catch {
+      // ignore storage failures
+    }
+  }, [gridCols]);
 
   const assets = manifest?.assets || [];
   const categories = manifest?.categories || [];
@@ -898,6 +928,18 @@ export function AssetLibraryTool() {
             <span className="al-seq-speed-unit">fps</span>
           </div>
         )}
+        <div className="al-seq-speed">
+          <span className="al-seq-speed-label">Columns</span>
+          <input
+            className="al-seq-speed-input"
+            type="number"
+            min={MIN_COLS}
+            max={MAX_COLS}
+            step="1"
+            value={gridCols}
+            onChange={(e) => setGridCols(clampCols(Number(e.target.value)))}
+          />
+        </div>
         <button className="btn" type="button" onClick={loadAll} title="Reload manifest">↻</button>
       </div>
 
@@ -918,7 +960,7 @@ export function AssetLibraryTool() {
       {sections.map(({ cat: c, assets: list }) => (
         <section key={c.id} className="al-section">
           <h3 className="al-section-title">{c.icon} {c.label} <span className="al-count">{list.length}</span></h3>
-          <div className="al-grid">
+          <div className="al-grid" style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}>
             {list.map((a) => (
               <AssetCard
                 key={a.slug}
