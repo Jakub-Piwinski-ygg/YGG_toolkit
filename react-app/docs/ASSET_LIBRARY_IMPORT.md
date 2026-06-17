@@ -57,11 +57,14 @@ individual statics.
 | Category | Use for | Examples |
 |---|---|---|
 | `noise` | noise, flowmaps, distortion/turbulence maps | perlin, voronoi, caustics |
+| `flowmaps` | dedicated flow/direction maps | vector flowmaps |
+| `effects` | particle/VFX sprites & flipbook sheets (was `particles`) | flares, glows, smoke, sparks, skulls, confetti, fire shapes |
+| `coins` | coin/currency spin & flip animations | coin flip/turn sequences |
 | `basics` | building-block primitives | gradients, solid pixels, checkerboards, vignettes |
 | `patterns` | repeating/tiling decorative motifs | kenney pattern pack, polygon tiles |
-| `trails` | elongated streak/trail/swipe textures | fire trails, motion streaks, line sweeps |
+| `trails` | elongated streak/trail/swipe textures | fire trails, motion streaks, sword trails |
 | `ui` | interface elements | buttons, joysticks, icons, frames |
-| `texture` | everything else effect-like (the default) | flares, glows, smoke, auras, shockwaves, lightning |
+| `texture` | everything else effect-like (the default), incl. tiling materials | auras, shockwaves, lightning, PBR material maps |
 
 If genuinely torn between two, prefer the more specific one; if nothing fits,
 use `texture`; if `texture` feels wrong too, ask the user (new category?).

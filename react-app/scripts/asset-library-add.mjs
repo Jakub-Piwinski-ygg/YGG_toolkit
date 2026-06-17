@@ -80,7 +80,8 @@ function loadManifest() {
       categories: [
         { id: 'noise', label: 'Noise', icon: '🌫️' },
         { id: 'flowmaps', label: 'Flowmaps', icon: '🌀' },
-        { id: 'particles', label: 'Particles', icon: '✨' },
+        { id: 'effects', label: 'Effects', icon: '✨' },
+        { id: 'coins', label: 'Coins', icon: '🪙' },
         { id: 'texture', label: 'Textures', icon: '🎨' },
         { id: 'basics', label: 'Basics', icon: '⬜' },
         { id: 'trails', label: 'Trails', icon: '💫' },

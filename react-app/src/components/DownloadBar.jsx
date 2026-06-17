@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { downloadAll } from '../utils/download.js';
+import { downloadAllZip } from '../utils/download.js';
 
 export function DownloadBar() {
   const { outputFiles, replaceFilesWithOutput, log } = useApp();
+  const [zipping, setZipping] = useState(false);
   if (!outputFiles.length) return null;
 
   const totalKb = outputFiles.reduce((s, f) => s + f.blob.size, 0) / 1024;
@@ -11,6 +13,19 @@ export function DownloadBar() {
     const n = outputFiles.length;
     replaceFilesWithOutput();
     log(`↻ promoted ${n} output${n > 1 ? 's' : ''} to working dir`, 'info');
+  };
+
+  const handleDownloadAll = async () => {
+    if (zipping) return;
+    setZipping(true);
+    try {
+      await downloadAllZip(outputFiles, 'ygg-output.zip');
+      log(`↓ zipped ${outputFiles.length} file${outputFiles.length > 1 ? 's' : ''} → ygg-output.zip`, 'ok');
+    } catch (e) {
+      log(`ZIP failed: ${e.message || e}`, 'err');
+    } finally {
+      setZipping(false);
+    }
   };
 
   return (
@@ -25,8 +40,8 @@ export function DownloadBar() {
       >
         ↻ → WORKING DIR
       </button>
-      <button className="btn btn-primary" onClick={() => downloadAll(outputFiles)}>
-        ↓ DOWNLOAD ALL
+      <button className="btn btn-primary" onClick={handleDownloadAll} disabled={zipping}>
+        {zipping ? '⏳ ZIPPING…' : '↓ DOWNLOAD ALL (ZIP)'}
       </button>
     </div>
   );

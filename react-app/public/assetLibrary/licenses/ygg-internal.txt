@@ -1,0 +1,13 @@
+Yggdrasil internal asset license
+=================================
+
+These assets were created in-house at Yggdrasil Gaming and are provided through
+the internal Texture Library for use by Yggdrasil artists and projects only.
+
+- Internal use only. Use freely within Yggdrasil game projects, prototypes and
+  mockups.
+- Not for external distribution. Do not publish, redistribute, sell or share
+  these assets outside Yggdrasil without approval from your art lead.
+- No warranty. Provided as-is for production convenience.
+
+If you are unsure whether a particular use is allowed, check with your art lead.
