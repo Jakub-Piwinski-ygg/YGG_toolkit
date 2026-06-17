@@ -899,6 +899,32 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   cursor: default;
 }
 
+.scene-fullscreen-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--text-1, #d6dae5);
+  background: rgba(20, 22, 28, 0.72);
+  border: 1px solid var(--border, #2a2e38);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.scene-fullscreen-btn:hover {
+  opacity: 1;
+  background: rgba(30, 34, 42, 0.92);
+}
+
 .scene-viewport-empty {
   position: absolute;
   pointer-events: none;
@@ -2586,3 +2612,239 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 .scene-clip--spinner-spin       { border-top: 2px solid #48c; }
 .scene-clip--spinner-stopSpin   { border-top: 2px solid #c86; }
 .scene-clip--spinner-holdResult { border-top: 2px solid #88a; }
+
+/* ── Direct mode: scenario node-graph ───────────────────────────────────── */
+:root {
+  --ss-start: #1f7a3d; --ss-start-glow: #3fcf6e;
+  --ss-end: #9b2226;   --ss-end-glow: #e5484d;
+  --ss-edge: #8a8f98;  --ss-edge-active: #ffd23f; --ss-node: #262a31;
+}
+
+/* Direct mode shows one panel in the left stack — let it fill both rows. */
+.scene-left-stack > .ss-scenario-list { grid-row: 1 / -1; }
+
+.ss-scenario-list { min-height: 0; }
+.ss-scenario-list .scene-panel-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 6px;
+}
+.scene-panel-title { font-weight: 600; }
+.scene-panel-sub {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px; color: var(--text-2, #6a7288); text-transform: none;
+}
+.ss-scenario-list-body { flex: 1; overflow-y: auto; padding: 4px; }
+.ss-scenario-list-empty {
+  padding: 16px 12px; color: var(--text-2, #6a7288); font-size: 12px; line-height: 1.5;
+}
+.ss-scenario-list-group { margin-bottom: 6px; }
+.ss-scenario-list-scene {
+  font-size: 11px; color: var(--text-1, #9aa3b2);
+  padding: 4px 6px 2px; position: sticky; top: 0;
+  background: var(--bg-1, #13151a);
+}
+.ss-tl-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 6px; border-radius: 4px; cursor: grab;
+  font-size: 12px; color: var(--text, #cdd3df);
+  border: 1px solid transparent;
+}
+.ss-tl-row:hover { background: var(--bg-2, #222530); border-color: var(--border, #2e3340); }
+.ss-tl-row:active { cursor: grabbing; }
+.ss-tl-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent, #5b8cff); flex: 0 0 auto;
+}
+.ss-tl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-tl-meta {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px; color: var(--text-2, #6a7288); flex: 0 0 auto;
+}
+.ss-tl-badge {
+  font-size: 10px; background: var(--accent, #5b8cff); color: #fff;
+  border-radius: 8px; padding: 0 6px; flex: 0 0 auto;
+}
+.ss-scenario-list-hint {
+  padding: 6px 8px; font-size: 10px; color: var(--text-2, #6a7288);
+  border-top: 1px solid var(--border, #2e3340);
+}
+
+/* Graph panel (center-bottom) */
+.ss-graph { overflow: hidden; }
+.ss-graph-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; border-bottom: 1px solid var(--border, #2e3340);
+  background: var(--bg-1, #13151a); flex: 0 0 auto;
+}
+.ss-graph-picker { max-width: 200px; }
+.ss-graph-transport { display: flex; gap: 2px; }
+.scene-btn--sm { padding: 2px 7px; font-size: 12px; }
+.ss-graph-chip {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  font-family: var(--font-mono, ui-monospace, monospace); white-space: nowrap;
+}
+.ss-graph-chip--ok   { background: rgba(31,122,61,0.25); color: var(--ss-start-glow, #3fcf6e); }
+.ss-graph-chip--warn { background: rgba(155,34,38,0.22); color: var(--ss-end-glow, #e5484d); }
+
+.ss-graph-canvas {
+  position: relative; flex: 1; min-height: 0; overflow: hidden;
+  background-color: var(--bg-0, #0c0e12);
+  background-image:
+    radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.ss-graph-world {
+  position: absolute; inset: 0; transform-origin: 0 0;
+}
+.ss-graph-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+.ss-graph-edges > g { pointer-events: auto; }
+.ss-edge { stroke: var(--ss-edge, #8a8f98); stroke-width: 2; opacity: 0.55; }
+.ss-edge--active { stroke: var(--ss-edge-active, #ffd23f); stroke-width: 2.5; opacity: 1; }
+.ss-edge.is-selected { stroke-width: 3.5; }
+.ss-edge--linking {
+  stroke: var(--ss-edge-active, #ffd23f); stroke-width: 2; opacity: 0.9;
+  stroke-dasharray: 5 4; pointer-events: none;
+}
+
+.ss-node {
+  position: absolute; box-sizing: border-box;
+  background: var(--ss-node, #262a31);
+  border: 1px solid var(--border-2, #3a4150); border-radius: 6px;
+  padding: 6px 10px; min-width: 70px; color: var(--text, #cdd3df);
+  cursor: grab; user-select: none; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+}
+.ss-node:active { cursor: grabbing; }
+.ss-node.is-selected { border-color: var(--accent, #5b8cff); box-shadow: 0 0 0 2px var(--accent, #5b8cff); }
+.ss-node--start { background: var(--ss-start, #1f7a3d); border-color: var(--ss-start-glow, #3fcf6e); }
+.ss-node--end   { background: var(--ss-end, #9b2226);   border-color: var(--ss-end-glow, #e5484d); }
+.ss-node-title { font-size: 12px; font-weight: 600; }
+.ss-node-meta {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px; color: var(--text-2, #8a93a6); margin-top: 2px;
+}
+.ss-node-missing { font-size: 10px; color: var(--ss-end-glow, #e5484d); margin-top: 2px; }
+.ss-pin {
+  position: absolute; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--bg-4, #2b313c); border: 1.5px solid var(--text-2, #6a7288);
+}
+.ss-pin--in  { left: -5px; }
+.ss-pin--out { right: -5px; cursor: crosshair; }
+.ss-pin--out:hover { background: var(--ss-edge-active, #ffd23f); border-color: var(--ss-edge-active, #ffd23f); transform: scale(1.25); }
+.ss-node-del {
+  position: absolute; top: -8px; right: -8px;
+  width: 18px; height: 18px; border-radius: 50%; line-height: 1;
+  background: var(--ss-end, #9b2226); color: #fff; border: none; cursor: pointer;
+  font-size: 11px; padding: 0;
+}
+
+/* ── Scenario scrubber ───────────────────────────────────────────────────── */
+.ss-scrub {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-bottom: 1px solid var(--border, #2e3340);
+  background: var(--bg-1, #13151a); flex: 0 0 auto;
+}
+.ss-scrub-track {
+  position: relative; flex: 1; height: 22px; border-radius: 4px;
+  background: var(--bg-0, #0c0e12); border: 1px solid var(--border, #2e3340);
+  cursor: pointer; overflow: hidden;
+}
+.ss-scrub-track.is-empty { cursor: default; }
+.ss-scrub-seg {
+  position: absolute; top: 0; bottom: 0;
+  background: var(--bg-3, #21252e); border-right: 1px solid var(--bg-0, #0c0e12);
+  display: flex; align-items: center; overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(91,140,255,0.18);
+}
+.ss-scrub-seg.has-xfade { background: linear-gradient(90deg, rgba(255,210,63,0.22), var(--bg-3, #21252e)); }
+.ss-scrub-seg.is-missing { background: rgba(155,34,38,0.3); }
+.ss-scrub-seg-label {
+  font-size: 10px; color: var(--text-1, #9aa3b2); padding: 0 6px;
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+}
+.ss-scrub-playhead {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--ss-edge-active, #ffd23f); box-shadow: 0 0 6px var(--ss-edge-active, #ffd23f);
+  pointer-events: none;
+}
+.ss-scrub-empty {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--text-2, #6a7288); pointer-events: none;
+}
+.ss-scrub-time {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px; color: var(--text-2, #6a7288); flex: 0 0 auto; min-width: 88px; text-align: right;
+}
+
+/* ── Playback fx ─────────────────────────────────────────────────────────── */
+/* Progress fill inside the currently-playing timeline node (left→right). */
+.ss-node-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; z-index: 0;
+  background: linear-gradient(90deg, rgba(91,140,255,0.40), rgba(91,140,255,0.18));
+  border-radius: 6px 0 0 6px; pointer-events: none;
+}
+.ss-node-title, .ss-node-meta, .ss-node-missing { position: relative; z-index: 1; }
+.ss-node.is-playing {
+  border-color: var(--accent, #5b8cff);
+  box-shadow: 0 0 0 2px var(--accent, #5b8cff), 0 0 14px rgba(91,140,255,0.5);
+}
+.ss-node.is-intro { box-shadow: 0 0 0 2px var(--ss-start-glow, #3fcf6e), 0 0 16px var(--ss-start-glow, #3fcf6e); }
+.ss-node.is-outro { box-shadow: 0 0 0 2px var(--ss-end-glow, #e5484d), 0 0 16px var(--ss-end-glow, #e5484d); }
+
+/* The edge being traversed: bright + travelling dash. */
+.ss-edge--live {
+  stroke: var(--ss-edge-active, #ffd23f); stroke-width: 3; opacity: 1;
+  stroke-dasharray: 7 6; animation: ss-edge-flow 0.6s linear infinite;
+}
+@keyframes ss-edge-flow { to { stroke-dashoffset: -13; } }
+
+.ss-graph-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px;
+  color: var(--text-2, #6a7288); font-size: 13px; text-align: center;
+  pointer-events: none; padding: 20px;
+}
+.ss-graph-empty-icon { font-size: 24px; opacity: 0.6; }
+.ss-graph-empty-hint { font-size: 11px; opacity: 0.75; }
+
+/* ── Scenario inspector (right panel, direct mode) ──────────────────────── */
+.ss-insp-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; overflow-y: auto; }
+.ss-insp-title { font-size: 13px; font-weight: 600; color: var(--text-0, #e6e9f0); }
+.ss-insp-meta {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px; color: var(--text-2, #6a7288);
+}
+.ss-insp-warn { font-size: 11px; color: var(--ss-end-glow, #e5484d); }
+.ss-insp-note { font-size: 11px; color: var(--text-2, #6a7288); line-height: 1.5; margin-top: 2px; }
+.ss-insp-sep { height: 1px; background: var(--border, #2e3340); margin: 4px 0; }
+.ss-insp-subhead {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-2, #6a7288);
+}
+.ss-insp-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-1, #9aa3b2); }
+.ss-insp-row-v { color: var(--text-0, #e6e9f0); font-family: var(--font-mono, ui-monospace, monospace); }
+.ss-insp-field { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
+.ss-insp-field > span { color: var(--text-1, #9aa3b2); flex: 0 0 auto; }
+.ss-insp-input {
+  flex: 1; min-width: 0; background: var(--bg-2, #222530);
+  border: 1px solid var(--border, #2e3340); border-radius: 4px;
+  color: var(--text, #cdd3df); padding: 3px 6px; font-size: 12px;
+}
+.ss-insp-input--num { flex: 0 0 80px; text-align: right; }
+.ss-insp-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-1, #9aa3b2); }
+.ss-insp-tag {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--bg-3, #21252e); color: var(--text-2, #6a7288);
+  padding: 1px 5px; border-radius: 3px; margin-left: auto;
+}
+.ss-insp-branch { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text, #cdd3df); }
+.ss-insp-branch-name { flex: 1; }
+.ss-pin--inline { position: static; display: inline-block; }
+.ss-insp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ss-insp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ss-insp-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 7px; border-radius: 10px;
+  background: var(--bg-2, #222530); border: 1px solid var(--border, #2e3340);
+  color: var(--text-2, #6a7288); cursor: pointer;
+}
+.ss-insp-chip.is-on { color: var(--text-0, #e6e9f0); border-color: var(--accent, #5b8cff); }
+.ss-insp-chip input { margin: 0; }

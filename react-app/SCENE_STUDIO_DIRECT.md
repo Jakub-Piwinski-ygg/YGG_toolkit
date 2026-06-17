@@ -1,10 +1,33 @@
 # Scene Studio — "Direct" mode (scenario node graph)
 
-> Status: **DESIGN** (2026-06-15). Third studio mode after `setup` and
-> `animate`. Sequences the timelines authored in *animate* into a
+> Status: **P1–P4 SHIPPED + scrubber/crossfade refit** (2026-06-16); P5 pending.
+>
+> **Playback refit (2026-06-16):** the P3 status-machine runtime
+> (`scenarioRuntime.js`) was replaced by a **global-time, scrubbable** model —
+> `engine/scenarioTimeline.js` flattens the active-edge walk into segments laid
+> end-to-end (crossfades become overlap windows) and `sampleScenario(T)` maps a
+> single global time to the timeline + local time to preview (or a blend). A
+> **scrubber bar** in the graph panel lets you drag through the whole flow; it
+> rebuilds whenever connections change. **Same-scene crossfades now actually
+> render** via `engine/scenarioBlend.js` (blends transform channels —
+> position/scale/rotation/alpha/tint — of the two timelines, baked into the
+> preview pose). Cross-scene crossfades still cut at the midpoint (can't
+> composite two scenes in one viewport). Per-timeline speed/startOffset are
+> honoured by the segment math. Third studio mode after
+> `setup` and `animate`. Sequences the timelines authored in *animate* into a
 > node-graph "scenario" — Unreal-Blueprint-style — and previews the
 > resulting flow start→end. Companion doc to `SCENE_STUDIO.md` (§20 =
 > as-built animation) and `SPINNER.md`.
+>
+> **Open questions (§13) resolved 2026-06-16:** Q1 multiple output pins /
+> Blueprint-style — **yes**. Q2 reuse a timeline as several nodes — **yes**.
+> Q3 fan-in — **yes**. Q4 per-channel crossfade in v1 — **yes**. Q5 scope —
+> **project-level** scenarios (sequence timelines across scenes), but every
+> `timeline` node is **strongly bound to its origin scene** (`{sceneId,
+> timelineId}`), so a node can never reference a timeline no scene owns. This
+> is the one deviation from §3 below: scenarios live on the **project**
+> (`project.scenarios[]` / `project.activeScenarioId`, schema → `ygg-project/2`),
+> not on the scene — see the implementation note at §3.
 
 ---
 
@@ -49,10 +72,22 @@ row-resize handle works unchanged.
 
 ## 3. Data model
 
-Scenarios are **scene-scoped** (they reference timeline ids that live on the
-scene), so they live on the scene object next to `timelines[]`. Because
+> **As built (P1, supersedes the scene-scoped design below):** scenarios are
+> **project-level** — `project.scenarios[]` + `project.activeScenarioId`, schema
+> bumped to `ygg-project/2` (back-compat: absent = `[]`, older `/1` files still
+> load on the prefix match). Each `timeline` node carries **both** `sceneId` and
+> `timelineId` so it stays bound to the scene that authored the timeline. The
+> model + CRUD + walk resolver live in `engine/scenarioModel.js` (pure data,
+> tested in `scenarioModel.test.mjs`); `validateProject` normalizes scenarios
+> and `saveProject` persists them. Dangling timeline nodes (origin scene/timeline
+> gone) are **kept** and flagged, never silently pruned.
+
+The original scene-scoped sketch (kept for reference):
+
+Scenarios were first designed **scene-scoped** (referencing timeline ids on the
+scene), living on the scene object next to `timelines[]`. Because
 `splitScene`/`foldSceneIntoProject` persist everything on `scene.data`, no
-persistence work is needed beyond normalization in `validateScene`.
+persistence work would have been needed beyond normalization in `validateScene`.
 
 ```jsonc
 // added to scene.json (schema bump → ygg-scene/3, back-compat: absent = [])
@@ -361,36 +396,69 @@ is export-ready from day one.
 
 ## 12. Implementation phases
 
-- **P1 — Skeleton & data.** `studioMode:'direct'` + toolbar button; schema
-  bump (`scenarios[]`, `activeScenarioId`) + `validateScene` normalize;
-  `scenarioModel.js` + tests; left `ScenarioTimelineList`; empty
-  `ScenarioGraphPanel` shell wired into the center-bottom slot; scenario
-  picker/new/rename/delete.
-- **P2 — Graph editing.** Node render (start/end/timeline), drag-to-place from
-  the list, pan/zoom canvas, pin drag-to-connect, edge SVG layer, active-edge
-  click selection (yellow + exclusivity), delete, persistence round-trip.
-- **P3 — Playback.** `scenarioRuntime.js` + RAF integration;
-  `sceneWithRuntime` flow swap; transport buttons; running fill + flash + edge
-  pulse + start/end fx; validation chip; cycle guard.
-- **P4 — Inspector & transitions.** Node + edge inspector sections; crossfade /
-  key-mixing data + runtime; per-node entry options.
+- **P1 — Skeleton & data. ✅ DONE (2026-06-16).** `studioMode:'direct'` + a
+  clapperboard toolbar button; project-level schema bump (`scenarios[]`,
+  `activeScenarioId` → `ygg-project/2`) normalized in `validateProject` +
+  persisted in `saveProject`; `engine/scenarioModel.js` (CRUD + node/edge ops +
+  `resolveWalk` + `listProjectTimelines`) with 19 passing tests; left
+  `ScenarioTimelineList` (project timelines grouped by origin scene, drag
+  source); `ScenarioGraphPanel` shell wired into the center-bottom slot —
+  scenario picker/new/duplicate/rename/delete, disabled transport placeholder,
+  a `resolveWalk` validity chip, and a dotted-grid canvas that renders
+  start/end/timeline nodes + edges (SVG) and accepts timeline drops to spawn
+  nodes. Active-edge click selection works; full pan/zoom + node drag +
+  pin-drag-to-connect are P2.
+- **P2 — Graph editing. ✅ DONE (2026-06-16).** Node render (start/end/timeline),
+  drag-to-place from the list **and a ＋ button per timeline row** (spawns near
+  Start), **middle-mouse pan + wheel-zoom-around-cursor** canvas (matches the
+  scene view), left-drag to move nodes, **pin drag-to-connect** with a live
+  rubber-band, edge SVG layer, active-edge click selection (yellow +
+  per-source exclusivity), Delete-key removal of the selected node/edge,
+  view (pan/zoom) + node positions persisted to `scenario.view` / node x,y.
+  Note: scenario edits currently bypass the scene undo stack (they mutate the
+  project directly) — undo for Direct mode is a later polish item.
+- **P3 — Playback. ✅ DONE (2026-06-16).** `engine/scenarioRuntime.js` (pure
+  linear state machine: idle/intro/playing/outro/done/paused, cycle guard) with
+  7 passing tests; ticked from the existing RAF loop in `SceneStudioInner` when
+  in Direct mode. Because scenarios are project-level, the preview swaps to the
+  **current timeline node's ORIGIN scene** (`directPreviewScene`: that scene's
+  layers + the shared asset pool, flow = the node's timeline tracks at
+  `run.localTime`) and feeds it to the unchanged `PixiViewport`. Transport
+  (▶ ⏸ ⏹ ↺) wired; ▶ gated on the `resolveWalk` validity chip. Graph fx:
+  per-node left→right **progress fill**, **playing/intro/outro glow**, and a
+  **travelling-dash on the live edge**. Carryover to a P3.x refinement: each
+  timeline plays LINEARLY — per-timeline holds / markers / click-resume inside a
+  timeline aren't honoured during scenario preview yet (swap the linear advance
+  for `flowInterpreter.tickFlow` per node when needed); hand-off flash + start/end
+  ripple are minimal (glow only).
+- **P4 — Inspector & transitions. ✅ DONE (2026-06-16).** `ScenarioInspectorSections`
+  in the right panel (replaces the layer InspectorPanel in Direct mode): nothing
+  selected → scenario summary (timeline/edge counts, resolved active-path length
+  + total duration); timeline node → label override, branch add/remove, per-node
+  entry options (speed / start offset / wait-for-click) + open-in-animate +
+  delete; edge → transition editor (cut / crossfade / hold, mix duration,
+  per-channel blend toggles). Data model: `edge.transition` + `node.entry`
+  normalized in `scenarioModel` with `setEdgeTransition` / `setNodeEntry` setters
+  (tested). Runtime honours **speed** and **start offset** live in the preview;
+  **crossfade/hold rendering + wait-for-click** are authored + Unity-exported
+  (P5) but the web preview plays the hand-off as a cut for now (documented in the
+  edge editor). Per-layer (vs global) channel overrides from §9 deferred — v1 is
+  global per-channel.
 - **P5 — Polish & export.** Auto-arrange, minimap, breadcrumb, edge-insert;
   `YggScenarioPlayer.cs` + scenario payload in `.unitypackage`.
 
 ---
 
-## 13. Open questions
+## 13. Open questions — RESOLVED (2026-06-16)
 
-1. **Branch model confirmation:** multiple **output pins** per timeline node
-   (Blueprint-style), with one active edge per node — agree? (Alternative:
-   single output pin with multiple edges and one active.) This doc assumes the
-   former.
-2. **Timeline reuse:** allow the same timeline as multiple nodes in one
-   scenario? (Assumed **yes**.)
-3. **Fan-in:** allow several branches to converge on one timeline's input?
-   (Assumed **yes**; matters for the walk resolver.)
-4. **Crossfade scope:** is per-channel mixing (vs whole-layer) needed in v1 of
-   the transition editor, or is a single `mixDuration` + "blend all" enough?
-5. **Scenario scope:** scene-level (this doc) vs project-level (sequence
-   timelines across scenes)? Scene-level is simpler and matches "timelines from
-   *this* creator"; project-level is a bigger lift.
+1. **Branch model:** ✅ multiple **output pins** per timeline node
+   (Blueprint-style), one active edge per node. Implemented.
+2. **Timeline reuse:** ✅ **yes** — a timeline may appear as multiple nodes
+   (`listProjectTimelines` shows a `×N` usage badge per row).
+3. **Fan-in:** ✅ **yes** — input pins accept many incoming edges; the walk
+   resolver follows the single active edge per source.
+4. **Crossfade scope:** ✅ **per-channel** mixing in v1 (the `transition.channels`
+   shape in §9). Data shape ships now; runtime honours `cut` until P4 lands.
+5. **Scenario scope:** ✅ **project-level** — scenarios sequence timelines across
+   scenes, but each `timeline` node is strongly bound to its origin scene via
+   `{sceneId, timelineId}`. See the §3 "as built" note.

@@ -55,7 +55,9 @@
       "PowerShell(npx skills add jezweb/claude-skills@image-processing -g -y)",
       "PowerShell(npx skills add mindrally/skills@framer-motion -g -y)",
       "PowerShell(npx skills add sickn33/antigravity-awesome-skills@ui-ux-designer -g -y)",
-      "PowerShell(npx skills add tristanmanchester/agent-skills@designing-beautiful-websites -g -y)"
+      "PowerShell(npx skills add tristanmanchester/agent-skills@designing-beautiful-websites -g -y)",
+      "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/**)",
+      "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/configs/**)"
     ]
   }
 }

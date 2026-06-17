@@ -87,6 +87,14 @@ export function StudioToolbar({
           <RunPoseIcon />
           <span>animate</span>
         </button>
+        <button
+          className={'scene-mode-btn' + (studioMode === 'direct' ? ' is-active' : '')}
+          onClick={() => onSetStudioMode?.('direct')}
+          title="Direct mode — sequence timelines into a scenario node-graph and preview the flow."
+        >
+          <DirectIcon />
+          <span>direct</span>
+        </button>
       </div>
 
       <div className="scene-toolbar-spacer" />
@@ -235,6 +243,21 @@ function SetupPoseIcon() {
         <line x1="4.5" y1="9.2" x2="19.5" y2="9.2" />
         <line x1="12" y1="15" x2="8" y2="21" />
         <line x1="12" y1="15" x2="16" y2="21" />
+      </g>
+    </svg>
+  );
+}
+
+/** Clapperboard + branch — Direct mode (scenario node-graph). */
+function DirectIcon() {
+  return (
+    <svg className="scene-mode-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="5" cy="6" r="2" />
+        <circle cx="19" cy="5" r="2" />
+        <circle cx="19" cy="17" r="2" />
+        <path d="M7 6h5M14 6l3-1" />
+        <path d="M12 6v6M12 12l5 4" />
       </g>
     </svg>
   );

@@ -4,7 +4,7 @@ tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
 priority: P0
-updated: 2026-06-14
+updated: 2026-06-16
 tags: [scene-studio, pixi, animation, unity]
 ---
 
@@ -38,6 +38,12 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
   timing; Ctrl+C/V/Delete on keys **and** clips; clip-expansion on drag past edges
   (`transformClipKeys`). Frozen-column timeline (sticky labels), Setup-mode default,
   spinner re-edit wizard, "frame in front" grey-out. See the session note.
+
+- **Viewport fullscreen button (2026-06-16)**: a ⛶/🗗 toggle pinned top-right of
+  `.scene-viewport-wrap` calls the native Fullscreen API on the wrap element
+  (`SceneStudioInner` `toggleFullscreen` + `fullscreenchange` listener). No manual
+  canvas resize — `PixiViewport`'s existing `ResizeObserver` refits the renderer
+  when the wrap grows. Esc exits and syncs the icon.
 
 ## Sub-objects & docs
 

@@ -560,6 +560,9 @@ export async function saveProject(project, rootHandle) {
       data: bakeSceneDataForExport(s.data || {})
     })),
     activeSceneId: project.activeSceneId,
+    // Direct-mode scenarios (project-level node graphs).
+    scenarios: project.scenarios || [],
+    activeScenarioId: project.activeScenarioId || null,
     exports: project.exports || {},
     meta: project.meta || {}
   };

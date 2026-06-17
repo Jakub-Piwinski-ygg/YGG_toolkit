@@ -11,6 +11,9 @@ import { SpinnerWizard } from './components/SpinnerWizard.jsx';
 import { normalizeSpinnerConfig } from './engine/spinner/spinnerModel.js';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
+import { ScenarioTimelineList } from './components/ScenarioTimelineList.jsx';
+import { ScenarioGraphPanel } from './components/ScenarioGraphPanel.jsx';
+import { ScenarioInspectorSections } from './components/ScenarioInspectorSections.jsx';
 import { UnityExportDialog } from './components/UnityExportDialog.jsx';
 import { WebMExportDialog } from './components/WebMExportDialog.jsx';
 import { scanProjectAssets } from './engine/assetBrowser.js';
@@ -39,6 +42,32 @@ import {
   setActiveScene,
   renameScene
 } from './engine/projectModel.js';
+import {
+  activeScenario as getActiveScenario,
+  addScenario,
+  removeScenario,
+  renameScenario,
+  setActiveScenario,
+  duplicateScenario,
+  updateScenario,
+  addTimelineNode,
+  addTimelineNodeUnderStart,
+  removeNode as scRemoveNode,
+  addOutputPin as scAddOutputPin,
+  removeOutputPin as scRemoveOutputPin,
+  connect as scConnect,
+  disconnect as scDisconnect,
+  disconnectAndPrunePin as scDisconnectAndPrunePin,
+  setActiveEdge as scSetActiveEdge,
+  moveNode as scMoveNode,
+  setNodeLabel as scSetNodeLabel,
+  setNodeEntry as scSetNodeEntry,
+  setEdgeTransition as scSetEdgeTransition,
+  setView as scSetView,
+  listProjectTimelines
+} from './engine/scenarioModel.js';
+import { buildScenarioTimeline, sampleScenario } from './engine/scenarioTimeline.js';
+import { buildBlendedScene } from './engine/scenarioBlend.js';
 import { clearSession, loadSession, saveSession } from './engine/sessionStore.js';
 import {
   createInitialFlowState,
@@ -334,7 +363,7 @@ export default function SceneStudioInner() {
    * unambiguously route to the base pose.
    */
   const handleSetStudioMode = useCallback((mode) => {
-    if (mode !== 'setup' && mode !== 'animate') return;
+    if (mode !== 'setup' && mode !== 'animate' && mode !== 'direct') return;
     setStudioMode(mode);
     if (mode === 'setup') {
       setSelectedClipId(null);
@@ -344,6 +373,24 @@ export default function SceneStudioInner() {
       // Wipe all live animation state so setup shows the clean setup pose —
       // Spine tracks cleared + setup pose, spinner board idled, videos rewound.
       pixiViewportRef.current?.resetToSetup();
+    }
+    if (mode === 'direct') {
+      // Direct mode drives the preview through the scenario runtime (P3). Stop
+      // the single-timeline playback and clear clip/key selection so it can't
+      // fight the runtime. Ensure the project has at least one scenario to edit.
+      setSelectedClipId(null);
+      setSelectedClipIds([]);
+      setSelectedKey(null);
+      setFlowState((prev) => flowStop(prev));
+      setProjectInternal((prev) => {
+        // Always commit the active scene's LIVE flow into its timeline first, so
+        // edits just made in animate mode are visible to the scenario preview
+        // (the scenario timeline reads from timelines[], not the live flow).
+        let next = commitCurrentSceneFlow(prev);
+        if (!(next.scenarios || []).length) next = addScenario(next, 'Scenario 1').project;
+        return next;
+      });
+      setScenarioPlayhead({ time: 0, playing: false });
     }
   }, []);
 
@@ -452,6 +499,26 @@ export default function SceneStudioInner() {
 
   const dropRef = useRef(null);
   const pixiViewportRef = useRef(null);
+
+  // Fullscreen the scene viewport. The wrap (dropRef) is the element made
+  // fullscreen; PixiViewport's ResizeObserver picks up the new size and
+  // resizes the canvas automatically, so no manual resize is needed here.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const toggleFullscreen = useCallback(() => {
+    const el = dropRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.();
+    } else {
+      el.requestFullscreen?.();
+    }
+  }, []);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
   const assetItemsRef = useRef(assetItems);
   assetItemsRef.current = assetItems;
   const addAssetItemFromBrowserRef = useRef(null);
@@ -665,7 +732,17 @@ export default function SceneStudioInner() {
     const loop = (now) => {
       const dt = Math.max(0, (now - last) / 1000);
       last = now;
-      setFlowState((prev) => tickFlow(sceneRef.current, prev, dt));
+      if (studioModeRef.current === 'direct') {
+        setScenarioPlayhead((prev) => {
+          if (!prev.playing) return prev;
+          const total = scenarioTimelineRef.current.total || 0;
+          const next = prev.time + dt;
+          if (next >= total) return { time: total, playing: false }; // reached the end
+          return { ...prev, time: next };
+        });
+      } else {
+        setFlowState((prev) => tickFlow(sceneRef.current, prev, dt));
+      }
       raf = requestAnimationFrame(loop);
     };
     raf = requestAnimationFrame(loop);
@@ -1429,6 +1506,149 @@ export default function SceneStudioInner() {
     setFlowState((prev) => flowStop(prev));
   }, [setScene]);
 
+  // ── Direct-mode scenario management (project-level) ─────────────────────
+  // Scenarios live on the project (they may sequence timelines from several
+  // scenes), so they're mutated via setProjectInternal, not setScene. The
+  // active scene's live flow is committed first so nothing is lost.
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState(null);
+  // Direct-mode playback is driven by a single global time (scrubbable). The
+  // flattened scenario timeline maps that time → which timeline + local time to
+  // preview (or a same-scene crossfade blend).
+  const [scenarioPlayhead, setScenarioPlayhead] = useState({ time: 0, playing: false });
+  const activeScenarioRef = useRef(null);
+  const scenarioTimelineRef = useRef({ segments: [], total: 0 });
+
+  const handleSelectScenario = useCallback((scenarioId) => {
+    setProjectInternal((prev) => setActiveScenario(prev, scenarioId));
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setScenarioPlayhead({ time: 0, playing: false });
+  }, []);
+
+  // Transport for the scenario playhead (▶ ⏸ ⏹). Play from the start when the
+  // playhead is parked at the end.
+  const handleScenarioTransport = useCallback((action) => {
+    setScenarioPlayhead((prev) => {
+      const total = scenarioTimelineRef.current.total || 0;
+      if (action === 'play') {
+        const atEnd = prev.time >= total - 1e-3;
+        return { time: atEnd ? 0 : prev.time, playing: true };
+      }
+      if (action === 'pause') return { ...prev, playing: false };
+      if (action === 'stop') return { time: 0, playing: false };
+      return prev;
+    });
+  }, []);
+
+  // Drag the scrubber → set the global time (pauses playback while scrubbing).
+  const handleScenarioScrub = useCallback((time) => {
+    setScenarioPlayhead(() => {
+      const total = scenarioTimelineRef.current.total || 0;
+      return { time: Math.max(0, Math.min(total, time)), playing: false };
+    });
+  }, []);
+
+  const handleAddScenario = useCallback(() => {
+    setProjectInternal((prev) => addScenario(commitCurrentSceneFlow(prev), `Scenario ${(prev.scenarios?.length || 0) + 1}`).project);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setScenarioPlayhead({ time: 0, playing: false });
+    log('Scene Studio: new scenario', 'ok');
+  }, [log]);
+
+  const handleDuplicateScenario = useCallback((scenarioId) => {
+    setProjectInternal((prev) => duplicateScenario(prev, scenarioId).project);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setScenarioPlayhead({ time: 0, playing: false });
+    log('Scene Studio: scenario duplicated', 'ok');
+  }, [log]);
+
+  const handleRenameScenario = useCallback((scenarioId, name) => {
+    setProjectInternal((prev) => renameScenario(prev, scenarioId, name));
+  }, []);
+
+  const handleRemoveScenario = useCallback((scenarioId) => {
+    setProjectInternal((prev) => removeScenario(prev, scenarioId));
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    setScenarioPlayhead({ time: 0, playing: false });
+  }, []);
+
+  /** Apply a node/edge mutation (fn: scenario → scenario) to the active scenario. */
+  const mutateActiveScenario = useCallback((fn) => {
+    setProjectInternal((prev) => {
+      const sc = getActiveScenario(prev);
+      if (!sc) return prev;
+      return updateScenario(prev, sc.id, fn);
+    });
+  }, []);
+
+  const handleAddTimelineNode = useCallback((sceneId, timelineId, x, y) => {
+    mutateActiveScenario((sc) => addTimelineNode(sc, sceneId, timelineId, x, y));
+  }, [mutateActiveScenario]);
+  const handleAddTimelineNodeUnderStart = useCallback((sceneId, timelineId) => {
+    mutateActiveScenario((sc) => addTimelineNodeUnderStart(sc, sceneId, timelineId));
+  }, [mutateActiveScenario]);
+  const handleScenarioConnect = useCallback((from, to) => {
+    mutateActiveScenario((sc) => scConnect(sc, from, to));
+  }, [mutateActiveScenario]);
+  const handleScenarioDisconnect = useCallback((edgeId) => {
+    mutateActiveScenario((sc) => scDisconnect(sc, edgeId));
+    setSelectedEdgeId((cur) => (cur === edgeId ? null : cur));
+  }, [mutateActiveScenario]);
+  // Delete an edge AND prune its source output pin (right-click / Delete on edge).
+  const handleScenarioDeleteEdge = useCallback((edgeId) => {
+    mutateActiveScenario((sc) => scDisconnectAndPrunePin(sc, edgeId));
+    setSelectedEdgeId((cur) => (cur === edgeId ? null : cur));
+  }, [mutateActiveScenario]);
+  const handleScenarioSetActiveEdge = useCallback((edgeId) => {
+    mutateActiveScenario((sc) => scSetActiveEdge(sc, edgeId));
+  }, [mutateActiveScenario]);
+  const handleScenarioRemoveNode = useCallback((nodeId) => {
+    mutateActiveScenario((sc) => scRemoveNode(sc, nodeId));
+    setSelectedNodeId((cur) => (cur === nodeId ? null : cur));
+  }, [mutateActiveScenario]);
+  const handleScenarioMoveNode = useCallback((nodeId, x, y) => {
+    mutateActiveScenario((sc) => scMoveNode(sc, nodeId, x, y));
+  }, [mutateActiveScenario]);
+  const handleScenarioAddOutputPin = useCallback((nodeId) => {
+    mutateActiveScenario((sc) => scAddOutputPin(sc, nodeId));
+  }, [mutateActiveScenario]);
+  const handleScenarioRemoveOutputPin = useCallback((nodeId, pinId) => {
+    mutateActiveScenario((sc) => scRemoveOutputPin(sc, nodeId, pinId));
+  }, [mutateActiveScenario]);
+  const handleScenarioSetNodeLabel = useCallback((nodeId, label) => {
+    mutateActiveScenario((sc) => scSetNodeLabel(sc, nodeId, label));
+  }, [mutateActiveScenario]);
+  const handleScenarioSetNodeEntry = useCallback((nodeId, patch) => {
+    mutateActiveScenario((sc) => scSetNodeEntry(sc, nodeId, patch));
+  }, [mutateActiveScenario]);
+  const handleScenarioSetEdgeTransition = useCallback((edgeId, patch) => {
+    mutateActiveScenario((sc) => scSetEdgeTransition(sc, edgeId, patch));
+  }, [mutateActiveScenario]);
+  const handleScenarioSetView = useCallback((view) => {
+    mutateActiveScenario((sc) => scSetView(sc, view));
+  }, [mutateActiveScenario]);
+
+  // Double-click a timeline row in Direct mode → open it in Animate mode: switch
+  // to its origin scene, make it the active timeline, and flip the studio mode.
+  const handleJumpToTimelineInAnimate = useCallback((sceneId, timelineId) => {
+    setProjectInternal((prev) => {
+      let p = commitCurrentSceneFlow(prev);
+      if (sceneId && sceneId !== p.activeSceneId) p = setActiveScene(p, sceneId);
+      const working = deriveWorkingScene(p);
+      const next = setActiveTimeline(working, timelineId);
+      return foldSceneIntoProject(p, next);
+    });
+    resetEditorStateForScene();
+    setAssetDescriptors({});
+    setStudioMode('animate');
+    studioModeRef.current = 'animate';
+    log('Scene Studio: editing timeline in animate mode', 'info');
+  }, [log]);
+
   const handlePickRoot = useCallback(async () => {
     setPickError(null);
     // Call the picker SYNCHRONOUSLY from the click event so the browser's
@@ -1628,6 +1848,59 @@ export default function SceneStudioInner() {
       }
     }
   }), [scene, flowState.time, flowState.playing, flowState.hold]);
+
+  // ── Direct-mode derived state ──────────────────────────────────────────
+  const activeScenario = useMemo(() => getActiveScenario(project), [project]);
+  activeScenarioRef.current = activeScenario;
+  const projectTimelines = useMemo(() => listProjectTimelines(project), [project]);
+
+  // Flattened, scrubbable scenario timeline (segments + total) — recomputed
+  // whenever the scenario or project changes, so the scrubber + preview follow.
+  const scenarioTimeline = useMemo(
+    () => buildScenarioTimeline(activeScenario, project),
+    [activeScenario, project]
+  );
+  scenarioTimelineRef.current = scenarioTimeline;
+
+  // Sample the timeline at the playhead → which segment/node is current (fx).
+  const scenarioSample = useMemo(
+    () => (studioMode === 'direct' ? sampleScenario(scenarioTimeline, scenarioPlayhead.time) : null),
+    [studioMode, scenarioTimeline, scenarioPlayhead.time]
+  );
+
+  // The preview scene + flowTime for the current playhead. `single` → the
+  // origin scene with its timeline's flow at localTime; `blend` → a baked
+  // same-scene crossfade pose (empty flow). Cross-scene crossfades degrade to
+  // a cut upstream in sampleScenario.
+  const directPreview = useMemo(() => {
+    if (studioMode !== 'direct' || !scenarioSample) return null;
+    const entry = (project.scenes || []).find((s) => s.id === scenarioSample.sceneId);
+    if (!entry?.data) return null;
+    const tls = entry.data.timelines || [];
+    if (scenarioSample.kind === 'blend') {
+      const outTl = tls.find((t) => t.id === scenarioSample.out.timelineId);
+      const inTl = tls.find((t) => t.id === scenarioSample.in.timelineId);
+      if (!outTl || !inTl) return null;
+      const scene = buildBlendedScene(
+        entry.data, project.assets || [],
+        outTl.tracks, scenarioSample.out.localTime,
+        inTl.tracks, scenarioSample.in.localTime,
+        scenarioSample.f, scenarioSample.channels
+      );
+      return { scene, flowTime: 0 };
+    }
+    const tl = tls.find((t) => t.id === scenarioSample.timelineId);
+    if (!tl) return null;
+    const scene = {
+      ...entry.data,
+      assets: project.assets || [],
+      flow: {
+        ...deriveFlowGraph({ tracks: tl.tracks, markers: tl.markers, nodes: [], edges: [] }),
+        runtime: { time: scenarioSample.localTime, playing: scenarioPlayhead.playing, hold: null }
+      }
+    };
+    return { scene, flowTime: scenarioSample.localTime };
+  }, [studioMode, scenarioSample, scenarioPlayhead.playing, project]);
 
   const selectedLayer = scene.layers.find((l) => l.id === selectedLayerId) || null;
   const selectedLayerAssetType = selectedLayer
@@ -2552,38 +2825,49 @@ export default function SceneStudioInner() {
           })}
         />
         <div className="scene-left-stack">
-          <HierarchyPanel
-            scene={scene}
-            selectedLayerId={selectedLayerId}
-            onSelect={handleSelectLayer}
-            onToggleVisibility={handleToggleVisibility}
-            onRemove={handleRemoveLayer}
-            onReorder={handleReorder}
-            onRenameScene={handleRename}
-          />
-          <AssetBrowserPanel
-            items={assetItems}
-            onAddItem={addAssetItemFromBrowser}
-            hasRoot={!!rootHandle}
-            onPickRoot={handlePickRoot}
-            onPickFolderFallback={handlePickFolderFallback}
-            busy={busy}
-            pickError={pickError}
-            onDismissPickError={() => setPickError(null)}
-            rootDropSupported
-            rootDropHover={rootDropHover}
-            onRootDragOver={handleRootDragOver}
-            onRootDragLeave={handleRootDragLeave}
-            onRootDrop={handleRootDrop}
-          />
+          {studioMode === 'direct' ? (
+            <ScenarioTimelineList
+              timelines={projectTimelines}
+              activeScenario={activeScenario}
+              onJumpToTimeline={handleJumpToTimelineInAnimate}
+              onAddNode={handleAddTimelineNodeUnderStart}
+            />
+          ) : (
+            <>
+              <HierarchyPanel
+                scene={scene}
+                selectedLayerId={selectedLayerId}
+                onSelect={handleSelectLayer}
+                onToggleVisibility={handleToggleVisibility}
+                onRemove={handleRemoveLayer}
+                onReorder={handleReorder}
+                onRenameScene={handleRename}
+              />
+              <AssetBrowserPanel
+                items={assetItems}
+                onAddItem={addAssetItemFromBrowser}
+                hasRoot={!!rootHandle}
+                onPickRoot={handlePickRoot}
+                onPickFolderFallback={handlePickFolderFallback}
+                busy={busy}
+                pickError={pickError}
+                onDismissPickError={() => setPickError(null)}
+                rootDropSupported
+                rootDropHover={rootDropHover}
+                onRootDragOver={handleRootDragOver}
+                onRootDragLeave={handleRootDragLeave}
+                onRootDrop={handleRootDrop}
+              />
+            </>
+          )}
         </div>
 
         <div
           ref={centerStackRef}
-          className={'scene-center-stack' + (studioMode === 'animate' ? '' : ' scene-center-stack--no-timeline')}
-          style={studioMode === 'animate' ? { gridTemplateRows: `1fr ${timelineH}px` } : undefined}
+          className={'scene-center-stack' + (studioMode === 'setup' ? ' scene-center-stack--no-timeline' : '')}
+          style={studioMode !== 'setup' ? { gridTemplateRows: `1fr ${timelineH}px` } : undefined}
         >
-          {studioMode === 'animate' && (
+          {studioMode !== 'setup' && (
             <div
               className="scene-resize-handle scene-resize-handle--row"
               style={{ bottom: timelineH, marginBottom: -4 }}
@@ -2599,18 +2883,26 @@ export default function SceneStudioInner() {
             />
           )}
           <div ref={dropRef} className="scene-viewport-wrap">
+            <button
+              className="scene-fullscreen-btn"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? 'Exit fullscreen (Esc)' : 'Fullscreen the scene view'}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen scene view'}
+            >
+              {isFullscreen ? '🗗' : '⛶'}
+            </button>
             <PixiErrorBoundary>
               <PixiViewport
                 ref={pixiViewportRef}
-                scene={sceneWithRuntime}
+                scene={studioMode === 'direct' && directPreview ? directPreview.scene : sceneWithRuntime}
                 rootHandle={rootHandle}
-                selectedLayerId={selectedLayerId}
-                selectedClip={selectedClipContext}
+                selectedLayerId={studioMode === 'direct' ? null : selectedLayerId}
+                selectedClip={studioMode === 'direct' ? null : selectedClipContext}
                 onSelectLayer={handleSelectLayer}
                 onTransformLayer={handleTransformLayer}
                 onAssetReady={handleAssetReady}
                 onSpinnerAnimDurations={handleSpinnerAnimDurations}
-                flowTime={flowState.time}
+                flowTime={studioMode === 'direct' && directPreview ? directPreview.flowTime : flowState.time}
                 livePreview={livePreview}
                 overlayMode={overlayMode}
                 studioMode={studioMode}
@@ -2628,7 +2920,7 @@ export default function SceneStudioInner() {
             )}
           </div>
 
-          {studioMode === 'animate' ? (
+          {studioMode === 'animate' && (
           <TimelinePanel
             scene={scene}
             flowState={flowState}
@@ -2660,31 +2952,81 @@ export default function SceneStudioInner() {
             onPatchFlow={patchFlow}
             onFlowAction={handleFlowAction}
           />
-          ) : null /* Setup mode hides the timeline panel entirely. */}
+          )}
+          {studioMode === 'direct' && (
+          <ScenarioGraphPanel
+            project={project}
+            scenario={activeScenario}
+            projectTimelines={projectTimelines}
+            timeline={scenarioTimeline}
+            time={scenarioPlayhead.time}
+            playing={scenarioPlayhead.playing}
+            onTransport={handleScenarioTransport}
+            onScrub={handleScenarioScrub}
+            selectedNodeId={selectedNodeId}
+            selectedEdgeId={selectedEdgeId}
+            onSelectScenario={handleSelectScenario}
+            onAddScenario={handleAddScenario}
+            onDuplicateScenario={handleDuplicateScenario}
+            onRenameScenario={handleRenameScenario}
+            onRemoveScenario={handleRemoveScenario}
+            onAddTimelineNode={handleAddTimelineNode}
+            onConnect={handleScenarioConnect}
+            onDisconnect={handleScenarioDisconnect}
+            onDeleteEdge={handleScenarioDeleteEdge}
+            onSetActiveEdge={handleScenarioSetActiveEdge}
+            onRemoveNode={handleScenarioRemoveNode}
+            onMoveNode={handleScenarioMoveNode}
+            onAddOutputPin={handleScenarioAddOutputPin}
+            onRemoveOutputPin={handleScenarioRemoveOutputPin}
+            onSetNodeLabel={handleScenarioSetNodeLabel}
+            onSetView={handleScenarioSetView}
+            onSelectNode={setSelectedNodeId}
+            onSelectEdge={setSelectedEdgeId}
+          />
+          )}
+          {/* Setup mode hides the bottom panel entirely. */}
         </div>
 
-        <InspectorPanel
-          scene={scene}
-          selectedLayerId={selectedLayerId}
-          selectedClip={selectedClipContext}
-          assetDescriptors={assetDescriptors}
-          flowTime={flowState.time}
-          selectedKey={selectedKey}
-          onSelectKey={handleSelectKey}
-          onDeleteKey={handleDeleteSelectedKeys}
-          onMoveKeyByFrame={handleMoveKeyByFrame}
-          onPatchLayer={handlePatchLayer}
-          onPatchTransform={handlePatchTransform}
-          onResetPortrait={handleResetPortrait}
-          onPatchFlow={patchFlow}
-          onFlowAction={handleFlowAction}
-          defaultTangentMode={defaultEase}
-          onSwapAsset={handleSwapLayerAsset}
-          onSwapAssetFromBrowserId={handleSwapLayerAssetFromBrowserId}
-          onPatchAsset={handlePatchAsset}
-          onEditSpinner={handleEditSpinner}
-          studioMode={studioMode}
-        />
+        {studioMode === 'direct' ? (
+          <ScenarioInspectorSections
+            scenario={activeScenario}
+            project={project}
+            selectedNodeId={selectedNodeId}
+            selectedEdgeId={selectedEdgeId}
+            onSetNodeLabel={handleScenarioSetNodeLabel}
+            onSetNodeEntry={handleScenarioSetNodeEntry}
+            onAddOutputPin={handleScenarioAddOutputPin}
+            onRemoveOutputPin={handleScenarioRemoveOutputPin}
+            onRemoveNode={handleScenarioRemoveNode}
+            onSetEdgeTransition={handleScenarioSetEdgeTransition}
+            onDeleteEdge={handleScenarioDeleteEdge}
+            onJumpToTimeline={handleJumpToTimelineInAnimate}
+          />
+        ) : (
+          <InspectorPanel
+            scene={scene}
+            selectedLayerId={selectedLayerId}
+            selectedClip={selectedClipContext}
+            assetDescriptors={assetDescriptors}
+            flowTime={flowState.time}
+            selectedKey={selectedKey}
+            onSelectKey={handleSelectKey}
+            onDeleteKey={handleDeleteSelectedKeys}
+            onMoveKeyByFrame={handleMoveKeyByFrame}
+            onPatchLayer={handlePatchLayer}
+            onPatchTransform={handlePatchTransform}
+            onResetPortrait={handleResetPortrait}
+            onPatchFlow={patchFlow}
+            onFlowAction={handleFlowAction}
+            defaultTangentMode={defaultEase}
+            onSwapAsset={handleSwapLayerAsset}
+            onSwapAssetFromBrowserId={handleSwapLayerAssetFromBrowserId}
+            onPatchAsset={handlePatchAsset}
+            onEditSpinner={handleEditSpinner}
+            studioMode={studioMode}
+          />
+        )}
       </div>
       {rootDropHover && (
         <div className="scene-root-drop-overlay">

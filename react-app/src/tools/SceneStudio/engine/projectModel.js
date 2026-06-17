@@ -7,9 +7,13 @@
 // + one file per scene (scaffold mode) — see engine/persist.js.
 
 import { createEmptyScene, validateScene, uid } from './sceneModel.js';
+import { validateScenarios } from './scenarioModel.js';
 
-export const PROJECT_SCHEMA = 'ygg-project/1';
-export const PROJECT_VERSION = 1;
+// ygg-project/2 adds top-level `scenarios[]` + `activeScenarioId` for Direct
+// mode (back-compat: absent = []). The validator matches on the `ygg-project/`
+// prefix, so older /1 files still load.
+export const PROJECT_SCHEMA = 'ygg-project/2';
+export const PROJECT_VERSION = 2;
 
 /** Strip the shared `assets` off a scene, returning just the per-scene data. */
 function splitScene(scene) {
@@ -39,6 +43,9 @@ export function createEmptyProject(name = 'Untitled project') {
     assets,
     scenes: [{ id: sceneId, name: data.name, file: null, variantOf: null, data }],
     activeSceneId: sceneId,
+    // Direct-mode scenarios are project-level (sequence timelines across scenes).
+    scenarios: [],
+    activeScenarioId: null,
     exports: {},
     meta: { createdAt: new Date().toISOString(), toolkitVersion: '0.0.0' }
   };
@@ -55,6 +62,8 @@ export function projectFromScene(scene, projectName) {
     assets,
     scenes: [{ id, name: data.name || 'Scene', file: scene.__file || null, variantOf: null, data }],
     activeSceneId: id,
+    scenarios: [],
+    activeScenarioId: null,
     exports: {},
     meta: { createdAt: new Date().toISOString(), toolkitVersion: '0.0.0' }
   };
@@ -135,6 +144,13 @@ export function validateProject(parsed) {
   project.activeSceneId = parsed.activeSceneId && scenes.some((s) => s.id === parsed.activeSceneId)
     ? parsed.activeSceneId
     : scenes[0].id;
+  // Direct-mode scenarios (project-level). Normalized but NOT pruned against the
+  // scene set — dangling timeline nodes survive and render with a "missing" badge.
+  project.scenarios = validateScenarios(parsed.scenarios);
+  project.activeScenarioId = parsed.activeScenarioId
+    && project.scenarios.some((sc) => sc.id === parsed.activeScenarioId)
+    ? parsed.activeScenarioId
+    : (project.scenarios[0]?.id || null);
   project.exports = parsed.exports || {};
   project.meta = { ...project.meta, ...(parsed.meta || {}) };
   return project;

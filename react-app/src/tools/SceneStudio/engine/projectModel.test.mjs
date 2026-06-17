@@ -102,6 +102,51 @@ test('project round-trips through validateProject', () => {
   assert.equal(reloaded.assets.length, 1);
 });
 
+test('project-level scenarios round-trip through validateProject', () => {
+  const base = projectFromScene(validateScene(legacyV1Scene()));
+  const withScenario = {
+    ...base,
+    scenarios: [{
+      id: 'SC1', name: 'Flow',
+      nodes: [
+        { id: 'n_s', type: 'start', x: 0, y: 0 },
+        { id: 'n_a', type: 'timeline', sceneId: base.activeSceneId, timelineId: 'TLx', outputs: ['o1'], x: 100, y: 0 },
+        { id: 'n_e', type: 'end', x: 200, y: 0 }
+      ],
+      edges: [{ id: 'e1', from: { node: 'n_s', pin: 'out' }, to: { node: 'n_a', pin: 'in' }, active: true }],
+      view: { panX: 0, panY: 0, zoom: 1 }
+    }],
+    activeScenarioId: 'SC1'
+  };
+  const json = JSON.parse(JSON.stringify({
+    $schema: PROJECT_SCHEMA, version: 2, name: withScenario.name,
+    assets: withScenario.assets,
+    scenes: withScenario.scenes.map((s) => ({ id: s.id, name: s.name, variantOf: s.variantOf, data: s.data })),
+    activeSceneId: withScenario.activeSceneId,
+    scenarios: withScenario.scenarios,
+    activeScenarioId: withScenario.activeScenarioId
+  }));
+  const reloaded = validateProject(json);
+  assert.equal(reloaded.scenarios.length, 1);
+  assert.equal(reloaded.activeScenarioId, 'SC1');
+  assert.equal(reloaded.scenarios[0].nodes.length, 3);
+  assert.equal(reloaded.scenarios[0].edges.length, 1);
+  assert.equal(reloaded.scenarios[0].edges[0].active, true);
+});
+
+test('absent scenarios default to [] (back-compat with ygg-project/1)', () => {
+  const base = projectFromScene(validateScene(legacyV1Scene()));
+  const json = JSON.parse(JSON.stringify({
+    $schema: 'ygg-project/1', version: 1, name: 'old',
+    assets: base.assets,
+    scenes: base.scenes.map((s) => ({ id: s.id, name: s.name, data: s.data })),
+    activeSceneId: base.activeSceneId
+  }));
+  const reloaded = validateProject(json);
+  assert.deepEqual(reloaded.scenarios, []);
+  assert.equal(reloaded.activeScenarioId, null);
+});
+
 test('duplicateSceneAsVariant records variantOf + fresh scene id', () => {
   const base = projectFromScene(validateScene(legacyV1Scene()));
   const srcId = base.activeSceneId;
