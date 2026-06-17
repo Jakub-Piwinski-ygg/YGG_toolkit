@@ -45,11 +45,21 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
   canvas resize — `PixiViewport`'s existing `ResizeObserver` refits the renderer
   when the wrap grows. Esc exits and syncs the icon.
 
+- **Direct (scenario) mode — third studio mode (2026-06-16)**: a Blueprint-style
+  node graph that sequences *animate*-authored **timelines** into a branching
+  **scenario** and plays the flow start→end in the same Pixi preview. Project-level
+  (`project.scenarios[]`, schema `ygg-project/2`); nodes bind to `{sceneId,
+  timelineId}`. Global-time **scrubbable** playback (`engine/scenarioTimeline.js` +
+  `sampleScenario`), same-scene crossfade rendering (`engine/scenarioBlend.js`), per-
+  source active-edge exclusivity, transition/entry inspector. P1–P4 shipped; Unity
+  `YggScenarioPlayer.cs` export is P5. Full design: [[Scene Studio Direct Mode]].
+
 ## Sub-objects & docs
 
 - [[Spinner Design]] — deterministic slot-machine Spinner object (Phase 5).
-- Full design: [[Scene Studio Design]].
+- Full design: [[Scene Studio Design]] · [[Scene Studio Direct Mode]] (scenario graph).
 - Sessions: [[Scene Studio Phase Status]], [[Next Phase Scene Tool]],
+  [[Session 2026-06-16 Scene Studio Direct Scenario Mode]],
   [[Session 2026-06-15 Scene Studio Keyframe Multiselect Timeline and Overlays]].
 - Unity export sessions: [[Spinner Unity Phase 2]] … [[Spinner Unity Phase 5]].
 

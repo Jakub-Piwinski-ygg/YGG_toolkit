@@ -3,7 +3,7 @@ type: session
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-06-15
+updated: 2026-06-16
 lang: en
 source: react-app/SCENE_STUDIO_PHASE_STATUS.md
 tags: [session, scene-studio, changelog, spinner, unity]
@@ -14,6 +14,31 @@ tags: [session, scene-studio, changelog, spinner, unity]
 > [!info] Translated from Polish
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
+
+## Direct (scenario) mode — third studio mode (2026-06-16) ✅
+
+A Blueprint-style node graph that sequences *animate* timelines into a branching
+**scenario** and plays the flow start→end in the same Pixi preview. P1–P4 shipped +
+a playback refit (commits `167dd3a`, `ddbedad`). Full write-up:
+[[Session 2026-06-16 Scene Studio Direct Scenario Mode]]; design: [[Scene Studio Direct Mode]].
+
+- **Project-level scenarios** — `project.scenarios[]` + `activeScenarioId`, schema
+  `ygg-project/2` (back-compat: absent = `[]`). Nodes bind to `{sceneId, timelineId}`;
+  dangling nodes kept + flagged. `engine/scenarioModel.js` (CRUD + `resolveWalk` +
+  `listProjectTimelines` + per-source active-edge exclusivity; tested).
+- **Graph UI** — `ScenarioGraphPanel` (canvas + transport + scrubber),
+  `ScenarioTimelineList` (drag source), `ScenarioInspectorSections` (summary / node /
+  edge-transition editors). Pan/zoom, node drag, pin drag-to-connect, Delete removal,
+  view + positions persisted.
+- **Playback refit** — the initial linear `scenarioRuntime.js` was **replaced** by a
+  global-time scrubbable model: `engine/scenarioTimeline.js` flattens the active-edge
+  walk into end-to-end segments, `sampleScenario(T)` maps global→local; preview swaps
+  to the node's **origin scene** (`directPreviewScene`). `engine/scenarioBlend.js`
+  renders **same-scene crossfades** (blends transform channels); cross-scene crossfades
+  cut at the midpoint. Per-timeline speed + startOffset honoured.
+- **Deferred (P5)** — auto-arrange, minimap, breadcrumb, edge-insert, `YggScenarioPlayer.cs`
+  + scenario payload in `.unitypackage`; wait-for-click + cross-scene crossfade preview;
+  Direct-mode undo (edits currently bypass the scene undo stack).
 
 ## Keyframe track redesign + deep zoom + resizable panels (2026-06-15) ✅
 
