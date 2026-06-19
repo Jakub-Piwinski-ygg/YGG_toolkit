@@ -894,6 +894,149 @@
       "origFormat": "png"
     },
     {
+      "slug": "crom-crack-seq",
+      "name": "Crom Crack (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "crack",
+        "burst"
+      ],
+      "type": "sequence",
+      "file": "effects/crom-crack-seq.zip",
+      "thumb": "effects/thumbs/crom-crack-seq.webp",
+      "w": 2048,
+      "h": 2048,
+      "bytes": 9162798,
+      "frames": 4,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
+      "slug": "crom-flash-seq",
+      "name": "Crom Flash (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "flash",
+        "bloom"
+      ],
+      "type": "sequence",
+      "file": "effects/crom-flash-seq.zip",
+      "thumb": "effects/thumbs/crom-flash-seq.webp",
+      "w": 2048,
+      "h": 2048,
+      "bytes": 17461109,
+      "frames": 8,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
+      "slug": "crom-flipbook-shock-1",
+      "name": "Crom Flipbook Shock 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "flipbook",
+        "shock",
+        "electric"
+      ],
+      "file": "effects/crom-flipbook-shock-1.png",
+      "thumb": "effects/thumbs/crom-flipbook-shock-1.webp",
+      "w": 4096,
+      "h": 4096,
+      "bytes": 9045026,
+      "origFormat": "png"
+    },
+    {
+      "slug": "crom-flipbook-shock-2",
+      "name": "Crom Flipbook Shock 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "flipbook",
+        "shock",
+        "electric"
+      ],
+      "file": "effects/crom-flipbook-shock-2.png",
+      "thumb": "effects/thumbs/crom-flipbook-shock-2.webp",
+      "w": 4096,
+      "h": 4096,
+      "bytes": 10950807,
+      "origFormat": "png"
+    },
+    {
+      "slug": "crom-shockwave-seq",
+      "name": "Crom Shockwave (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "shockwave",
+        "ring"
+      ],
+      "type": "sequence",
+      "file": "effects/crom-shockwave-seq.zip",
+      "thumb": "effects/thumbs/crom-shockwave-seq.webp",
+      "w": 2048,
+      "h": 2048,
+      "bytes": 32336576,
+      "frames": 12,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
+      "slug": "crom-sphere-seq",
+      "name": "Crom Sphere (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "sphere",
+        "ring"
+      ],
+      "type": "sequence",
+      "file": "effects/crom-sphere-seq.zip",
+      "thumb": "effects/thumbs/crom-sphere-seq.webp",
+      "w": 2048,
+      "h": 2048,
+      "bytes": 4236471,
+      "frames": 2,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
+      "slug": "crom-swirl-seq",
+      "name": "Crom Swirl (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "swirl",
+        "spiral"
+      ],
+      "type": "sequence",
+      "file": "effects/crom-swirl-seq.zip",
+      "thumb": "effects/thumbs/crom-swirl-seq.webp",
+      "w": 2048,
+      "h": 2048,
+      "bytes": 18388706,
+      "frames": 9,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
       "slug": "debris-3x3",
       "name": "Debris 3x3",
       "category": "effects",
@@ -8068,6 +8211,27 @@
       "frames": 14,
       "fps": 30,
       "origFormat": "tga"
+    },
+    {
+      "slug": "crom-trail-seq",
+      "name": "Crom Trail (sequence)",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (Crom)",
+      "tags": [
+        "crom",
+        "trail",
+        "smoke"
+      ],
+      "type": "sequence",
+      "file": "trails/crom-trail-seq.zip",
+      "thumb": "trails/thumbs/crom-trail-seq.webp",
+      "w": 1024,
+      "h": 1024,
+      "bytes": 1951605,
+      "frames": 2,
+      "fps": 30,
+      "origFormat": "png"
     },
     {
       "slug": "ghost-trail",

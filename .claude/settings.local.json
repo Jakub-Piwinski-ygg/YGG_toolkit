@@ -58,7 +58,8 @@
       "PowerShell(npx skills add tristanmanchester/agent-skills@designing-beautiful-websites -g -y)",
       "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/**)",
       "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/configs/**)",
-      "Bash(git rev-list *)"
+      "Bash(git rev-list *)",
+      "Bash(magick montage *)"
     ]
   }
 }
