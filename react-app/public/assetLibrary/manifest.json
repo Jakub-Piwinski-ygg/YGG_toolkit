@@ -469,6 +469,27 @@
       "origFormat": "tif"
     },
     {
+      "slug": "diamond-seq",
+      "name": "Diamond (sequence)",
+      "category": "coins",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "diamond",
+        "gem",
+        "spin"
+      ],
+      "type": "sequence",
+      "file": "coins/diamond-seq.zip",
+      "thumb": "coins/thumbs/diamond-seq.webp",
+      "w": 500,
+      "h": 500,
+      "bytes": 8805037,
+      "frames": 40,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
       "slug": "dollar-coin-seq",
       "name": "Dollar Coin",
       "category": "coins",
@@ -481,6 +502,22 @@
       "h": 1024,
       "bytes": 4315069,
       "frames": 30,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fc-coin-seq",
+      "name": "F&C Coin",
+      "category": "coins",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "type": "sequence",
+      "file": "coins/fc-coin-seq.zip",
+      "thumb": "coins/thumbs/fc-coin-seq.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 1280712,
+      "frames": 19,
       "fps": 30,
       "origFormat": "png"
     },
@@ -501,19 +538,52 @@
       "origFormat": "png"
     },
     {
-      "slug": "rg-coin-seq",
-      "name": "RG Coin",
-      "category": "coins",
+      "slug": "3ray-2",
+      "name": "3ray 2",
+      "category": "effects",
       "license": "ygg-internal",
-      "source": "Yggdrasil internal (Coins)",
-      "type": "sequence",
-      "file": "coins/rg-coin-seq.zip",
-      "thumb": "coins/thumbs/rg-coin-seq.webp",
-      "w": 1024,
-      "h": 1024,
-      "bytes": 14199628,
-      "frames": 50,
-      "fps": 30,
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/3ray-2.png",
+      "thumb": "effects/thumbs/3ray-2.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 428,
+      "origFormat": "png"
+    },
+    {
+      "slug": "4glow-13",
+      "name": "4glow 13",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/4glow-13.png",
+      "thumb": "effects/thumbs/4glow-13.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 52628,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6flare-15",
+      "name": "6flare 15",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/6flare-15.png",
+      "thumb": "effects/thumbs/6flare-15.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8750,
       "origFormat": "png"
     },
     {
@@ -540,6 +610,25 @@
       "w": 512,
       "h": 512,
       "bytes": 103360,
+      "origFormat": "png"
+    },
+    {
+      "slug": "basic-particles-seq",
+      "name": "Basic Particles (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "particles"
+      ],
+      "type": "sequence",
+      "file": "effects/basic-particles-seq.zip",
+      "thumb": "effects/thumbs/basic-particles-seq.webp",
+      "w": 200,
+      "h": 200,
+      "bytes": 190679,
+      "frames": 21,
+      "fps": 30,
       "origFormat": "png"
     },
     {
@@ -1186,6 +1275,26 @@
       "origFormat": "png"
     },
     {
+      "slug": "directional-particles-seq",
+      "name": "Directional Particles (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "particles",
+        "directional"
+      ],
+      "type": "sequence",
+      "file": "effects/directional-particles-seq.zip",
+      "thumb": "effects/thumbs/directional-particles-seq.webp",
+      "w": 93,
+      "h": 225,
+      "bytes": 114497,
+      "frames": 12,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
       "slug": "dollar-seq",
       "name": "Dollar",
       "category": "effects",
@@ -1329,6 +1438,159 @@
       "w": 512,
       "h": 512,
       "bytes": 58606,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-1",
+      "name": "Fire 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-1.png",
+      "thumb": "effects/thumbs/fire-1.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 22073,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-2",
+      "name": "Fire 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-2.png",
+      "thumb": "effects/thumbs/fire-2.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 106371,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-3",
+      "name": "Fire 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-3.png",
+      "thumb": "effects/thumbs/fire-3.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 63479,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-4",
+      "name": "Fire 4",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-4.png",
+      "thumb": "effects/thumbs/fire-4.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 60000,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-5",
+      "name": "Fire 5",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-5.png",
+      "thumb": "effects/thumbs/fire-5.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 62062,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-6",
+      "name": "Fire 6",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-6.png",
+      "thumb": "effects/thumbs/fire-6.webp",
+      "w": 64,
+      "h": 64,
+      "bytes": 4729,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-7",
+      "name": "Fire 7",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-7.png",
+      "thumb": "effects/thumbs/fire-7.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13543,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-8",
+      "name": "Fire 8",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-8.png",
+      "thumb": "effects/thumbs/fire-8.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8019,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fire-9",
+      "name": "Fire 9",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/fire-9.png",
+      "thumb": "effects/thumbs/fire-9.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 10728,
       "origFormat": "png"
     },
     {
@@ -1514,6 +1776,44 @@
       "origFormat": "png"
     },
     {
+      "slug": "fireworks-seq",
+      "name": "Fireworks (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fireworks",
+        "burst"
+      ],
+      "type": "sequence",
+      "file": "effects/fireworks-seq.zip",
+      "thumb": "effects/thumbs/fireworks-seq.webp",
+      "w": 1024,
+      "h": 1024,
+      "bytes": 13162778,
+      "frames": 36,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
+      "slug": "fireworks-spritesheet",
+      "name": "Fireworks Spritesheet (6x6)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fireworks",
+        "flipbook",
+        "spritesheet"
+      ],
+      "file": "effects/fireworks-spritesheet.png",
+      "thumb": "effects/thumbs/fireworks-spritesheet.webp",
+      "w": 4096,
+      "h": 4096,
+      "bytes": 3651377,
+      "origFormat": "png"
+    },
+    {
       "slug": "flamme-blur",
       "name": "Flamme Blur",
       "category": "effects",
@@ -1605,6 +1905,310 @@
       "origFormat": "png"
     },
     {
+      "slug": "flare-1",
+      "name": "Flare 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-1.png",
+      "thumb": "effects/thumbs/flare-1.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 14470,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-10",
+      "name": "Flare 10",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-10.png",
+      "thumb": "effects/thumbs/flare-10.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 11799,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-11",
+      "name": "Flare 11",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-11.png",
+      "thumb": "effects/thumbs/flare-11.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8388,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-13",
+      "name": "Flare 13",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-13.png",
+      "thumb": "effects/thumbs/flare-13.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 14268,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-15",
+      "name": "Flare 15",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-15.png",
+      "thumb": "effects/thumbs/flare-15.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 6751,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-16",
+      "name": "Flare 16",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-16.png",
+      "thumb": "effects/thumbs/flare-16.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15861,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-18",
+      "name": "Flare 18",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-18.png",
+      "thumb": "effects/thumbs/flare-18.webp",
+      "w": 256,
+      "h": 64,
+      "bytes": 2029,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-19",
+      "name": "Flare 19",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-19.png",
+      "thumb": "effects/thumbs/flare-19.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 17468,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-2",
+      "name": "Flare 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-2.png",
+      "thumb": "effects/thumbs/flare-2.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 12119,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-22",
+      "name": "Flare 22",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-22.png",
+      "thumb": "effects/thumbs/flare-22.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 22416,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-23",
+      "name": "Flare 23",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-23.png",
+      "thumb": "effects/thumbs/flare-23.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 34770,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-28",
+      "name": "Flare 28",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-28.png",
+      "thumb": "effects/thumbs/flare-28.webp",
+      "w": 256,
+      "h": 64,
+      "bytes": 6817,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-3",
+      "name": "Flare 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-3.png",
+      "thumb": "effects/thumbs/flare-3.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 14954,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-4",
+      "name": "Flare 4",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-4.png",
+      "thumb": "effects/thumbs/flare-4.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 22342,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-5",
+      "name": "Flare 5",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-5.png",
+      "thumb": "effects/thumbs/flare-5.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 14858,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-6",
+      "name": "Flare 6",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-6.png",
+      "thumb": "effects/thumbs/flare-6.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7561,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-7",
+      "name": "Flare 7",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-7.png",
+      "thumb": "effects/thumbs/flare-7.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 24105,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-8",
+      "name": "Flare 8",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-8.png",
+      "thumb": "effects/thumbs/flare-8.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 123102,
+      "origFormat": "png"
+    },
+    {
+      "slug": "flare-9",
+      "name": "Flare 9",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "flare"
+      ],
+      "file": "effects/flare-9.png",
+      "thumb": "effects/thumbs/flare-9.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13388,
+      "origFormat": "png"
+    },
+    {
       "slug": "flare14",
       "name": "Flare14",
       "category": "effects",
@@ -1667,6 +2271,586 @@
       "w": 512,
       "h": 512,
       "bytes": 34568,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glasses-glint-seq",
+      "name": "Glasses Glint (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glint",
+        "glasses"
+      ],
+      "type": "sequence",
+      "file": "effects/glasses-glint-seq.zip",
+      "thumb": "effects/thumbs/glasses-glint-seq.webp",
+      "w": 72,
+      "h": 34,
+      "bytes": 130945,
+      "frames": 29,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-1",
+      "name": "Glow 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-1.png",
+      "thumb": "effects/thumbs/glow-1.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7537,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-10",
+      "name": "Glow 10",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-10.png",
+      "thumb": "effects/thumbs/glow-10.webp",
+      "w": 416,
+      "h": 416,
+      "bytes": 32500,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-11",
+      "name": "Glow 11",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-11.png",
+      "thumb": "effects/thumbs/glow-11.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8547,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-12",
+      "name": "Glow 12",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-12.png",
+      "thumb": "effects/thumbs/glow-12.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 6800,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-13",
+      "name": "Glow 13",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-13.png",
+      "thumb": "effects/thumbs/glow-13.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 76593,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-14",
+      "name": "Glow 14",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-14.png",
+      "thumb": "effects/thumbs/glow-14.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 17540,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-15",
+      "name": "Glow 15",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-15.png",
+      "thumb": "effects/thumbs/glow-15.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 54681,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-16",
+      "name": "Glow 16",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-16.png",
+      "thumb": "effects/thumbs/glow-16.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15190,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-17",
+      "name": "Glow 17",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-17.png",
+      "thumb": "effects/thumbs/glow-17.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 5722,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-18",
+      "name": "Glow 18",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-18.png",
+      "thumb": "effects/thumbs/glow-18.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 8662,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-19",
+      "name": "Glow 19",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-19.png",
+      "thumb": "effects/thumbs/glow-19.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 63312,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-2",
+      "name": "Glow 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-2.png",
+      "thumb": "effects/thumbs/glow-2.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 9736,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-20",
+      "name": "Glow 20",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-20.png",
+      "thumb": "effects/thumbs/glow-20.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 8019,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-21",
+      "name": "Glow 21",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-21.png",
+      "thumb": "effects/thumbs/glow-21.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 50959,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-22",
+      "name": "Glow 22",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-22.png",
+      "thumb": "effects/thumbs/glow-22.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 48071,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-23",
+      "name": "Glow 23",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-23.png",
+      "thumb": "effects/thumbs/glow-23.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 16418,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-25",
+      "name": "Glow 25",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-25.png",
+      "thumb": "effects/thumbs/glow-25.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7195,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-26",
+      "name": "Glow 26",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-26.png",
+      "thumb": "effects/thumbs/glow-26.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 81306,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-27",
+      "name": "Glow 27",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-27.png",
+      "thumb": "effects/thumbs/glow-27.webp",
+      "w": 128,
+      "h": 256,
+      "bytes": 20713,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-28",
+      "name": "Glow 28",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-28.png",
+      "thumb": "effects/thumbs/glow-28.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13306,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-29",
+      "name": "Glow 29",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-29.png",
+      "thumb": "effects/thumbs/glow-29.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15326,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-3",
+      "name": "Glow 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-3.png",
+      "thumb": "effects/thumbs/glow-3.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 12308,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-30",
+      "name": "Glow 30",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-30.png",
+      "thumb": "effects/thumbs/glow-30.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8285,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-31",
+      "name": "Glow 31",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-31.png",
+      "thumb": "effects/thumbs/glow-31.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 25570,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-32",
+      "name": "Glow 32",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-32.png",
+      "thumb": "effects/thumbs/glow-32.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 17046,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-33",
+      "name": "Glow 33",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-33.png",
+      "thumb": "effects/thumbs/glow-33.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 14557,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-34",
+      "name": "Glow 34",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-34.png",
+      "thumb": "effects/thumbs/glow-34.webp",
+      "w": 64,
+      "h": 64,
+      "bytes": 6027,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-35",
+      "name": "Glow 35",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-35.png",
+      "thumb": "effects/thumbs/glow-35.webp",
+      "w": 130,
+      "h": 174,
+      "bytes": 10782,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-36",
+      "name": "Glow 36",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-36.png",
+      "thumb": "effects/thumbs/glow-36.webp",
+      "w": 77,
+      "h": 172,
+      "bytes": 5858,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-4",
+      "name": "Glow 4",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-4.png",
+      "thumb": "effects/thumbs/glow-4.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 10931,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-5",
+      "name": "Glow 5",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-5.png",
+      "thumb": "effects/thumbs/glow-5.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 10885,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-6",
+      "name": "Glow 6",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-6.png",
+      "thumb": "effects/thumbs/glow-6.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 10505,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-7",
+      "name": "Glow 7",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-7.png",
+      "thumb": "effects/thumbs/glow-7.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15833,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-8",
+      "name": "Glow 8",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-8.png",
+      "thumb": "effects/thumbs/glow-8.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15754,
+      "origFormat": "png"
+    },
+    {
+      "slug": "glow-9",
+      "name": "Glow 9",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "glow"
+      ],
+      "file": "effects/glow-9.png",
+      "thumb": "effects/thumbs/glow-9.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 6462,
       "origFormat": "png"
     },
     {
@@ -1839,6 +3023,975 @@
       "origFormat": "png"
     },
     {
+      "slug": "impact-1",
+      "name": "Impact 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-1.png",
+      "thumb": "effects/thumbs/impact-1.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 18105,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-10",
+      "name": "Impact 10",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-10.png",
+      "thumb": "effects/thumbs/impact-10.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 35903,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-11",
+      "name": "Impact 11",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-11.png",
+      "thumb": "effects/thumbs/impact-11.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7334,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-12",
+      "name": "Impact 12",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-12.png",
+      "thumb": "effects/thumbs/impact-12.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7910,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-13",
+      "name": "Impact 13",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-13.png",
+      "thumb": "effects/thumbs/impact-13.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 11346,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-14",
+      "name": "Impact 14",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-14.png",
+      "thumb": "effects/thumbs/impact-14.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 21534,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-15",
+      "name": "Impact 15",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-15.png",
+      "thumb": "effects/thumbs/impact-15.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 3027,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-16",
+      "name": "Impact 16",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-16.png",
+      "thumb": "effects/thumbs/impact-16.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 6887,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-17",
+      "name": "Impact 17",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-17.png",
+      "thumb": "effects/thumbs/impact-17.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 18757,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-18",
+      "name": "Impact 18",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-18.png",
+      "thumb": "effects/thumbs/impact-18.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 46533,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-19",
+      "name": "Impact 19",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-19.png",
+      "thumb": "effects/thumbs/impact-19.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 5076,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-2",
+      "name": "Impact 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-2.png",
+      "thumb": "effects/thumbs/impact-2.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 23672,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-20",
+      "name": "Impact 20",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-20.png",
+      "thumb": "effects/thumbs/impact-20.webp",
+      "w": 128,
+      "h": 256,
+      "bytes": 28939,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-21",
+      "name": "Impact 21",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-21.png",
+      "thumb": "effects/thumbs/impact-21.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 53105,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-22",
+      "name": "Impact 22",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-22.png",
+      "thumb": "effects/thumbs/impact-22.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 51878,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-23",
+      "name": "Impact 23",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-23.png",
+      "thumb": "effects/thumbs/impact-23.webp",
+      "w": 512,
+      "h": 128,
+      "bytes": 36508,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-24",
+      "name": "Impact 24",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-24.png",
+      "thumb": "effects/thumbs/impact-24.webp",
+      "w": 128,
+      "h": 256,
+      "bytes": 46773,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-25",
+      "name": "Impact 25",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-25.png",
+      "thumb": "effects/thumbs/impact-25.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 50337,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-26",
+      "name": "Impact 26",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-26.png",
+      "thumb": "effects/thumbs/impact-26.webp",
+      "w": 128,
+      "h": 512,
+      "bytes": 47463,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-27",
+      "name": "Impact 27",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-27.png",
+      "thumb": "effects/thumbs/impact-27.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 22802,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-28",
+      "name": "Impact 28",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-28.png",
+      "thumb": "effects/thumbs/impact-28.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 18720,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-29",
+      "name": "Impact 29",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-29.png",
+      "thumb": "effects/thumbs/impact-29.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13865,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-3",
+      "name": "Impact 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-3.png",
+      "thumb": "effects/thumbs/impact-3.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 29730,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-30",
+      "name": "Impact 30",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-30.png",
+      "thumb": "effects/thumbs/impact-30.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 8291,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-31",
+      "name": "Impact 31",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-31.png",
+      "thumb": "effects/thumbs/impact-31.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 26740,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-32",
+      "name": "Impact 32",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-32.png",
+      "thumb": "effects/thumbs/impact-32.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 14563,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-33",
+      "name": "Impact 33",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-33.png",
+      "thumb": "effects/thumbs/impact-33.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 27659,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-34",
+      "name": "Impact 34",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-34.png",
+      "thumb": "effects/thumbs/impact-34.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 54496,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-35",
+      "name": "Impact 35",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-35.png",
+      "thumb": "effects/thumbs/impact-35.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 6734,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-36",
+      "name": "Impact 36",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-36.png",
+      "thumb": "effects/thumbs/impact-36.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 4969,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-37",
+      "name": "Impact 37",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-37.png",
+      "thumb": "effects/thumbs/impact-37.webp",
+      "w": 128,
+      "h": 256,
+      "bytes": 29734,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-38",
+      "name": "Impact 38",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-38.png",
+      "thumb": "effects/thumbs/impact-38.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 11051,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-39",
+      "name": "Impact 39",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-39.png",
+      "thumb": "effects/thumbs/impact-39.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 65260,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-4",
+      "name": "Impact 4",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-4.png",
+      "thumb": "effects/thumbs/impact-4.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 18578,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-40",
+      "name": "Impact 40",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-40.png",
+      "thumb": "effects/thumbs/impact-40.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 14031,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-41",
+      "name": "Impact 41",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-41.png",
+      "thumb": "effects/thumbs/impact-41.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 23876,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-42",
+      "name": "Impact 42",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-42.png",
+      "thumb": "effects/thumbs/impact-42.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 17430,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-43",
+      "name": "Impact 43",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-43.png",
+      "thumb": "effects/thumbs/impact-43.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15283,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-44",
+      "name": "Impact 44",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-44.png",
+      "thumb": "effects/thumbs/impact-44.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 79229,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-45",
+      "name": "Impact 45",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-45.png",
+      "thumb": "effects/thumbs/impact-45.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13461,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-46",
+      "name": "Impact 46",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-46.png",
+      "thumb": "effects/thumbs/impact-46.webp",
+      "w": 512,
+      "h": 512,
+      "bytes": 176546,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-47",
+      "name": "Impact 47",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-47.png",
+      "thumb": "effects/thumbs/impact-47.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8601,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-48",
+      "name": "Impact 48",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-48.png",
+      "thumb": "effects/thumbs/impact-48.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 41265,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-49",
+      "name": "Impact 49",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-49.png",
+      "thumb": "effects/thumbs/impact-49.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 23113,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-5",
+      "name": "Impact 5",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-5.png",
+      "thumb": "effects/thumbs/impact-5.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 21047,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-50",
+      "name": "Impact 50",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-50.png",
+      "thumb": "effects/thumbs/impact-50.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 16828,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-51",
+      "name": "Impact 51",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-51.png",
+      "thumb": "effects/thumbs/impact-51.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 28880,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-52",
+      "name": "Impact 52",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-52.png",
+      "thumb": "effects/thumbs/impact-52.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13292,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-53",
+      "name": "Impact 53",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-53.png",
+      "thumb": "effects/thumbs/impact-53.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 4660,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-54",
+      "name": "Impact 54",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-54.png",
+      "thumb": "effects/thumbs/impact-54.webp",
+      "w": 386,
+      "h": 185,
+      "bytes": 32253,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-55",
+      "name": "Impact 55",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-55.png",
+      "thumb": "effects/thumbs/impact-55.webp",
+      "w": 400,
+      "h": 400,
+      "bytes": 57884,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-56",
+      "name": "Impact 56",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-56.png",
+      "thumb": "effects/thumbs/impact-56.webp",
+      "w": 768,
+      "h": 666,
+      "bytes": 276507,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-57",
+      "name": "Impact 57",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-57.png",
+      "thumb": "effects/thumbs/impact-57.webp",
+      "w": 768,
+      "h": 666,
+      "bytes": 58082,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-6",
+      "name": "Impact 6",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-6.png",
+      "thumb": "effects/thumbs/impact-6.webp",
+      "w": 512,
+      "h": 512,
+      "bytes": 138863,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-7",
+      "name": "Impact 7",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-7.png",
+      "thumb": "effects/thumbs/impact-7.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15980,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-8",
+      "name": "Impact 8",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-8.png",
+      "thumb": "effects/thumbs/impact-8.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 35421,
+      "origFormat": "png"
+    },
+    {
+      "slug": "impact-9",
+      "name": "Impact 9",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "impact",
+        "burst"
+      ],
+      "file": "effects/impact-9.png",
+      "thumb": "effects/thumbs/impact-9.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 36240,
+      "origFormat": "png"
+    },
+    {
       "slug": "impact2",
       "name": "Impact2",
       "category": "effects",
@@ -1901,6 +4054,26 @@
       "w": 512,
       "h": 1024,
       "bytes": 196981,
+      "origFormat": "png"
+    },
+    {
+      "slug": "lightning-seq",
+      "name": "Lightning (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "lightning",
+        "bolt"
+      ],
+      "type": "sequence",
+      "file": "effects/lightning-seq.zip",
+      "thumb": "effects/thumbs/lightning-seq.webp",
+      "w": 40,
+      "h": 114,
+      "bytes": 71813,
+      "frames": 18,
+      "fps": 30,
       "origFormat": "png"
     },
     {
@@ -2018,6 +4191,54 @@
       "w": 512,
       "h": 512,
       "bytes": 89946,
+      "origFormat": "png"
+    },
+    {
+      "slug": "particles-1",
+      "name": "Particles 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "particle"
+      ],
+      "file": "effects/particles-1.png",
+      "thumb": "effects/thumbs/particles-1.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 10209,
+      "origFormat": "png"
+    },
+    {
+      "slug": "particles-2",
+      "name": "Particles 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "particle"
+      ],
+      "file": "effects/particles-2.png",
+      "thumb": "effects/thumbs/particles-2.webp",
+      "w": 250,
+      "h": 250,
+      "bytes": 27748,
+      "origFormat": "png"
+    },
+    {
+      "slug": "particles-3",
+      "name": "Particles 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "particle"
+      ],
+      "file": "effects/particles-3.png",
+      "thumb": "effects/thumbs/particles-3.webp",
+      "w": 221,
+      "h": 241,
+      "bytes": 37954,
       "origFormat": "png"
     },
     {
@@ -2151,6 +4372,159 @@
       "w": 512,
       "h": 512,
       "bytes": 52569,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-1",
+      "name": "Ray 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-1.png",
+      "thumb": "effects/thumbs/ray-1.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 40057,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-2",
+      "name": "Ray 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-2.png",
+      "thumb": "effects/thumbs/ray-2.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 1143,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-3",
+      "name": "Ray 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-3.png",
+      "thumb": "effects/thumbs/ray-3.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 2408,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-4",
+      "name": "Ray 4",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-4.png",
+      "thumb": "effects/thumbs/ray-4.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 48604,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-5",
+      "name": "Ray 5",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-5.png",
+      "thumb": "effects/thumbs/ray-5.webp",
+      "w": 65,
+      "h": 65,
+      "bytes": 3453,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-6",
+      "name": "Ray 6",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-6.png",
+      "thumb": "effects/thumbs/ray-6.webp",
+      "w": 132,
+      "h": 132,
+      "bytes": 20518,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-7",
+      "name": "Ray 7",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-7.png",
+      "thumb": "effects/thumbs/ray-7.webp",
+      "w": 150,
+      "h": 150,
+      "bytes": 13551,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-8",
+      "name": "Ray 8",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-8.png",
+      "thumb": "effects/thumbs/ray-8.webp",
+      "w": 306,
+      "h": 256,
+      "bytes": 97997,
+      "origFormat": "png"
+    },
+    {
+      "slug": "ray-9",
+      "name": "Ray 9",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "ray",
+        "beam"
+      ],
+      "file": "effects/ray-9.png",
+      "thumb": "effects/thumbs/ray-9.webp",
+      "w": 250,
+      "h": 152,
+      "bytes": 37046,
       "origFormat": "png"
     },
     {
@@ -2427,6 +4801,57 @@
       "origFormat": "png"
     },
     {
+      "slug": "smoke-1",
+      "name": "Smoke 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/smoke-1.png",
+      "thumb": "effects/thumbs/smoke-1.webp",
+      "w": 768,
+      "h": 666,
+      "bytes": 392071,
+      "origFormat": "png"
+    },
+    {
+      "slug": "smoke-2",
+      "name": "Smoke 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/smoke-2.png",
+      "thumb": "effects/thumbs/smoke-2.webp",
+      "w": 768,
+      "h": 666,
+      "bytes": 445904,
+      "origFormat": "png"
+    },
+    {
+      "slug": "smoke-3",
+      "name": "Smoke 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "fire",
+        "smoke"
+      ],
+      "file": "effects/smoke-3.png",
+      "thumb": "effects/thumbs/smoke-3.webp",
+      "w": 768,
+      "h": 666,
+      "bytes": 608961,
+      "origFormat": "png"
+    },
+    {
       "slug": "smoke-cloud-corner",
       "name": "Smoke Cloud Corner",
       "category": "effects",
@@ -2596,6 +5021,27 @@
       "origFormat": "png"
     },
     {
+      "slug": "splash-seq",
+      "name": "Splash (sequence)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "splash",
+        "spark",
+        "burst"
+      ],
+      "type": "sequence",
+      "file": "effects/splash-seq.zip",
+      "thumb": "effects/thumbs/splash-seq.webp",
+      "w": 114,
+      "h": 114,
+      "bytes": 107077,
+      "frames": 15,
+      "fps": 30,
+      "origFormat": "png"
+    },
+    {
       "slug": "ss1",
       "name": "Ss1",
       "category": "effects",
@@ -2635,6 +5081,414 @@
       "origFormat": "png"
     },
     {
+      "slug": "star-1",
+      "name": "Star 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-1.png",
+      "thumb": "effects/thumbs/star-1.webp",
+      "w": 58,
+      "h": 62,
+      "bytes": 1324,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-10",
+      "name": "Star 10",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-10.png",
+      "thumb": "effects/thumbs/star-10.webp",
+      "w": 64,
+      "h": 64,
+      "bytes": 2771,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-11",
+      "name": "Star 11",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-11.png",
+      "thumb": "effects/thumbs/star-11.webp",
+      "w": 64,
+      "h": 64,
+      "bytes": 2714,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-12",
+      "name": "Star 12",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-12.png",
+      "thumb": "effects/thumbs/star-12.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 19126,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-13",
+      "name": "Star 13",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-13.png",
+      "thumb": "effects/thumbs/star-13.webp",
+      "w": 64,
+      "h": 64,
+      "bytes": 6261,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-13-1",
+      "name": "Star 13 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-13-1.png",
+      "thumb": "effects/thumbs/star-13-1.webp",
+      "w": 64,
+      "h": 64,
+      "bytes": 5524,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-14",
+      "name": "Star 14",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-14.png",
+      "thumb": "effects/thumbs/star-14.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 20094,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-15",
+      "name": "Star 15",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-15.png",
+      "thumb": "effects/thumbs/star-15.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13896,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-16",
+      "name": "Star 16",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-16.png",
+      "thumb": "effects/thumbs/star-16.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 4135,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-18",
+      "name": "Star 18",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-18.png",
+      "thumb": "effects/thumbs/star-18.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 13235,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-19",
+      "name": "Star 19",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-19.png",
+      "thumb": "effects/thumbs/star-19.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 50565,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-2",
+      "name": "Star 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-2.png",
+      "thumb": "effects/thumbs/star-2.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 4282,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-20",
+      "name": "Star 20",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-20.png",
+      "thumb": "effects/thumbs/star-20.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8707,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-21",
+      "name": "Star 21",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-21.png",
+      "thumb": "effects/thumbs/star-21.webp",
+      "w": 32,
+      "h": 32,
+      "bytes": 1405,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-22",
+      "name": "Star 22",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-22.png",
+      "thumb": "effects/thumbs/star-22.webp",
+      "w": 32,
+      "h": 32,
+      "bytes": 2135,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-3",
+      "name": "Star 3",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-3.png",
+      "thumb": "effects/thumbs/star-3.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 4601,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-3-1",
+      "name": "Star 3 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-3-1.png",
+      "thumb": "effects/thumbs/star-3-1.webp",
+      "w": 68,
+      "h": 68,
+      "bytes": 2411,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-4",
+      "name": "Star 4",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-4.png",
+      "thumb": "effects/thumbs/star-4.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7270,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-4-1",
+      "name": "Star 4 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-4-1.png",
+      "thumb": "effects/thumbs/star-4-1.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7156,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-5",
+      "name": "Star 5",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-5.png",
+      "thumb": "effects/thumbs/star-5.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 9358,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-6",
+      "name": "Star 6",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-6.png",
+      "thumb": "effects/thumbs/star-6.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 9974,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-7",
+      "name": "Star 7",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-7.png",
+      "thumb": "effects/thumbs/star-7.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 18394,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-8",
+      "name": "Star 8",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-8.png",
+      "thumb": "effects/thumbs/star-8.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 16034,
+      "origFormat": "png"
+    },
+    {
+      "slug": "star-9",
+      "name": "Star 9",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/star-9.png",
+      "thumb": "effects/thumbs/star-9.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 10268,
+      "origFormat": "png"
+    },
+    {
       "slug": "star-blurred",
       "name": "Star Blurred",
       "category": "effects",
@@ -2645,6 +5499,57 @@
       "w": 512,
       "h": 512,
       "bytes": 36085,
+      "origFormat": "png"
+    },
+    {
+      "slug": "stars-flare-1",
+      "name": "Stars Flare 1",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "flare"
+      ],
+      "file": "effects/stars-flare-1.png",
+      "thumb": "effects/thumbs/stars-flare-1.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15791,
+      "origFormat": "png"
+    },
+    {
+      "slug": "stars-flare-2",
+      "name": "Stars Flare 2",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "flare"
+      ],
+      "file": "effects/stars-flare-2.png",
+      "thumb": "effects/thumbs/stars-flare-2.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 8147,
+      "origFormat": "png"
+    },
+    {
+      "slug": "stars-star",
+      "name": "Star (main)",
+      "category": "effects",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "star",
+        "sparkle"
+      ],
+      "file": "effects/stars-star.png",
+      "thumb": "effects/thumbs/stars-star.webp",
+      "w": 60,
+      "h": 60,
+      "bytes": 4116,
       "origFormat": "png"
     },
     {
@@ -7903,6 +10808,182 @@
       "origFormat": "png"
     },
     {
+      "slug": "6texture-10",
+      "name": "6texture 10",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-10.png",
+      "thumb": "texture/thumbs/6texture-10.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 25738,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-11",
+      "name": "6texture 11",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-11.png",
+      "thumb": "texture/thumbs/6texture-11.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 92418,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-12",
+      "name": "6texture 12",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-12.png",
+      "thumb": "texture/thumbs/6texture-12.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 24341,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-13",
+      "name": "6texture 13",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-13.png",
+      "thumb": "texture/thumbs/6texture-13.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 69417,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-14",
+      "name": "6texture 14",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-14.png",
+      "thumb": "texture/thumbs/6texture-14.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 21042,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-15",
+      "name": "6texture 15",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-15.png",
+      "thumb": "texture/thumbs/6texture-15.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 30228,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-5",
+      "name": "6texture 5",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-5.png",
+      "thumb": "texture/thumbs/6texture-5.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 51232,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-6",
+      "name": "6texture 6",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-6.png",
+      "thumb": "texture/thumbs/6texture-6.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 7510,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-7",
+      "name": "6texture 7",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-7.png",
+      "thumb": "texture/thumbs/6texture-7.webp",
+      "w": 128,
+      "h": 256,
+      "bytes": 10440,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-8",
+      "name": "6texture 8",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-8.png",
+      "thumb": "texture/thumbs/6texture-8.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 23890,
+      "origFormat": "png"
+    },
+    {
+      "slug": "6texture-9",
+      "name": "6texture 9",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/6texture-9.png",
+      "thumb": "texture/thumbs/6texture-9.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 81358,
+      "origFormat": "png"
+    },
+    {
       "slug": "concrete-slab",
       "name": "Concrete Slab",
       "category": "texture",
@@ -7952,6 +11033,950 @@
       "w": 2048,
       "h": 2048,
       "bytes": 8322818,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-1",
+      "name": "Mesh 1",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-1.png",
+      "thumb": "texture/thumbs/mesh-1.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 79716,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-2",
+      "name": "Mesh 2",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-2.png",
+      "thumb": "texture/thumbs/mesh-2.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 71961,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-3",
+      "name": "Mesh 3",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-3.png",
+      "thumb": "texture/thumbs/mesh-3.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 131825,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-4",
+      "name": "Mesh 4",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-4.png",
+      "thumb": "texture/thumbs/mesh-4.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 89179,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-5",
+      "name": "Mesh 5",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-5.png",
+      "thumb": "texture/thumbs/mesh-5.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 75924,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-6",
+      "name": "Mesh 6",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-6.png",
+      "thumb": "texture/thumbs/mesh-6.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 70776,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-7",
+      "name": "Mesh 7",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-7.png",
+      "thumb": "texture/thumbs/mesh-7.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 122995,
+      "origFormat": "png"
+    },
+    {
+      "slug": "mesh-8",
+      "name": "Mesh 8",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/mesh-8.png",
+      "thumb": "texture/thumbs/mesh-8.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 88258,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-1",
+      "name": "Motion 1",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-1.png",
+      "thumb": "texture/thumbs/motion-1.webp",
+      "w": 512,
+      "h": 256,
+      "bytes": 79656,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-2",
+      "name": "Motion 2",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-2.png",
+      "thumb": "texture/thumbs/motion-2.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 43841,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-3",
+      "name": "Motion 3",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-3.png",
+      "thumb": "texture/thumbs/motion-3.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 15352,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-4",
+      "name": "Motion 4",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-4.png",
+      "thumb": "texture/thumbs/motion-4.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 20727,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-5",
+      "name": "Motion 5",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-5.png",
+      "thumb": "texture/thumbs/motion-5.webp",
+      "w": 512,
+      "h": 256,
+      "bytes": 79667,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-6",
+      "name": "Motion 6",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-6.png",
+      "thumb": "texture/thumbs/motion-6.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 14034,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-7",
+      "name": "Motion 7",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-7.png",
+      "thumb": "texture/thumbs/motion-7.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 22778,
+      "origFormat": "png"
+    },
+    {
+      "slug": "motion-8",
+      "name": "Motion 8",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/motion-8.png",
+      "thumb": "texture/thumbs/motion-8.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 16418,
+      "origFormat": "png"
+    },
+    {
+      "slug": "projectile-1",
+      "name": "Projectile 1",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/projectile-1.png",
+      "thumb": "texture/thumbs/projectile-1.webp",
+      "w": 64,
+      "h": 128,
+      "bytes": 10298,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-1",
+      "name": "Texture 1",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-1.png",
+      "thumb": "texture/thumbs/texture-1.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 40925,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-16",
+      "name": "Texture 16",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-16.png",
+      "thumb": "texture/thumbs/texture-16.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 23671,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-17",
+      "name": "Texture 17",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-17.png",
+      "thumb": "texture/thumbs/texture-17.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 14750,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-18",
+      "name": "Texture 18",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-18.png",
+      "thumb": "texture/thumbs/texture-18.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 79434,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-19",
+      "name": "Texture 19",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-19.png",
+      "thumb": "texture/thumbs/texture-19.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 21089,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-2",
+      "name": "Texture 2",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-2.png",
+      "thumb": "texture/thumbs/texture-2.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 92121,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-20",
+      "name": "Texture 20",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-20.png",
+      "thumb": "texture/thumbs/texture-20.webp",
+      "w": 64,
+      "h": 64,
+      "bytes": 9462,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-21",
+      "name": "Texture 21",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-21.png",
+      "thumb": "texture/thumbs/texture-21.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 21697,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-22",
+      "name": "Texture 22",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-22.png",
+      "thumb": "texture/thumbs/texture-22.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 20289,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-23",
+      "name": "Texture 23",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-23.png",
+      "thumb": "texture/thumbs/texture-23.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 25502,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-24",
+      "name": "Texture 24",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-24.png",
+      "thumb": "texture/thumbs/texture-24.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 91048,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-25",
+      "name": "Texture 25",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-25.png",
+      "thumb": "texture/thumbs/texture-25.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 19235,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-26",
+      "name": "Texture 26",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-26.png",
+      "thumb": "texture/thumbs/texture-26.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 100047,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-27",
+      "name": "Texture 27",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-27.png",
+      "thumb": "texture/thumbs/texture-27.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 85686,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-28",
+      "name": "Texture 28",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-28.png",
+      "thumb": "texture/thumbs/texture-28.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 19246,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-29",
+      "name": "Texture 29",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-29.png",
+      "thumb": "texture/thumbs/texture-29.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 18804,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-3",
+      "name": "Texture 3",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-3.png",
+      "thumb": "texture/thumbs/texture-3.webp",
+      "w": 512,
+      "h": 512,
+      "bytes": 679022,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-30",
+      "name": "Texture 30",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-30.png",
+      "thumb": "texture/thumbs/texture-30.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 58307,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-32",
+      "name": "Texture 32",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-32.png",
+      "thumb": "texture/thumbs/texture-32.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 17152,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-33",
+      "name": "Texture 33",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-33.png",
+      "thumb": "texture/thumbs/texture-33.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 84608,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-34",
+      "name": "Texture 34",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-34.png",
+      "thumb": "texture/thumbs/texture-34.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 27266,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-35",
+      "name": "Texture 35",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-35.png",
+      "thumb": "texture/thumbs/texture-35.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 51194,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-36",
+      "name": "Texture 36",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-36.png",
+      "thumb": "texture/thumbs/texture-36.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 27444,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-37",
+      "name": "Texture 37",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-37.png",
+      "thumb": "texture/thumbs/texture-37.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 82438,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-38",
+      "name": "Texture 38",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-38.png",
+      "thumb": "texture/thumbs/texture-38.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 23133,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-39",
+      "name": "Texture 39",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-39.png",
+      "thumb": "texture/thumbs/texture-39.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 73654,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-4",
+      "name": "Texture 4",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-4.png",
+      "thumb": "texture/thumbs/texture-4.webp",
+      "w": 512,
+      "h": 512,
+      "bytes": 612429,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-40",
+      "name": "Texture 40",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-40.png",
+      "thumb": "texture/thumbs/texture-40.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 21526,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-42",
+      "name": "Texture 42",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-42.png",
+      "thumb": "texture/thumbs/texture-42.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 78785,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-43",
+      "name": "Texture 43",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-43.png",
+      "thumb": "texture/thumbs/texture-43.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 45246,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-44",
+      "name": "Texture 44",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-44.png",
+      "thumb": "texture/thumbs/texture-44.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 50105,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-45",
+      "name": "Texture 45",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-45.png",
+      "thumb": "texture/thumbs/texture-45.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 44077,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-46",
+      "name": "Texture 46",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-46.png",
+      "thumb": "texture/thumbs/texture-46.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 95570,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-47",
+      "name": "Texture 47",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-47.png",
+      "thumb": "texture/thumbs/texture-47.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 44164,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-48",
+      "name": "Texture 48",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-48.png",
+      "thumb": "texture/thumbs/texture-48.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 88084,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-49",
+      "name": "Texture 49",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-49.png",
+      "thumb": "texture/thumbs/texture-49.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 57222,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-5",
+      "name": "Texture 5",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-5.png",
+      "thumb": "texture/thumbs/texture-5.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 65913,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-50",
+      "name": "Texture 50",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-50.png",
+      "thumb": "texture/thumbs/texture-50.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 31315,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-51",
+      "name": "Texture 51",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-51.png",
+      "thumb": "texture/thumbs/texture-51.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 33555,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-52",
+      "name": "Texture 52",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-52.png",
+      "thumb": "texture/thumbs/texture-52.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 123209,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-53",
+      "name": "Texture 53",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-53.png",
+      "thumb": "texture/thumbs/texture-53.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 122965,
+      "origFormat": "png"
+    },
+    {
+      "slug": "texture-54",
+      "name": "Texture 54",
+      "category": "texture",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "texture"
+      ],
+      "file": "texture/texture-54.png",
+      "thumb": "texture/thumbs/texture-54.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 26487,
       "origFormat": "png"
     },
     {
@@ -8244,6 +12269,703 @@
       "w": 512,
       "h": 256,
       "bytes": 12255,
+      "origFormat": "png"
+    },
+    {
+      "slug": "lightning-1",
+      "name": "Lightning 1",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/lightning-1.png",
+      "thumb": "trails/thumbs/lightning-1.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 35812,
+      "origFormat": "png"
+    },
+    {
+      "slug": "lightning-2",
+      "name": "Lightning 2",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/lightning-2.png",
+      "thumb": "trails/thumbs/lightning-2.webp",
+      "w": 256,
+      "h": 64,
+      "bytes": 21294,
+      "origFormat": "png"
+    },
+    {
+      "slug": "lightning-3",
+      "name": "Lightning 3",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/lightning-3.png",
+      "thumb": "trails/thumbs/lightning-3.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 27913,
+      "origFormat": "png"
+    },
+    {
+      "slug": "lightning-4",
+      "name": "Lightning 4",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/lightning-4.png",
+      "thumb": "trails/thumbs/lightning-4.webp",
+      "w": 1024,
+      "h": 128,
+      "bytes": 109904,
+      "origFormat": "png"
+    },
+    {
+      "slug": "lightning-5",
+      "name": "Lightning 5",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/lightning-5.png",
+      "thumb": "trails/thumbs/lightning-5.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 37537,
+      "origFormat": "png"
+    },
+    {
+      "slug": "lightning-6",
+      "name": "Lightning 6",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/lightning-6.png",
+      "thumb": "trails/thumbs/lightning-6.webp",
+      "w": 64,
+      "h": 128,
+      "bytes": 10204,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path",
+      "name": "Path",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path.png",
+      "thumb": "trails/thumbs/path.webp",
+      "w": 136,
+      "h": 256,
+      "bytes": 34651,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-1",
+      "name": "Path 1",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-1.png",
+      "thumb": "trails/thumbs/path-1.webp",
+      "w": 128,
+      "h": 256,
+      "bytes": 34253,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-10",
+      "name": "Path 10",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-10.png",
+      "thumb": "trails/thumbs/path-10.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 7301,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-11",
+      "name": "Path 11",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-11.png",
+      "thumb": "trails/thumbs/path-11.webp",
+      "w": 220,
+      "h": 66,
+      "bytes": 16842,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-12",
+      "name": "Path 12",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-12.png",
+      "thumb": "trails/thumbs/path-12.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 13002,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-13",
+      "name": "Path 13",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-13.png",
+      "thumb": "trails/thumbs/path-13.webp",
+      "w": 200,
+      "h": 88,
+      "bytes": 8641,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-14",
+      "name": "Path 14",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-14.png",
+      "thumb": "trails/thumbs/path-14.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 27727,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-15",
+      "name": "Path 15",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-15.png",
+      "thumb": "trails/thumbs/path-15.webp",
+      "w": 86,
+      "h": 64,
+      "bytes": 8506,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-16",
+      "name": "Path 16",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-16.png",
+      "thumb": "trails/thumbs/path-16.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 12507,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-17",
+      "name": "Path 17",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-17.png",
+      "thumb": "trails/thumbs/path-17.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 7532,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-18",
+      "name": "Path 18",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-18.png",
+      "thumb": "trails/thumbs/path-18.webp",
+      "w": 128,
+      "h": 32,
+      "bytes": 5350,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-19",
+      "name": "Path 19",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-19.png",
+      "thumb": "trails/thumbs/path-19.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 9707,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-2",
+      "name": "Path 2",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-2.png",
+      "thumb": "trails/thumbs/path-2.webp",
+      "w": 76,
+      "h": 128,
+      "bytes": 10576,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-20",
+      "name": "Path 20",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-20.png",
+      "thumb": "trails/thumbs/path-20.webp",
+      "w": 42,
+      "h": 200,
+      "bytes": 3165,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-20-1",
+      "name": "Path 20 1",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-20-1.png",
+      "thumb": "trails/thumbs/path-20-1.webp",
+      "w": 56,
+      "h": 212,
+      "bytes": 5062,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-20-2",
+      "name": "Path 20 2",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-20-2.png",
+      "thumb": "trails/thumbs/path-20-2.webp",
+      "w": 36,
+      "h": 114,
+      "bytes": 1519,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-20-3",
+      "name": "Path 20 3",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-20-3.png",
+      "thumb": "trails/thumbs/path-20-3.webp",
+      "w": 52,
+      "h": 120,
+      "bytes": 2503,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-21",
+      "name": "Path 21",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-21.png",
+      "thumb": "trails/thumbs/path-21.webp",
+      "w": 128,
+      "h": 64,
+      "bytes": 8081,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-21-1",
+      "name": "Path 21 1",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-21-1.png",
+      "thumb": "trails/thumbs/path-21-1.webp",
+      "w": 128,
+      "h": 64,
+      "bytes": 8917,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-21-2",
+      "name": "Path 21 2",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-21-2.png",
+      "thumb": "trails/thumbs/path-21-2.webp",
+      "w": 128,
+      "h": 64,
+      "bytes": 8093,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-22",
+      "name": "Path 22",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-22.png",
+      "thumb": "trails/thumbs/path-22.webp",
+      "w": 256,
+      "h": 256,
+      "bytes": 51001,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-23",
+      "name": "Path 23",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-23.png",
+      "thumb": "trails/thumbs/path-23.webp",
+      "w": 256,
+      "h": 64,
+      "bytes": 5976,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-24",
+      "name": "Path 24",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-24.png",
+      "thumb": "trails/thumbs/path-24.webp",
+      "w": 256,
+      "h": 64,
+      "bytes": 6070,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-25",
+      "name": "Path 25",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-25.png",
+      "thumb": "trails/thumbs/path-25.webp",
+      "w": 512,
+      "h": 128,
+      "bytes": 6713,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-26",
+      "name": "Path 26",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-26.png",
+      "thumb": "trails/thumbs/path-26.webp",
+      "w": 128,
+      "h": 128,
+      "bytes": 2204,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-27",
+      "name": "Path 27",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-27.png",
+      "thumb": "trails/thumbs/path-27.webp",
+      "w": 512,
+      "h": 128,
+      "bytes": 21071,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-28",
+      "name": "Path 28",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-28.png",
+      "thumb": "trails/thumbs/path-28.webp",
+      "w": 32,
+      "h": 256,
+      "bytes": 4929,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-29",
+      "name": "Path 29",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-29.png",
+      "thumb": "trails/thumbs/path-29.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 44947,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-3",
+      "name": "Path 3",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-3.png",
+      "thumb": "trails/thumbs/path-3.webp",
+      "w": 128,
+      "h": 256,
+      "bytes": 6216,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-4",
+      "name": "Path 4",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-4.png",
+      "thumb": "trails/thumbs/path-4.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 27606,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-5",
+      "name": "Path 5",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-5.png",
+      "thumb": "trails/thumbs/path-5.webp",
+      "w": 64,
+      "h": 128,
+      "bytes": 10246,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-6",
+      "name": "Path 6",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-6.png",
+      "thumb": "trails/thumbs/path-6.webp",
+      "w": 198,
+      "h": 64,
+      "bytes": 11366,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-7",
+      "name": "Path 7",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-7.png",
+      "thumb": "trails/thumbs/path-7.webp",
+      "w": 256,
+      "h": 128,
+      "bytes": 36114,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-8",
+      "name": "Path 8",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-8.png",
+      "thumb": "trails/thumbs/path-8.webp",
+      "w": 512,
+      "h": 128,
+      "bytes": 36844,
+      "origFormat": "png"
+    },
+    {
+      "slug": "path-9",
+      "name": "Path 9",
+      "category": "trails",
+      "license": "ygg-internal",
+      "source": "Yggdrasil internal (VFX sprite library)",
+      "tags": [
+        "trail",
+        "path"
+      ],
+      "file": "trails/path-9.png",
+      "thumb": "trails/thumbs/path-9.webp",
+      "w": 512,
+      "h": 128,
+      "bytes": 30265,
       "origFormat": "png"
     },
     {

@@ -59,7 +59,21 @@
       "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/**)",
       "Read(//c/c/Users/jakub.pi/YGG_toolkit/react-app/public/configs/**)",
       "Bash(git rev-list *)",
-      "Bash(magick montage *)"
+      "Bash(magick montage *)",
+      "Bash(node scripts/asset-library-add.mjs --validate)",
+      "Read(//c/c/Users/jakub.pi/YGG_toolkit/**)",
+      "Bash(mkdir -p /c/Users/jakub.pi/cs_tmp)",
+      "Bash(magick '/c/Users/jakub.pi/YGG_toolkit/Art to add in texture library/SPRITES/COINS/Chinese_Coin/Coin_flip_1.0010.tif' -resize 150x150 /c/Users/jakub.pi/cs_tmp/d_chi.png)",
+      "Bash(magick '/c/Users/jakub.pi/YGG_toolkit/Art to add in texture library/SPRITES/COINS/Dolar_Coin/Single_coin_00010.png' -resize 150x150 /c/Users/jakub.pi/cs_tmp/d_dol.png)",
+      "Bash(magick '/c/Users/jakub.pi/YGG_toolkit/Art to add in texture library/SPRITES/COINS/Generic_Coin/loop coin_10.png' -resize 150x150 /c/Users/jakub.pi/cs_tmp/d_gen.png)",
+      "Bash(magick /c/Users/jakub.pi/YGG_toolkit/react-app/public/assetLibrary/coins/thumbs/chinese-coin-seq.webp[5] -resize 150x150 /c/Users/jakub.pi/cs_tmp/l_chi.png)",
+      "Bash(magick identify *)",
+      "Bash(magick \"chinese-coin-seq.webp[0]\" -resize 100x100 /c/Users/jakub.pi/cs_tmp/test.png)",
+      "Bash(magick chinese-coin-seq.webp[3] -resize 150x150 /c/Users/jakub.pi/cs_tmp/l_chi.png)",
+      "Bash(magick dollar-coin-seq.webp[3] -resize 150x150 /c/Users/jakub.pi/cs_tmp/l_dol.png)",
+      "Bash(magick generic-coin-seq.webp[3] -resize 150x150 /c/Users/jakub.pi/cs_tmp/l_gen.png)",
+      "Bash(rm -rf /c/Users/jakub.pi/cs_tmp)",
+      "Bash(python -)"
     ]
   }
 }
