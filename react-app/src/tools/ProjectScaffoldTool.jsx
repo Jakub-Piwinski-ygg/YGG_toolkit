@@ -23,7 +23,7 @@ const BASE_ELEMENTS = [
 ];
 
 const COMMON_ELEMENTS = [
-  'BonusGame', 'Total_Win', 'Transition', 'Character',
+  'BonusGame', 'Total_Win', 'Anticipation_Spin', 'Character',
   'Free_Spin_Counter', 'Buttons', 'Special_Features', 'Coins'
 ];
 
@@ -32,7 +32,7 @@ const FONT_PNG_PRESETS = ['Win_Numbers', 'FS_Counter_Numbers', 'Multiplier_Numbe
 
 // Presets that pre-fill a subtree (still fully editable afterwards).
 const PRESET_DEFS = {
-  Intro_Outro: { children: ['Free_Spins_Intro', 'Bonus_Intro_Outro'] },
+  Intro_Outro: { children: ['Free_Spins_Intro', 'Bonus_Intro_Outro', 'Transition'] },
   Fonts: {
     fontVariant: true,
     autoArt: false, // fonts opt out of the standard Export/Source/preview leaf set
