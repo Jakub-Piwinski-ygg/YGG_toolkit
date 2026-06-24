@@ -19,20 +19,31 @@ export const projectScaffoldMeta = {
 
 const BASE_ELEMENTS = [
   'Background', 'Symbols', 'Machine_Frame', 'Win_Sequence', 'Logo',
-  'Splash', 'Preloader', 'Intro_Outro', 'Fonts'
+  'Splash', 'Preloader', 'Win_Ticker', 'Fonts'
 ];
 
 const COMMON_ELEMENTS = [
   'BonusGame', 'Total_Win', 'Anticipation_Spin', 'Character',
-  'Free_Spin_Counter', 'Buttons', 'Special_Features', 'Coins'
+  'Free_Spin_Counter', 'Buttons', 'Special_Features', 'Coins', 'Multiplier_Counter',
+  'Free_Spins_Intro_Outro', 'Bonus_Intro_Outro', 'Pick_a_Prize_Intro_Outro'
 ];
+
+// Common elements that nest under a shared parent folder. Selecting any of them
+// creates the parent group (if absent) with the child inside; selecting another
+// adds it to the same existing parent. Each child is a normal leaf feature.
+const GROUPED_ELEMENTS = {
+  Free_Spins_Intro_Outro:  'Intro_Outro',
+  Bonus_Intro_Outro:       'Intro_Outro',
+  Pick_a_Prize_Intro_Outro:'Intro_Outro',
+  Multiplier_Counter:      'Counters',
+  Free_Spin_Counter:       'Counters'
+};
 
 // Quick-add leaf folders made of PNG glyph sheets — surfaced under Fonts.
 const FONT_PNG_PRESETS = ['Win_Numbers', 'FS_Counter_Numbers', 'Multiplier_Numbers'];
 
 // Presets that pre-fill a subtree (still fully editable afterwards).
 const PRESET_DEFS = {
-  Intro_Outro: { children: ['Free_Spins_Intro', 'Bonus_Intro_Outro', 'Transition'] },
   Fonts: {
     fontVariant: true,
     autoArt: false, // fonts opt out of the standard Export/Source/preview leaf set
@@ -167,8 +178,8 @@ function topLevelHasName(nodes, name) {
 
 // Walk the tree → flat list of { relPath, rule } leaves in the Unity delivery
 // layout. Each leaf carries its FULL feature path (NN_ numbering on top-level +
-// every nesting level) so a nested feature like 08_Intro_Outro/Free_Spins_Intro
-// keeps its parents — it is routed to _Game/08_Intro_Outro/Free_Spins_Intro/…,
+// every nesting level) so a nested feature like 08_Intro_Outro/Free_Spins_Intro_Outro
+// keeps its parents — it is routed to _Game/08_Intro_Outro/Free_Spins_Intro_Outro/…,
 // never collapsed into a bare _Game/ bucket. relPath starts with a bucket
 // (_Game / _Source / _Previews) and keeps a trailing slash.
 function walkTree(tree) {
@@ -478,6 +489,33 @@ export function ProjectScaffoldTool() {
     setTree((t) => [...t, makePreset(/* preserve preset casing */ name, source)]);
   };
 
+  // Add a grouped common element: ensure its shared parent group exists, then
+  // nest the child inside it. Adding a second sibling reuses the same parent.
+  const addGrouped = (childName, parentName, source) => {
+    const childSlug = slugify(childName);
+    const parentSlug = slugify(parentName);
+    const parent = tree.find((n) => n.name.toLowerCase() === parentSlug.toLowerCase());
+    if (parent) {
+      if (parent.children?.some((c) => c.name.toLowerCase() === childSlug.toLowerCase())) {
+        log(`"${childSlug}" is already inside ${parentSlug}.`, 'err');
+        return;
+      }
+      setTree((t) => addChildTo(t, parent.id, makeNode(childName, { source })));
+      return;
+    }
+    const parentNode = makeNode(parentName, { source });
+    parentNode.children = [makeNode(childName, { source })];
+    setTree((t) => [...t, parentNode]);
+  };
+
+  // Is a grouped child already present under its parent?
+  const groupedPresent = (childName) => {
+    const parentSlug = slugify(GROUPED_ELEMENTS[childName]);
+    const childSlug = slugify(childName);
+    const parent = tree.find((n) => n.name.toLowerCase() === parentSlug.toLowerCase());
+    return !!parent?.children?.some((c) => c.name.toLowerCase() === childSlug.toLowerCase());
+  };
+
   const addCustomTop = () => {
     const slug = slugify(customDraft);
     if (!slug) return;
@@ -647,11 +685,22 @@ export function ProjectScaffoldTool() {
           ))}
         </div>
         <div className="ps-palette">
-          {COMMON_ELEMENTS.map((name) => (
-            <button key={name} className={`ps-chip ps-chip-common${presentTop(name) ? ' ps-chip-on' : ''}`} type="button" onClick={() => addTop(name, 'common')} disabled={presentTop(name)}>
-              {presentTop(name) ? '✓ ' : '+ '}{name}
-            </button>
-          ))}
+          {COMMON_ELEMENTS.map((name) => {
+            const grouped = GROUPED_ELEMENTS[name];
+            const present = grouped ? groupedPresent(name) : presentTop(name);
+            return (
+              <button
+                key={name}
+                className={`ps-chip ps-chip-common${present ? ' ps-chip-on' : ''}`}
+                type="button"
+                onClick={() => (grouped ? addGrouped(name, grouped, 'common') : addTop(name, 'common'))}
+                disabled={present}
+                title={grouped ? `Nested inside ${grouped}` : undefined}
+              >
+                {present ? '✓ ' : '+ '}{name}
+              </button>
+            );
+          })}
         </div>
         <div className="ps-add-row">
           <input
