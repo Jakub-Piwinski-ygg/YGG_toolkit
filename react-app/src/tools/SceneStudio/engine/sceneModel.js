@@ -7,7 +7,7 @@ import { SPINNER_ACTIONS, normalizeSpinnerClipPayload } from './spinner/spinnerM
 import { normalizeWinSeqClipPayload } from './winseq/winseqModel.js';
 
 /**
- * @typedef {'png' | 'spine' | 'video' | 'pngSequence' | 'spinner' | 'winseq'} AssetType
+ * @typedef {'png' | 'spine' | 'video' | 'pngSequence' | 'spinner' | 'winseq' | 'winnumber'} AssetType
  *
  * A `winseq` asset is a Spine skeleton (win_sequence.json + atlas + texture)
  * carrying a `winseq: WinSeqConfig` payload (see engine/winseq/winseqModel.js)
@@ -372,6 +372,9 @@ function normalizeLayer(layer, defaultCanvasId) {
     parentId: layer.parentId ?? null,
     assetId: layer.assetId,
     visible: layer.visible !== false,
+    // Locked layers (e.g. a win-number child of a win-sequence) can't be
+    // reparented or deleted on their own — they only move/go with their parent.
+    locked: layer.locked === true,
     blend: layer.blend || 'normal',
     transforms: {
       landscape: normalizeTransform(layer.transforms?.landscape),

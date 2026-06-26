@@ -3004,6 +3004,32 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 .winseq-preview-now { font-size: 11px; color: var(--text-1, #aab2c8); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .winseq-preview-time { font-size: 11px; color: var(--text-2, #6a7288); min-width: 90px; text-align: right; }
 
+/* ── Win-Number step (count-up display) ─────────────────────────────────── */
+.scene-field-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.scene-field-row > .scene-field { flex: 1 1 80px; min-width: 0; margin: 0; }
+/* Verify grid: the font atlas with the fixed 8×8 layout labels overlaid. */
+.winnum-glyph-grid {
+  display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1 / 1;
+  width: 100%; background-size: 100% 100%; background-repeat: no-repeat;
+  background-color: #0008; border: 1px solid var(--border, #2e3340); border-radius: 6px;
+}
+.winnum-glyph-cell {
+  position: relative; border: 1px solid #ffffff14;
+}
+.winnum-glyph-cell > span {
+  position: absolute; top: 1px; left: 2px; font-size: 9px; line-height: 1;
+  color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; opacity: 0.7;
+}
+.winnum-text-preview {
+  font-size: 28px; font-weight: 700; letter-spacing: 1px; text-align: center;
+  padding: 10px; color: #ffd45a; text-shadow: 0 1px 0 #0008;
+  background: #0006; border: 1px solid var(--border, #2e3340); border-radius: 6px;
+}
+/* Locked layer row (e.g. win-number child of a win sequence). */
+.scene-layer-row.locked { opacity: 0.92; }
+.scene-layer-row.locked .scene-layer-name { font-style: italic; }
+.scene-layer-lock { cursor: default; opacity: 0.6; }
+
 /* ── Embedded wizard dock (right column, full-focus) ────────────────────── */
 .scene-wizard-dock {
   height: 100%; min-height: 0; min-width: 0; overflow: hidden; display: flex;

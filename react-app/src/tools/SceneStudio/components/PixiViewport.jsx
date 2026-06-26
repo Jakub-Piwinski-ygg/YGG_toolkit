@@ -45,6 +45,10 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   sceneRef.current = scene;
   const livePreviewRef = useRef(livePreview);
   livePreviewRef.current = livePreview;
+  const flowTimeRef = useRef(flowTime);
+  flowTimeRef.current = flowTime;
+  const studioModeRef = useRef(studioMode);
+  studioModeRef.current = studioMode;
 
   // Latest values captured in refs so the controller (which closes over them
   // once) always sees fresh data.
@@ -301,6 +305,15 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         );
         if (myBuild === buildIdRef.current) {
           handlesRef.current = handles;
+          // Pose freshly-built objects at the current time immediately —
+          // otherwise a newly-added object (e.g. a win-number child entering
+          // the Number step) sits at its build state until the next scene/time
+          // change instead of following its bone / showing its value.
+          try {
+            syncTransforms(app, handles, sceneRef.current);
+            if (studioModeRef.current !== 'setup') applyFlowAtTime(handles, sceneRef.current, flowTimeRef.current);
+            if (app.renderer) app.render();
+          } catch { /* ignore */ }
           // Rotate blob-URL generations: the new build is live, so the previous
           // generation's URLs are dead — unload their cached textures + revoke.
           const prev = buildBlobUrlsRef.current;

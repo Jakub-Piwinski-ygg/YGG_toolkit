@@ -7,6 +7,9 @@
 // the per-clip payload normalizer, and the deterministic flow evaluator that
 // the Pixi runtime (winseqRuntime.js) and the wizard preview both drive.
 //
+// (Phase 2) An optional count-up `number` config rides along on the win-sequence
+// config (a bitmap-font win amount that follows a bone) — see winNumberModel.js.
+//
 // Naming convention (Yggdrasil): animations are `NNx_tier_sub`, e.g.
 //   01a_small_begin / 01b_small_idle / 01c_small_end
 //   02a_medium_begin … 03a_large_begin … 04a_big_begin …
@@ -20,6 +23,11 @@
  * produced when Design explicitly asks for them, so the wizard leaves them
  * disabled by default even when their animations exist on the skeleton.
  */
+// NOTE: circular with winNumberModel.js (it imports our winSeqStepDuration /
+// effectiveSteps). Safe — both sides only touch each other's exports at call
+// time, never during top-level module evaluation.
+import { normalizeWinNumber } from './winNumberModel.js';
+
 export const WIN_TIERS = [
   { key: 'small',  num: '01', label: 'Small',  optional: false },
   { key: 'medium', num: '02', label: 'Medium', optional: false },
@@ -239,6 +247,7 @@ export function normalizeWinSeqConfig(raw) {
     rev: Math.max(1, Math.round(Number(raw.rev) || 1)),
     tiers,
     sequences,
+    number: normalizeWinNumber(raw.number),
   };
 }
 
@@ -259,7 +268,7 @@ export function normalizeWinSeqClipPayload(raw) {
 // ── Flow helpers (duration + evaluation) ────────────────────────────────────
 
 /** Drop a trailing `_end` step (used when hangOnLastIdle is set). */
-function effectiveSteps(steps, hangOnLastIdle) {
+export function effectiveSteps(steps, hangOnLastIdle) {
   if (!hangOnLastIdle || !steps.length) return steps;
   const last = steps[steps.length - 1];
   return last.role === 'end' ? steps.slice(0, -1) : steps;

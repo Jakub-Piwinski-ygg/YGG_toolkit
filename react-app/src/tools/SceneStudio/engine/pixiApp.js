@@ -24,6 +24,9 @@ import { buildSpineFromUrls, loadSkeletonData, applySpineState, describeSpine, s
 import { buildSpinnerObject, applySpinnerAtTime } from './spinner/spinnerRuntime.js';
 import { applyWinSeqAtTime, resetWinSeqState, winSeqDurationsFromSpine } from './winseq/winseqRuntime.js';
 import { normalizeWinSeqConfig } from './winseq/winseqModel.js';
+import { normalizeWinNumber, isTemplateFont, templateFontUrl } from './winseq/winNumberModel.js';
+import { buildWinNumberContainer } from './winseq/winNumberView.js';
+import { applyWinNumberAtTime } from './winseq/winNumberRuntime.js';
 
 async function loadTextureFromUrl(url) {
   // Use Pixi v8 Assets.load — it returns a Texture whose `source.orig` is
@@ -425,6 +428,23 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       spine.__wsCache = { anim: null, loop: null };
       return spine;
     }
+    if (asset.type === 'winnumber') {
+      // The count-up win-number display. A child of its parent win-sequence
+      // layer (so its Pixi object lives under the Spine container). Config is
+      // the single source of truth on the PARENT winseq asset
+      // (parent.winseq.number); this asset stores none of its own.
+      const parent = (scene?.assets || []).find((a) => a.id === asset.parentAssetId && a.type === 'winseq');
+      const num = normalizeWinNumber(parent?.winseq?.number);
+      if (!num) return null;
+      const fontR = isTemplateFont(num.fontSrc) ? { url: templateFontUrl() } : await resolve(num.fontSrc);
+      if (!fontR) return null;
+      const baseTex = await loadTextureFromUrl(fontR.url);
+      const container = buildWinNumberContainer(baseTex.source, num);
+      container.__winnumber = { num, parentAssetId: asset.parentAssetId };
+      // Transform-code stub (matches the Spine/Sprite anchor contract).
+      if (!container.anchor) container.anchor = { x: 0, y: 0, set() {} };
+      return container;
+    }
     if (asset.type === 'video') {
       const resolved = await resolve(asset.src);
       if (!resolved) return null;
@@ -808,9 +828,13 @@ export function resizeRenderer(app, canvasW, canvasH) {
 export function syncTransforms(app, handles, scene) {
   if (!handles) return;
   const orientation = scene.stage.activeOrientation;
+  const assetTypeById = new Map((scene.assets || []).map((a) => [a.id, a.type]));
   for (const layer of scene.layers) {
     const obj = handles.get(layer.id);
     if (!obj || obj.destroyed) continue;
+    // Win-number layers are driven entirely by applyWinNumberAtTime (bone
+    // follow + user offset composed each frame) — don't fight it here.
+    if (assetTypeById.get(layer.assetId) === 'winnumber') { obj.visible = layer.visible !== false; continue; }
     obj.visible = layer.visible;
     const t = resolveTransform(layer, orientation);
     obj.x = t.x;
@@ -849,7 +873,10 @@ export function sceneStructuralHash(scene) {
     if (a.type === 'spine') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '');
     // Win-sequence objects are Spine-backed too — atlas/texture are structural,
     // and `rev` bumps on wizard re-runs (tier mapping / enabled set changed).
-    if (a.type === 'winseq') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '', 'rev', String(a.winseq?.rev ?? 1));
+    if (a.type === 'winseq') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '', 'rev', String(a.winseq?.rev ?? 1), 'num', a.winseq?.number?.fontSrc?.slice?.(0, 24) || '-');
+    // Win-number objects rebuild from their parent winseq's number config — the
+    // parent ref is structural so a re-parent / parent swap rebuilds the glyphs.
+    if (a.type === 'winnumber') parts.push('parent', a.parentAssetId || '-');
     // Spinner structural edits bump `rev` (wizard re-runs) — clip/timing
     // edits stay on the cheap apply path via the resolve-key memo.
     if (a.type === 'spinner') parts.push('rev', String(a.spinner?.rev ?? 1));
@@ -1007,6 +1034,23 @@ export function applyFlowAtTime(handles, scene, t) {
       continue;
     }
 
+    if (asset.type === 'winnumber' && obj.__winnumber) {
+      // Follows a bone on its parent winseq (processed earlier this pass, so
+      // __wsActive is current) + counts up. The user offset/scale comes from
+      // this layer's transform, composed on top of the bone follow.
+      const parentLayer = layer.parentId ? scene.layers.find((l) => l.id === layer.parentId) : null;
+      const parentObj = parentLayer ? handles.get(parentLayer.id) : null;
+      // Wizard Number-step override: a fixed sample value (read live from the
+      // scene so it needs no rebuild), else the live count-up.
+      const sampleOverride = typeof scene.winNumberPreview?.sample === 'number' ? scene.winNumberPreview.sample : null;
+      // Live config so cheap edits (glyph scale / spacing / format) re-layout the
+      // existing glyphs without a full scene rebuild.
+      const parentAsset = scene.assets.find((a) => a.id === obj.__winnumber.parentAssetId);
+      const liveNum = normalizeWinNumber(parentAsset?.winseq?.number);
+      applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation), sampleOverride, liveNum);
+      continue;
+    }
+
     if (asset.type === 'video' && obj.texture?.source?.resource?.source) {
       applyVideoClip(obj, tracks[0], t, runtimePlaying, runtimeHeld);
       applyPngChannels(obj, layer, tracks, t, orientation);
@@ -1049,6 +1093,9 @@ export function resetAnimationState(handles, scene) {
     if (obj.__winseq) {
       try { resetWinSeqState(obj); } catch { /* ignore */ }
     }
+    // The count-up number only exists while a win-sequence clip plays — hide it
+    // in setup so it doesn't linger at the skeleton origin showing "0".
+    if (obj.__winnumber) { obj.visible = false; obj.__lastStr = undefined; }
     const video = obj.texture?.source?.resource?.source;
     if (video && video.nodeName?.toLowerCase() === 'video') {
       try { video.pause(); } catch { /* ignore */ }

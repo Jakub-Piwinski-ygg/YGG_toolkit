@@ -117,6 +117,13 @@ import './styles/scene-studio.css';
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
 
+/** Zero-offset transforms for a bone-following child (e.g. a win-number layer).
+ *  The bone follow places it; this transform is just the user's tweak on top. */
+function zeroOffsetTransforms() {
+  const z = { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5], alpha: 1, tint: { r: 1, g: 1, b: 1 } };
+  return { landscape: z, portrait: null };
+}
+
 /**
  * Find a free [start, duration] window of `slotDuration` seconds at/after
  * `prefStart` that doesn't overlap any clip in `clips`, shrinking to fit if
@@ -954,28 +961,40 @@ export default function SceneStudioInner() {
         winseq: winseqConfig,
         meta: { originalName: name }
       };
+      const canvasId = prev.activeCanvasId || prev.canvases[0].id;
       const transforms = defaultTransformsForNewLayer(prev.stage);
-      return {
-        ...prev,
-        assets: [...prev.assets, asset],
-        layers: [...prev.layers, {
-          id: newLayerId,
-          name,
-          assetId: asset.id,
-          canvasId: prev.activeCanvasId || prev.canvases[0].id,
-          parentId: null,
-          visible: true,
-          blend: 'normal',
-          transforms
-        }]
-      };
+      const assets = [...prev.assets, asset];
+      const layers = [...prev.layers, {
+        id: newLayerId,
+        name,
+        assetId: asset.id,
+        canvasId,
+        parentId: null,
+        visible: true,
+        blend: 'normal',
+        transforms
+      }];
+      // When the wizard configured a count-up number, add its locked child
+      // (a `winnumber` asset + layer parented to the win-sequence layer). The
+      // child's transform is a zero offset — the bone follow places it; the
+      // transform is just the user's tweak on top.
+      if (winseqConfig?.number?.fontSrc) {
+        const numAsset = { id: uid('a'), type: 'winnumber', parentAssetId: asset.id, meta: { originalName: `${name} number` } };
+        assets.push(numAsset);
+        layers.push({
+          id: uid('L'), name: 'Win Number', assetId: numAsset.id,
+          canvasId, parentId: newLayerId, locked: true, visible: true, blend: 'normal',
+          transforms: zeroOffsetTransforms()
+        });
+      }
+      return { ...prev, assets, layers };
     });
     setSelectedLayerId(newLayerId);
     log(`Scene Studio: + win sequences "${name}"`, 'ok');
   }, [log]);
 
   // Re-open the win-sequence wizard pre-filled from an existing object.
-  const handleEditWinSeq = useCallback((layerId) => {
+  const handleEditWinSeq = useCallback((layerId, initialStep = null) => {
     const cur = sceneRef.current;
     const layer = cur.layers.find((l) => l.id === layerId);
     if (!layer) return;
@@ -990,15 +1009,15 @@ export default function SceneStudioInner() {
       config,
       name: asset.meta?.originalName || layer.name || 'Win Sequences',
       skeleton: { src: asset.src, atlas: asset.atlas, texture: asset.texture },
+      initialStep,
     });
   }, []);
 
   // Apply a wizard rebuild onto the existing winseq asset (and rename its layer).
   const handleUpdateWinSeq = useCallback((target, { name, winseqConfig, skeleton }) => {
     setEditWinSeqTarget(null);
-    setScene((prev) => ({
-      ...prev,
-      assets: prev.assets.map((a) =>
+    setScene((prev) => {
+      let assets = prev.assets.map((a) =>
         a.id === target.assetId
           ? {
               ...a,
@@ -1009,9 +1028,32 @@ export default function SceneStudioInner() {
               meta: { ...a.meta, originalName: name }
             }
           : a
-      ),
-      layers: prev.layers.map((l) => (l.id === target.layerId ? { ...l, name } : l)),
-    }));
+      );
+      let layers = prev.layers.map((l) => (l.id === target.layerId ? { ...l, name } : l));
+
+      // Reconcile the locked win-number child against the new config.
+      const childLayer = layers.find(
+        (l) => l.parentId === target.layerId &&
+          assets.find((a) => a.id === l.assetId)?.type === 'winnumber'
+      );
+      const wantsNumber = !!winseqConfig?.number?.fontSrc;
+      if (wantsNumber && !childLayer) {
+        const winseqLayer = layers.find((l) => l.id === target.layerId);
+        const numAsset = { id: uid('a'), type: 'winnumber', parentAssetId: target.assetId, meta: { originalName: `${name} number` } };
+        assets = [...assets, numAsset];
+        layers = [...layers, {
+          id: uid('L'), name: 'Win Number', assetId: numAsset.id,
+          canvasId: winseqLayer?.canvasId || prev.activeCanvasId, parentId: target.layerId,
+          locked: true, visible: true, blend: 'normal', transforms: zeroOffsetTransforms()
+        }];
+      } else if (!wantsNumber && childLayer) {
+        assets = assets.filter((a) => a.id !== childLayer.assetId);
+        layers = layers.filter((l) => l.id !== childLayer.id);
+      }
+      // (number present + child exists → leave the child; its glyphs rebuild via
+      // the winseq rev bump, and the user's offset/scale are preserved.)
+      return { ...prev, assets, layers };
+    });
     setSelectedLayerId(target.layerId);
     log(`Scene Studio: rebuilt win sequences "${name}"`, 'ok');
   }, [log]);
@@ -1348,6 +1390,11 @@ export default function SceneStudioInner() {
       if (idx < 0) return prev;
       const dragged = prev.layers[idx];
 
+      // Locked layers (e.g. a win-number child) can't be reparented/reordered,
+      // and nothing can be dropped *inside* one.
+      if (dragged.locked) return prev;
+      if (mode === 'inside' && prev.layers.find((l) => l.id === targetId)?.locked) return prev;
+
       if (mode === 'inside' && (targetId === draggedId || isDescendantOf(prev, draggedId, targetId))) return prev;
       if ((mode === 'above' || mode === 'below') && targetId === draggedId) return prev;
 
@@ -1487,24 +1534,40 @@ export default function SceneStudioInner() {
   }, [handlePatchLayer]);
 
   const handleRemoveLayer = useCallback((layerId) => {
+    let removedIds = null;
     setScene((prev) => {
       const layer = prev.layers.find((l) => l.id === layerId);
-      const assetId = layer?.assetId;
-      const remaining = prev.layers.filter((l) => l.id !== layerId);
-      const usedHere = remaining.some((l) => l.assetId === assetId);
-      // Assets are a project-level shared pool — only prune when NO other
-      // scene references the asset either, or we'd break those scenes.
-      const usedElsewhere = (projectRef.current.scenes || []).some((s) =>
-        s.id !== projectRef.current.activeSceneId
-        && (s.data?.layers || []).some((l) => l.assetId === assetId)
-      );
-      return {
-        ...prev,
-        layers: remaining,
-        assets: (usedHere || usedElsewhere) ? prev.assets : prev.assets.filter((a) => a.id !== assetId)
-      };
+      if (!layer) return prev;
+      // A locked layer (e.g. a win-number child) can't be deleted on its own —
+      // it only goes when its parent does (handled below by the cascade).
+      if (layer.locked) return prev;
+
+      // Collect this layer + all its descendants (a win-sequence takes its
+      // locked number child with it).
+      const ids = new Set([layerId]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const l of prev.layers) {
+          if (!ids.has(l.id) && l.parentId && ids.has(l.parentId)) { ids.add(l.id); grew = true; }
+        }
+      }
+      removedIds = ids;
+      const remaining = prev.layers.filter((l) => !ids.has(l.id));
+      const removedAssetIds = new Set(prev.layers.filter((l) => ids.has(l.id)).map((l) => l.assetId));
+      // Assets are a project-level shared pool — only prune one when NO surviving
+      // layer here references it AND no other scene does.
+      const assets = prev.assets.filter((a) => {
+        if (!removedAssetIds.has(a.id)) return true;
+        const usedHere = remaining.some((l) => l.assetId === a.id);
+        const usedElsewhere = (projectRef.current.scenes || []).some((s) =>
+          s.id !== projectRef.current.activeSceneId
+          && (s.data?.layers || []).some((l) => l.assetId === a.id));
+        return usedHere || usedElsewhere;
+      });
+      return { ...prev, layers: remaining, assets };
     });
-    setSelectedLayerId((cur) => (cur === layerId ? null : cur));
+    setSelectedLayerId((cur) => (cur && removedIds?.has(cur) ? null : cur));
   }, []);
 
   const handleToggleOrientation = useCallback(() => {
@@ -3209,6 +3272,7 @@ export default function SceneStudioInner() {
                 existingConfig={editWinSeqTarget?.config || null}
                 existingName={editWinSeqTarget?.name || null}
                 existingSkeleton={editWinSeqTarget?.skeleton || null}
+                initialStep={editWinSeqTarget?.initialStep || null}
                 onPreviewScene={setWizardPreviewScene}
                 onPreviewTime={setWizardPreviewTime}
                 onClose={() => { setShowWinSeqWizard(false); setEditWinSeqTarget(null); }}

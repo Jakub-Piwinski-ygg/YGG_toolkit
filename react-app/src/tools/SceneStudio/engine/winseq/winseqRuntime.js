@@ -59,16 +59,25 @@ export function applyWinSeqAtTime(obj, layer, tracks, t) {
     clip = lastClipAt(track, t);
     holding = true;
   }
-  if (!clip) { clearTrack(obj, cache); return; }
+  if (!clip) { clearTrack(obj, cache); obj.__wsActive = null; return; }
 
   const payload = clip.winseq || {};
   const flow = findWinSeqFlow(config, payload.sequenceId);
-  if (!flow) { clearTrack(obj, cache); return; }
+  if (!flow) { clearTrack(obj, cache); obj.__wsActive = null; return; }
 
   // Clip-local time; when holding past the clip end, freeze at the last frame.
   const localRaw = holding ? (clip.duration - 1e-4) : (t - clip.start);
   const ev = evaluateWinSeqFlow(flow, durations, localRaw, { hangOnLastIdle: payload.hangOnLastIdle === true });
-  if (!ev) { clearTrack(obj, cache); return; }
+  if (!ev) { clearTrack(obj, cache); obj.__wsActive = null; return; }
+
+  // Publish the driving context so a child win-number layer (processed later in
+  // the same applyFlowAtTime pass) can follow the bone + count up at this time.
+  obj.__wsActive = {
+    flow,
+    durations,
+    localT: localRaw,
+    hangOnLastIdle: payload.hangOnLastIdle === true,
+  };
 
   if (cache.anim !== ev.anim || cache.loop !== ev.loop) {
     try { obj.state.setAnimation(0, ev.anim, ev.loop); }
@@ -99,5 +108,6 @@ export function resetWinSeqState(obj) {
   } catch { /* ignore */ }
   cache.anim = null;
   cache.loop = null;
+  obj.__wsActive = null;
   try { obj.update?.(0); } catch { /* ignore */ }
 }

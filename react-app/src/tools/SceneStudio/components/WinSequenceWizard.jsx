@@ -35,6 +35,15 @@ import {
   findWinSeqFlow,
   winSeqStepDuration,
 } from '../engine/winseq/winseqModel.js';
+import {
+  WIN_CURRENCIES,
+  DEFAULT_CHAR_LAYOUT,
+  TEMPLATE_FONT_ID,
+  isTemplateFont,
+  templateFontUrl,
+  formatWinNumber,
+  winNumberValueAt,
+} from '../engine/winseq/winNumberModel.js';
 import { hash32 } from '../engine/spinner/spinnerModel.js';
 
 /**
@@ -42,7 +51,7 @@ import { hash32 } from '../engine/spinner/spinnerModel.js';
  * wizard is open: one centered winseq layer + a single clip playing the
  * selected flow. Returns { scene, total } (total = flow length in seconds).
  */
-function buildWinSeqPreviewScene(skeleton, winseqConfig, flowId, durations, projectRoot = null) {
+function buildWinSeqPreviewScene(skeleton, winseqConfig, flowId, durations, projectRoot = null, showNumber = false, numberSample = null) {
   const config = normalizeWinSeqConfig(winseqConfig);
   if (!config || !skeleton?.src) return { scene: null, total: 1 };
   const flow = findWinSeqFlow(config, flowId);
@@ -65,6 +74,19 @@ function buildWinSeqPreviewScene(skeleton, winseqConfig, flowId, durations, proj
     canvasId: 'wprev_canvas', parentId: null, visible: true, blend: 'normal',
     transforms: defaultTransformsForNewLayer(base.stage)
   }];
+  // Show the number child only on the Number/Sequences steps (not Skeleton).
+  // `numberSample` (set on the Number step) makes it show a fixed value; on the
+  // Sequences step it's null → the live count-up. Read live from the scene by
+  // the runtime, so no rebuild is needed when only the sample changes.
+  if (showNumber && winseqConfig?.number?.fontSrc) {
+    base.assets.push({ id: 'wprev_num', type: 'winnumber', parentAssetId: assetId, meta: { originalName: 'number' } });
+    base.layers.push({
+      id: 'wprev_num_layer', name: 'Win Number', assetId: 'wprev_num',
+      canvasId: 'wprev_canvas', parentId: layerId, locked: true, visible: true, blend: 'normal',
+      transforms: { landscape: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5], alpha: 1, tint: { r: 1, g: 1, b: 1 } }, portrait: null }
+    });
+    base.winNumberPreview = (typeof numberSample === 'number') ? { sample: numberSample } : null;
+  }
   base.stage = { ...base.stage, duration: Math.max(base.stage.duration, total) };
   const track = normalizeTrack({
     id: 'wprev_track', layerId,
@@ -75,10 +97,44 @@ function buildWinSeqPreviewScene(skeleton, winseqConfig, flowId, durations, proj
   return { scene: base, total };
 }
 
-const STEPS = ['skeleton', 'sequences'];
-const STEP_LABELS = { skeleton: '1. Skeleton', sequences: '2. Sequences' };
+const STEPS = ['skeleton', 'number', 'sequences'];
+const STEP_LABELS = { skeleton: '1. Skeleton', number: '2. Number', sequences: '3. Sequences preview' };
 
 const isDirectUrl = (src) => /^(blob:|data:|https?:)/.test(String(src || ''));
+
+/** Heuristic for an auto-detectable win-number font png (mirrors looksLikeWinSeq). */
+function looksLikeFont(s) {
+  return /(^|[_\-\s])(win|font|number|num)([_\-\s]|$)/i.test(String(s || ''));
+}
+
+/** A fresh number config (Number step skipped → fontSrc stays null). */
+function defaultNumberConfig() {
+  return {
+    fontSrc: null, cell: 256, cols: 8, rows: 8, charLayout: DEFAULT_CHAR_LAYOUT,
+    letterSpacing: 0, glyphScale: 1, baselineOffset: 0, align: 'center',
+    currency: '$', currencyPosition: 'prefix', decimalSep: '.', decimals: 2, boneName: '', wager: 1,
+  };
+}
+
+/** The fixed sample value shown in the wizard's Number-step scene preview. */
+const NUMBER_PREVIEW_SAMPLE = 2137;
+
+/**
+ * Time (s) landing in the MIDDLE of a flow's final idle — the begin frame often
+ * has the TEXT_ bone scaled to 0 (invisible), so the Number-step preview poses
+ * on the idle instead. Uses the same per-step durations as the runtime.
+ */
+function flowMidIdleTime(flow, durations) {
+  if (!flow?.steps?.length) return 0;
+  let lastIdle = -1;
+  for (let i = flow.steps.length - 1; i >= 0; i--) {
+    if (flow.steps[i].role === 'idle') { lastIdle = i; break; }
+  }
+  if (lastIdle < 0) return 0;
+  let t = 0;
+  for (let i = 0; i < lastIdle; i++) t += winSeqStepDuration(flow.steps[i].anim, durations);
+  return t + winSeqStepDuration(flow.steps[lastIdle].anim, durations) * 0.5;
+}
 
 /** Resolve a stored src (relative path / data url) to a fetchable URL. */
 async function resolveOne(src, rootHandle) {
@@ -91,6 +147,16 @@ async function resolveOne(src, rootHandle) {
 
 function looksLikeWinSeq(s) {
   return /win[_\- ]?seq|win[_\- ]?sequence|winsequence/i.test(String(s || ''));
+}
+
+/** Base file name without path or extension, lowercased. */
+function baseNameNoExt(s) {
+  return String(s || '').split(/[\\/]/).pop()
+    .replace(/\.atlas\.txt$/i, '').replace(/\.(json|atlas|png)$/i, '').toLowerCase();
+}
+/** Exact `win_sequence` skeleton (preferred over any fuzzy name match). */
+function isExactWinSeq(s) {
+  return baseNameNoExt(s) === 'win_sequence';
 }
 
 // ── Sequence preview (renderer-free) ─────────────────────────────────────────
@@ -196,10 +262,10 @@ function WinSeqPreview({ flow, durations, onTime }) {
 export function WinSequenceWizard({
   scene, assetItems, rootHandle, onClose, onCreate,
   existingConfig = null, existingName = null, existingSkeleton = null,
-  embedded = false, onPreviewScene, onPreviewTime,
+  embedded = false, onPreviewScene, onPreviewTime, initialStep = null,
 }) {
   const isEdit = !!existingConfig;
-  const [step, setStep] = useState('skeleton');
+  const [step, setStep] = useState(STEPS.includes(initialStep) ? initialStep : 'skeleton');
   const [name, setName] = useState(existingName || 'Win Sequences');
 
   // Skeleton candidate pool: scene spine/winseq assets + project-scanned spines.
@@ -229,8 +295,11 @@ export function WinSequenceWizard({
       const match = skeletonPool.find((e) => e.src === existingSkeleton.src);
       if (match) return match.id;
     }
+    // Prefer the exact `win_sequence` skeleton; only then fall back to a fuzzy
+    // name match (win_seq / total_win etc.), then the first available.
+    const exact = skeletonPool.find((e) => isExactWinSeq(e.label) || isExactWinSeq(e.src));
     const named = skeletonPool.find((e) => looksLikeWinSeq(e.label) || looksLikeWinSeq(e.src));
-    return named?.id || skeletonPool[0]?.id || null;
+    return exact?.id || named?.id || skeletonPool[0]?.id || null;
   });
 
   const selectedEntry = useMemo(() => {
@@ -245,7 +314,15 @@ export function WinSequenceWizard({
   const [loadError, setLoadError] = useState(null);
   const [animNames, setAnimNames] = useState([]);
   const [durations, setDurations] = useState({});
+  const [boneNames, setBoneNames] = useState([]);
   const [tiers, setTiers] = useState(existingConfig?.tiers || []);
+
+  // ── Number (count-up display) — step 2, fully skippable ──────────────────
+  const [skipNumber, setSkipNumber] = useState(!existingConfig?.number?.fontSrc);
+  const [num, setNum] = useState(() => ({ ...defaultNumberConfig(), ...(existingConfig?.number || {}) }));
+  const setNumField = (k, v) => setNum((n) => ({ ...n, [k]: v }));
+  // Inspection-only sample shown in the scene view on the Number step (not persisted).
+  const [previewSample, setPreviewSample] = useState(NUMBER_PREVIEW_SAMPLE);
 
   // Load the selected skeleton ONCE just to read its animation list + durations
   // (used for tier mapping + the preview strip). No Pixi Application is created —
@@ -300,18 +377,100 @@ export function WinSequenceWizard({
             enabled: prev ? prev.enabled === true : (present && !def.optional),
           };
         });
+        // Bone list (for the Number step's follow-bone picker). Auto-pick the
+        // first TEXT_/text_ bone when none is set yet.
+        const bones = (data.bones || []).map((b) => b.name);
+        setBoneNames(bones);
+        setNum((n) => {
+          if (n.boneName && bones.includes(n.boneName)) return n;
+          // Skeletons often have a text CONTROL bone (e.g. `text_controler`) plus
+          // the actual number holder (e.g. `TEXT_number`). Prefer the holder:
+          // a text bone naming a win/number/amount, then an UPPERCASE `TEXT_`
+          // (the convention for the holder), then any text_ / text bone.
+          const auto =
+            bones.find((b) => /text.*(win|number|amount|value|num)|(win|number|amount|value)/i.test(b) && /text/i.test(b)) ||
+            bones.find((b) => /^TEXT_/.test(b)) ||
+            bones.find((b) => /^text_/i.test(b)) ||
+            bones.find((b) => /text/i.test(b)) || '';
+          return auto && auto !== n.boneName ? { ...n, boneName: auto } : n;
+        });
         setAnimNames(names);
         setDurations(durs);
         setTiers(full);
         setLoading(false);
       } catch (e) {
         revoke();
-        if (!cancelled) { setLoadError('failed to load skeleton'); setLoading(false); }
+        if (!cancelled) {
+          const msg = String(e?.message || e || '');
+          // Spine runtime mismatch: 4.2 skeletons that use physics constraints
+          // can't be parsed by the editor's 4.3 runtime (and vice-versa). Surface
+          // an actionable hint instead of the cryptic raw error.
+          const versionish = /physics|spine|version|constraint/i.test(msg);
+          setLoadError(versionish
+            ? `failed to load skeleton (${msg}). This usually means a Spine VERSION mismatch — the editor runs Spine 4.3, so re-export this skeleton from Spine 4.3 (or remove physics constraints).`
+            : `failed to load skeleton: ${msg}`);
+          setLoading(false);
+        }
       }
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEntry?.src, rootHandle]);
+
+  // Font-png candidate pool: scene png assets + project-scanned pngs.
+  const fontPool = useMemo(() => {
+    const out = [];
+    const seen = new Set();
+    for (const a of scene?.assets || []) {
+      if (a.type === 'png' && a.src && !seen.has(a.src)) {
+        out.push({ src: a.src, label: a.meta?.originalName || a.id }); seen.add(a.src);
+      }
+    }
+    for (const it of assetItems || []) {
+      if (it.type !== 'png') continue;
+      const src = it.path || it.src;
+      if (!src || seen.has(src)) continue;
+      out.push({ src, label: it.name || src }); seen.add(src);
+    }
+    return out;
+  }, [scene?.assets, assetItems]);
+
+  // Auto-pick a font: a workspace png named like win/font, else fall back to the
+  // built-in template atlas so the artist can always test. Stops once the user
+  // picks a font explicitly (or in edit mode where one is already saved). Upgrades
+  // template → a real workspace font if one shows up later in the scan.
+  const fontTouchedRef = useRef(!!existingConfig?.number?.fontSrc);
+  const skipTouchedRef = useRef(false);
+  useEffect(() => {
+    if (fontTouchedRef.current) return;
+    const named = fontPool.find((f) => looksLikeFont(f.label) || looksLikeFont(f.src));
+    const pick = named?.src || TEMPLATE_FONT_ID;
+    setNum((n) => (n.fontSrc === pick ? n : { ...n, fontSrc: pick }));
+    if (!isEdit && !skipTouchedRef.current) setSkipNumber(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fontPool]);
+
+  // Resolve the chosen font to a previewable URL (for the verify grid) + probe size.
+  const [fontUrl, setFontUrl] = useState(null);
+  const [fontDims, setFontDims] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    let url = null;
+    setFontDims(null);
+    if (!num.fontSrc) { setFontUrl(null); return undefined; }
+    (async () => {
+      url = isTemplateFont(num.fontSrc) ? templateFontUrl() : await resolveOne(num.fontSrc, rootHandle);
+      if (cancelled) { if (url?.startsWith('blob:')) URL.revokeObjectURL(url); return; }
+      setFontUrl(url);
+      if (url) {
+        const img = new Image();
+        img.onload = () => { if (!cancelled) setFontDims({ w: img.naturalWidth, h: img.naturalHeight }); };
+        img.src = url;
+      }
+    })();
+    return () => { cancelled = true; if (url?.startsWith('blob:')) URL.revokeObjectURL(url); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [num.fontSrc, rootHandle]);
 
   const flows = useMemo(() => buildWinSeqFlows(tiers), [tiers]);
   const [previewFlowId, setPreviewFlowId] = useState(null);
@@ -321,24 +480,62 @@ export function WinSequenceWizard({
   }, [flows, previewFlowId]);
   const previewFlow = flows.find((f) => f.id === previewFlowId) || flows[flows.length - 1] || null;
 
+  // Number step: which tier's IDLE to pose the preview on (begin frames often
+  // hide the bone). Defaults to the lowest enabled tier (small).
+  const [poseFlowId, setPoseFlowId] = useState(null);
+  useEffect(() => {
+    if (!flows.length) { setPoseFlowId(null); return; }
+    if (!flows.some((f) => f.id === poseFlowId)) setPoseFlowId(flows[0].id);
+  }, [flows, poseFlowId]);
+  const poseFlow = flows.find((f) => f.id === poseFlowId) || flows[0] || null;
+
   // Push the synthetic preview scene to the host viewport (full-focus mode).
   // Rebuilds only when the skeleton / tier set / selected flow / durations
   // change — the transport (WinSeqPreview onTime) drives the clock separately.
+  // The effective number config to persist / preview (null when skipped).
+  const numberConfig = useMemo(
+    () => ((skipNumber || !num.fontSrc) ? null : { ...num }),
+    [skipNumber, num]
+  );
+
   const previewConfig = useMemo(() => {
     const tierList = tiers.map((t) => ({ key: t.key, begin: t.begin, idle: t.idle, end: t.end, enabled: t.enabled }));
-    // rev bumps when the tier mapping / enabled set changes so the preview
-    // object re-bakes its derived sequences (the viewport otherwise won't
-    // rebuild now that ids are stable).
-    return { rev: hash32(JSON.stringify(tierList)) || 1, tiers: tierList };
-  }, [tiers]);
+    // rev bumps (→ full Pixi rebuild) only on STRUCTURAL changes: tier mapping
+    // and the number's glyph set (font / grid / layout string). Cheap number
+    // edits (scale, spacing, currency, decimals, wager) are applied live by the
+    // runtime without a rebuild, so they're excluded here.
+    const numStruct = numberConfig
+      ? { fontSrc: numberConfig.fontSrc, charLayout: numberConfig.charLayout, cell: numberConfig.cell, cols: numberConfig.cols, rows: numberConfig.rows }
+      : null;
+    return { rev: hash32(JSON.stringify({ tierList, numStruct })) || 1, tiers: tierList, number: numberConfig };
+  }, [tiers, numberConfig]);
+
+  // On the Number step the preview poses a chosen tier's idle; elsewhere it uses
+  // the flow picked from the flow list (step 3) / the highest flow.
+  const stepFlow = step === 'number' ? (poseFlow || previewFlow) : previewFlow;
 
   useEffect(() => {
     if (!embedded || !onPreviewScene) return;
-    if (!selectedEntry || !previewFlow) { onPreviewScene(null); return; }
-    const { scene: previewScene } = buildWinSeqPreviewScene(selectedEntry, previewConfig, previewFlow.id, durations, scene?.projectRoot || null);
+    if (!selectedEntry || !stepFlow) { onPreviewScene(null); return; }
+    // The number only previews on the Number + Sequences steps (the Skeleton
+    // step is for the rig only). On Number it shows a fixed sample; on Sequences
+    // it does the live count-up (sample = null).
+    const showNumber = !!numberConfig && (step === 'number' || step === 'sequences');
+    const numberSample = step === 'number' ? previewSample : null;
+    const { scene: previewScene } = buildWinSeqPreviewScene(
+      selectedEntry, previewConfig, stepFlow.id, durations, scene?.projectRoot || null, showNumber, numberSample
+    );
     onPreviewScene(previewScene);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [embedded, selectedEntry?.src, previewConfig, previewFlow?.id, durations]);
+  }, [embedded, selectedEntry?.src, previewConfig, stepFlow?.id, durations, step, numberConfig, previewSample]);
+
+  // On the Number step, freeze the preview clock mid-idle of the chosen tier so
+  // the bone (and number) are visible (begin frames can scale the bone to 0).
+  useEffect(() => {
+    if (!embedded || !onPreviewTime || step !== 'number' || !poseFlow) return;
+    onPreviewTime(flowMidIdleTime(poseFlow, durations));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, step, poseFlow?.id, durations]);
 
   const toggleTier = (key) =>
     setTiers((prev) => prev.map((t) => (t.key === key ? { ...t, enabled: !t.enabled } : t)));
@@ -362,10 +559,11 @@ export function WinSequenceWizard({
     const winseqConfig = {
       rev: (existingConfig?.rev || 0) + 1,
       tiers: tiers.map((t) => ({ key: t.key, begin: t.begin, idle: t.idle, end: t.end, enabled: t.enabled })),
+      number: numberConfig,
     };
     const skeleton = { src: selectedEntry.src, atlas: selectedEntry.atlas, texture: selectedEntry.texture };
     onCreate?.({ name: name.trim() || 'Win Sequences', winseqConfig, skeleton });
-  }, [flows.length, selectedEntry, existingConfig, tiers, name, onCreate]);
+  }, [flows.length, selectedEntry, existingConfig, tiers, name, numberConfig, onCreate]);
 
   const stepIdx = STEPS.indexOf(step);
   const canNext = step === 'skeleton' ? (!loading && !loadError && matchedCount > 0) : true;
@@ -481,10 +679,177 @@ export function WinSequenceWizard({
             </div>
           )}
 
-          {/* ── Step 2: Sequences + preview ──────────────────────── */}
+          {/* ── Step 2: Number (count-up display) — skippable ─────── */}
+          {step === 'number' && (
+            <div className="spinner-wizard-section">
+              <div className="scene-field-group-head">Win Number (count-up)</div>
+              <label className="scene-field scene-field--check" style={{ marginBottom: 6 }}>
+                <input type="checkbox" checked={skipNumber} onChange={(e) => { skipTouchedRef.current = true; setSkipNumber(e.target.checked); }} />
+                <span>Skip — no count-up display (behaves like before)</span>
+              </label>
+
+              {!skipNumber && (
+                <>
+                  <div className="scene-spinner-meta" style={{ marginBottom: 6 }}>
+                    A bitmap-font win amount that follows a <em>TEXT_</em> bone on the
+                    skeleton and counts up as the sequence escalates. Pick the 2K font
+                    atlas and the follow bone; tune spacing &amp; scale; choose the
+                    currency + wager for the preview.
+                  </div>
+
+                  <label className="scene-field">
+                    <span>font atlas (.png)</span>
+                    <select
+                      value={num.fontSrc || ''}
+                      onChange={(e) => { fontTouchedRef.current = true; setNumField('fontSrc', e.target.value || null); }}
+                    >
+                      {!num.fontSrc && <option value="">— pick a font atlas —</option>}
+                      {fontPool.map((f) => (
+                        <option key={f.src} value={f.src}>
+                          {f.label}{looksLikeFont(f.label) || looksLikeFont(f.src) ? ' ◆' : ''}
+                        </option>
+                      ))}
+                      <option value={TEMPLATE_FONT_ID}>Built-in template — font_win ◆</option>
+                    </select>
+                  </label>
+
+                  <label className="scene-field">
+                    <span>follow bone</span>
+                    <select value={num.boneName || ''} onChange={(e) => setNumField('boneName', e.target.value)}>
+                      {!boneNames.length && <option value="">— load a skeleton first —</option>}
+                      {!num.boneName && <option value="">— pick a bone —</option>}
+                      {boneNames.map((b) => (
+                        <option key={b} value={b}>{b}{/^text_/i.test(b) ? ' ◆' : ''}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {/* verify grid: the atlas with the fixed 8×8 layout overlaid */}
+                  {fontUrl && (
+                    <>
+                      <div className="scene-field-group-head" style={{ marginTop: 10 }}>
+                        Glyph map — verify
+                        {fontDims && (
+                          <span className="scene-pill" style={{ color: (fontDims.w === fontDims.h && fontDims.w >= 1024) ? undefined : 'var(--err,#f88)' }}>
+                            {fontDims.w}×{fontDims.h}
+                          </span>
+                        )}
+                      </div>
+                      <div className="winnum-glyph-grid" style={{ backgroundImage: `url(${fontUrl})` }}>
+                        {Array.from({ length: num.cols * num.rows }).map((_, i) => (
+                          <div key={i} className="winnum-glyph-cell">
+                            <span>{DEFAULT_CHAR_LAYOUT[i] || ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="scene-field-group-head" style={{ marginTop: 10 }}>Format</div>
+                  <div className="scene-field-row">
+                    <label className="scene-field">
+                      <span>currency</span>
+                      <select value={num.currency} onChange={(e) => setNumField('currency', e.target.value)}>
+                        {WIN_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </label>
+                    <label className="scene-field">
+                      <span>position</span>
+                      <select value={num.currencyPosition} onChange={(e) => setNumField('currencyPosition', e.target.value)}>
+                        <option value="prefix">before · {num.currency} 0.00</option>
+                        <option value="suffix">after · 0.00 {num.currency}</option>
+                      </select>
+                    </label>
+                    <label className="scene-field">
+                      <span>decimal sep</span>
+                      <select value={num.decimalSep} onChange={(e) => setNumField('decimalSep', e.target.value)}>
+                        <option value=".">. (dot)</option>
+                        <option value=",">, (comma)</option>
+                      </select>
+                    </label>
+                    <label className="scene-field">
+                      <span>decimals</span>
+                      <input type="number" min="0" max="4" step="1" value={num.decimals}
+                        onChange={(e) => setNumField('decimals', Math.max(0, Math.min(4, parseInt(e.target.value, 10) || 0)))} />
+                    </label>
+                  </div>
+
+                  <div className="scene-field-group-head" style={{ marginTop: 8 }}>Layout</div>
+                  <div className="scene-field-row">
+                    <label className="scene-field">
+                      <span>glyph scale</span>
+                      <input type="number" min="0.05" step="0.05" value={num.glyphScale}
+                        onChange={(e) => setNumField('glyphScale', Math.max(0.05, parseFloat(e.target.value) || 0.05))} />
+                    </label>
+                    <label className="scene-field">
+                      <span>letter spacing</span>
+                      <input type="number" step="2" value={num.letterSpacing}
+                        onChange={(e) => setNumField('letterSpacing', parseFloat(e.target.value) || 0)} />
+                    </label>
+                    <label className="scene-field">
+                      <span>baseline Y</span>
+                      <input type="number" step="2" value={num.baselineOffset}
+                        onChange={(e) => setNumField('baselineOffset', parseFloat(e.target.value) || 0)} />
+                    </label>
+                  </div>
+
+                  <div className="scene-field-group-head" style={{ marginTop: 8 }}>Preview sample</div>
+                  <div className="scene-field-row">
+                    <label className="scene-field">
+                      <span>pose on idle</span>
+                      <select value={poseFlowId || ''} onChange={(e) => setPoseFlowId(e.target.value || null)}>
+                        {!flows.length && <option value="">— no flows —</option>}
+                        {flows.map((f) => <option key={f.id} value={f.id}>{f.label} idle</option>)}
+                      </select>
+                    </label>
+                    <label className="scene-field">
+                      <span>sample value</span>
+                      <input type="number" min="0" step="1" value={previewSample}
+                        onChange={(e) => setPreviewSample(Math.max(0, parseFloat(e.target.value) || 0))} />
+                    </label>
+                    <div className="scene-field" style={{ alignSelf: 'flex-end' }}>
+                      <span>shows as</span>
+                      <div style={{ fontWeight: 700, color: 'var(--accent,#ffd45a)' }}>{formatWinNumber(previewSample, num)}</div>
+                    </div>
+                  </div>
+                  <div className="scene-spinner-meta">
+                    Shown in the scene view ↑ for inspection only. On the Sequences step
+                    the number counts up live (0 → tier amount) as you scrub a flow.
+                  </div>
+
+                  {(!num.fontSrc || !num.boneName) && (
+                    <div className="scene-spinner-meta" style={{ color: 'var(--err,#f88)', marginTop: 6 }}>
+                      {!num.fontSrc ? 'Pick a font atlas' : 'Pick a follow bone'} to enable the
+                      number (or tick Skip).
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 3: Sequences preview ────────────────────────── */}
           {step === 'sequences' && (
             <div className="spinner-wizard-section">
-              <div className="scene-field-group-head">
+              {numberConfig && (
+                <>
+                  <div className="scene-field-group-head">Win amount</div>
+                  <div className="scene-field-row">
+                    <label className="scene-field">
+                      <span>wager</span>
+                      <input type="number" min="0" step="0.1" value={num.wager}
+                        onChange={(e) => setNumField('wager', Math.max(0, parseFloat(e.target.value) || 0))} />
+                    </label>
+                    <div className="scene-field" style={{ alignSelf: 'flex-end' }}>
+                      <span>count-up tops out at</span>
+                      <div style={{ fontWeight: 700, color: 'var(--accent,#ffd45a)' }}>
+                        {previewFlow ? formatWinNumber(winNumberValueAt(previewFlow, durations, 1e9, { wager: num.wager }), num) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+              <div className="scene-field-group-head" style={{ marginTop: numberConfig ? 8 : 0 }}>
                 Generated flows
                 <span className="scene-pill">{flows.length} sequence{flows.length !== 1 ? 's' : ''}</span>
               </div>
@@ -548,7 +913,7 @@ export function WinSequenceWizard({
           )}
           <div style={{ flex: 1 }} />
           {step !== 'sequences' ? (
-            <button type="button" className="scene-btn scene-btn--primary" disabled={!canNext} onClick={() => setStep('sequences')}>
+            <button type="button" className="scene-btn scene-btn--primary" disabled={!canNext} onClick={() => setStep(STEPS[stepIdx + 1])}>
               next →
             </button>
           ) : (

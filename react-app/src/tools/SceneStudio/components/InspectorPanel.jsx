@@ -230,6 +230,27 @@ export function InspectorPanel({
         </button>
       )}
 
+      {/* Win-number child — locked bone follower; edit opens its parent's wizard on the Number step. */}
+      {asset?.type === 'winnumber' && (
+        <>
+          <div className="scene-spinner-meta" style={{ marginBottom: 8 }}>
+            🔒 Win-number display — follows a bone on its win sequence. Its offset
+            &amp; scale below are applied on top of the bone follow.
+          </div>
+          {studioMode === 'setup' && onEditWinSeq && layer.parentId && (
+            <button
+              type="button"
+              className="scene-btn scene-btn--primary"
+              style={{ width: '100%', marginBottom: 8 }}
+              onClick={() => onEditWinSeq(layer.parentId, 'number')}
+              title="Re-open the win-sequence wizard on the Number step to change the font, bone, currency, spacing…"
+            >
+              ✎ edit number…
+            </button>
+          )}
+        </>
+      )}
+
       <label className="scene-field">
         <span>name</span>
         <input

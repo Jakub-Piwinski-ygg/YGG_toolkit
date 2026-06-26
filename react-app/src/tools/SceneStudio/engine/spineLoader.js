@@ -100,7 +100,9 @@ export function describeSpine(spine) {
   return {
     animations: animations.map((a) => a.name),
     animationDurations,
-    skins: spine.skeleton.data.skins.map((s) => s.name)
+    skins: spine.skeleton.data.skins.map((s) => s.name),
+    // Bone names — used by the Win-Number step to pick the TEXT_ follow bone.
+    bones: (spine.skeleton.data.bones || []).map((b) => b.name)
   };
 }
 
@@ -203,7 +205,10 @@ export function applySpineState(spine, { animation, loop = true, skin } = {}) {
   }
   if (animation === null || animation === '') {
     spine.state.clearTracks();
-    spine.skeleton.setupPose();
+    // Spine 4.2 → `setToSetupPose`; 4.3 also exposes `setupPose`. Prefer the
+    // 4.2 name and fall back so the loader works on either runtime.
+    if (typeof spine.skeleton.setToSetupPose === 'function') spine.skeleton.setToSetupPose();
+    else spine.skeleton.setupPose?.();
   } else if (typeof animation === 'string') {
     try { spine.state.setAnimation(0, animation, !!loop); }
     catch { /* animation missing */ }

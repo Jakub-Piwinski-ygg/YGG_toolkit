@@ -4,7 +4,53 @@
 > (build green, 15/15 model tests). Unity export is intentionally out of scope
 > for Phase 1 (a `winseq` layer produces a "not supported yet" export warning,
 > not a crash) — the pure model is framework-agnostic so a `YggWinSequence`
-> exporter can be added later as **Phase 2**, exactly like the spinner.
+> exporter can be added later.
+>
+> **Phase 2 — count-up Win Number — COMPLETE (2026-06-26).** A bitmap-font win
+> amount that follows a `TEXT_` bone (Unity-BoneFollower style) and counts up as
+> the sequence escalates. New skippable wizard step, locked hierarchy child,
+> build green + 9/9 new model tests. See **§ Phase 2** below.
+
+## Phase 2 — Win Number (count-up display)
+
+A win sequence can carry an optional **count-up number** — a bitmap-font win
+amount (e.g. `120.00 $`) rendered from a 2048×2048 atlas (8×8 grid, 256px/cell,
+fixed glyph layout) that **follows a spine bone** and **counts up** as the
+sequence climbs through its tiers.
+
+- **Wizard step "2. Number"** (between Skeleton and Sequences) — fully skippable
+  (skip = behaves exactly like Phase 1). Auto-detects the font png (name
+  contains `win`/`font`/`number`) and the follow bone (first `TEXT_`/`text_`).
+  Configures currency (`$ € ₽ £ ₺ ₹ kr`), currency **position** (prefix `$ 2137.00`
+  — default — or suffix `2137.00 $`), decimal separator, decimals, wager, glyph
+  scale (default 1) / letter-spacing / baseline, with a glyph-grid verify. The
+  scene-view preview shows a fixed **sample** (`2137`) on this step so spacing/
+  scale/format can be inspected; on the Sequences step it does the live count-up.
+- **Locked hierarchy child:** a `winnumber` layer parented to the win-sequence
+  layer (`locked: true`). Selectable + offset/scale-tweakable, but can't be
+  dragged out, reparented, or deleted on its own; deleting the win-sequence
+  removes it. Its Pixi object is a child of the Spine container, so the bone's
+  skeleton-space transform IS its local transform (replicating spine-pixi-v8's
+  own `updateSlotObject` matrix verbatim: `a=a, b=c, c=-b, d=-d, tx=worldX,
+  ty=worldY`). The user offset/scale composes on top.
+- **Count-up ladder (× wager, fixed):** tier thresholds small=0 medium=1 large=10
+  big=20 super=40 mega=80; each tier segment ramps from its threshold to the next
+  **present** tier's threshold; the terminal tier ramps to its final
+  (medium→10 large→20 big→40 super→80 mega→120 max→240). Standalone `win_small`
+  shows a sub-bet final with no count-up (no celebration ≤ bet). The value is a
+  pure, scrub-safe function of (flow, durations, clip-local t, wager).
+- **Config** lives on the winseq asset as `asset.winseq.number` (single source of
+  truth; the `winnumber` asset stores only `parentAssetId`). Edit via the
+  inspector's "✎ edit number…" (reopens the wizard on the Number step).
+
+**Phase 2 implementation map** — pure model + count-up:
+`engine/winseq/winNumberModel.js` (+ `.test.mjs`); Pixi atlas slicing + glyph
+layout: `winNumberView.js`; bone-follow + count-up driver: `winNumberRuntime.js`;
+build/apply/reset/hash/syncTransforms-skip + bone list: `pixiApp.js`,
+`spineLoader.js` (`describeSpine.bones`); `locked` layer flag + `winnumber` asset
+type: `sceneModel.js`; wizard Number step: `WinSequenceWizard.jsx`; locked-child
+create/reconcile/cascade-delete/reorder-guard: `SceneStudioInner.jsx`; lock UI:
+`HierarchyPanel.jsx`; edit button: `InspectorPanel.jsx`.
 
 ## Phase 1 — status & session log
 

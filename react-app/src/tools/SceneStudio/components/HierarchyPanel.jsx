@@ -170,9 +170,9 @@ function renderNodes(nodes, ctx) {
     return (
       <li key={layer.id} className="scene-layer-li">
         <div
-          className={cls}
+          className={cls + (layer.locked ? ' locked' : '')}
           style={{ paddingLeft: 8 + depth * INDENT_PX }}
-          draggable
+          draggable={!layer.locked}
           onDragStart={ctx.onDragStart(layer.id)}
           onDragOver={ctx.onDragOver(layer.id)}
           onDrop={ctx.onDropOnRow(layer.id)}
@@ -191,13 +191,17 @@ function renderNodes(nodes, ctx) {
             onClick={(e) => e.stopPropagation()}
           />
           <span className="scene-layer-name">{layer.name}</span>
-          <button
-            className="scene-icon-btn"
-            onClick={(e) => { e.stopPropagation(); ctx.onRemove(layer.id); }}
-            title="Remove object"
-          >
-            ✕
-          </button>
+          {layer.locked ? (
+            <span className="scene-icon-btn scene-layer-lock" title="Locked to its parent — removed with it">🔒</span>
+          ) : (
+            <button
+              className="scene-icon-btn"
+              onClick={(e) => { e.stopPropagation(); ctx.onRemove(layer.id); }}
+              title="Remove object"
+            >
+              ✕
+            </button>
+          )}
         </div>
         {children.length > 0 && expanded && (
           <ul className="scene-layer-list scene-layer-list--nested">

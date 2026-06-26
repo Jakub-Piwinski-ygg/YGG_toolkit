@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@esotericsoftware/spine-pixi-v8": "^4.3.5",
+    "@esotericsoftware/spine-pixi-v8": "^4.2.119",
     "framer-motion": "^11.11.17",
     "jszip": "^3.10.1",
     "marked": "^14.1.4",
