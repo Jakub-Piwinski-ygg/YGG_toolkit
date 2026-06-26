@@ -55,7 +55,13 @@ export function defaultSpinnerTiming() {
     /** Positional ease of the stop travel (0→1 over the stop duration). */
     stopEase: 'easeOut',
     reelStaggerStart: 0.08,
-    reelStaggerStop: 0.15
+    reelStaggerStop: 0.15,
+    /**
+     * Minimum at-full-speed spin time (seconds). Used as the duration of the
+     * wizard's "test spin" and as the default duration for `spin` action clips
+     * added to the timeline.
+     */
+    minSpinTime: 1.0
   };
 }
 
@@ -181,7 +187,8 @@ export function normalizeSpinnerConfig(raw) {
       stopDuration: num(t.stopDuration, dt.stopDuration, 0.01, 30),
       stopEase: normalizeCurveSpec(t.stopEase, dt.stopEase),
       reelStaggerStart: num(t.reelStaggerStart, dt.reelStaggerStart, 0, 10),
-      reelStaggerStop: num(t.reelStaggerStop, dt.reelStaggerStop, 0, 10)
+      reelStaggerStop: num(t.reelStaggerStop, dt.reelStaggerStop, 0, 10),
+      minSpinTime: num(t.minSpinTime, dt.minSpinTime, 0.05, 60)
     },
     bounce: {
       curve: normalizeCurveSpec(b.curve, db.curve),
@@ -322,6 +329,31 @@ export function spinnerPresentWinDuration(config, reelWinStagger = 0, perReelWin
   }
   if (maxWinAnim <= 0) maxWinAnim = fallback;
   return Math.max(0.05, maxReelDelay(reels, perReelWinDelay, reelWinStagger || 0) + maxWinAnim);
+}
+
+/**
+ * One-shot "test spin" clip chain: startSpin → spin (minSpinTime) → stopSpin
+ * → presentWin, exactly the cycle the scene timeline plays. Lands a seeded
+ * WINNING board so the present-win phase has something to show. Used by the
+ * wizard's test-spin preview. Returns { clips, total } with raw (un-normalized)
+ * clips — the caller runs them through normalizeTrack before the resolver.
+ */
+export function buildSpinnerTestClips(config) {
+  if (!config) return { clips: [], total: 1 };
+  const t = config.timing || {};
+  const start = spinnerStartSpinDuration(config);
+  const spin = Math.max(0.05, Number(t.minSpinTime) > 0 ? Number(t.minSpinTime) : 1);
+  const stop = spinnerStopSpinDuration(config);
+  const present = spinnerPresentWinDuration(config);
+  const ids = config.symbols.map((s) => s.id);
+  const board = generateWinningBoard(ids, config.grid.reels, config.grid.rows, (config.seed ^ 0x7e57) >>> 0);
+  const clips = [
+    { id: 'ts_start', action: 'startSpin', start: 0, duration: start, spinner: {} },
+    { id: 'ts_spin', action: 'spin', start: start, duration: spin, spinner: {} },
+    { id: 'ts_stop', action: 'stopSpin', start: start + spin, duration: stop, spinner: { targetBoard: board } },
+    { id: 'ts_present', action: 'presentWin', start: start + spin + stop, duration: present, spinner: {} }
+  ];
+  return { clips, total: start + spin + stop + present };
 }
 
 // ── Strips & boards ────────────────────────────────────────────────────

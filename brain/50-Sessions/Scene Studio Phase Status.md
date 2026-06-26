@@ -3,10 +3,10 @@ type: session
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-06-16
+updated: 2026-06-26
 lang: en
 source: react-app/SCENE_STUDIO_PHASE_STATUS.md
-tags: [session, scene-studio, changelog, spinner, unity]
+tags: [session, scene-studio, changelog, spinner, win-sequences, unity]
 ---
 
 # Scene Studio — Phase Status (changelog)
@@ -14,6 +14,28 @@ tags: [session, scene-studio, changelog, spinner, unity]
 > [!info] Translated from Polish
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
+
+## Win Sequences — Phase 1 (web + timeline) — COMPLETE ✅ (2026-06-26)
+
+The second wizard-built Scene Studio object after the Spinner. **Phase 1 = web
+authoring + timeline runtime**; **Phase 2 (future) = Unity `.unitypackage` export**
+(`YggWinSequence`), mirroring the Spinner's Phase 5 → Unity-phase split. Build green,
+15/15 model tests. Full write-up: [[Win Sequences Phase 1]]; design: [[Win Sequences Design]].
+
+- **2026-06-24** — design doc + pure model (`engine/winseq/winseqModel.js`) + Spine-backed
+  runtime (`engine/winseq/winseqRuntime.js`). Tier parse (`NNx_tier_sub`), tier→flow
+  escalation (from `small`, each tier `begin → idle`, only the final `end`),
+  normalize/derive sequences, flow eval (step + local time), duration sums,
+  `hangOnLastIdle`, `large`/`max` gated default-off. First web + timeline render.
+- **2026-06-25** — wizard (`components/WinSequenceWizard.jsx`): skeleton-triplet fetch,
+  tier auto-map **+ manual per-tier begin/idle/end dropdowns**, flow generation, in-panel
+  preview transport. Model refinements + the 15-test suite (`winseqModel.test.mjs`):
+  single-frame anims respected, unknown-anim fallback, hang-mode final-idle loop.
+- **2026-06-26** — wizard launchers **moved from the toolbar into the left stack** (under
+  the hierarchy, above the workspace; `.scene-wizards-panel`). Workspace-lock gate
+  (`WorkspaceLockOverlay.jsx` — grey-out + centered forced load when no root). Wizard mode
+  defaults the scene view to **frame behind** (saves/restores the prior overlay on close).
+  Phase 1 declared complete.
 
 ## Direct (scenario) mode — third studio mode (2026-06-16) ✅
 

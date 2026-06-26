@@ -9,7 +9,10 @@ import { PixiErrorBoundary } from './components/PixiErrorBoundary.jsx';
 import { PixiViewport } from './components/PixiViewport.jsx';
 import { SpinnerWizard } from './components/SpinnerWizard.jsx';
 import { normalizeSpinnerConfig } from './engine/spinner/spinnerModel.js';
+import { WinSequenceWizard } from './components/WinSequenceWizard.jsx';
+import { normalizeWinSeqConfig } from './engine/winseq/winseqModel.js';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
+import { WorkspaceLockOverlay } from './components/WorkspaceLockOverlay.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
 import { ScenarioTimelineList } from './components/ScenarioTimelineList.jsx';
 import { ScenarioGraphPanel } from './components/ScenarioGraphPanel.jsx';
@@ -89,7 +92,7 @@ import {
   repairSceneSpineAssets,
   saveProject
 } from './engine/persist.js';
-import { makeVirtualRootHandle, readFolderDropAsFiles } from './engine/virtualHandle.js';
+import { makeVirtualRootHandle, readFolderDropAsFiles, isVirtualHandle } from './engine/virtualHandle.js';
 import { patchTransform, resetPortrait } from './engine/orientationManager.js';
 import { groupSpineFiles } from './engine/spineLoader.js';
 import {
@@ -176,6 +179,9 @@ const PANEL_SIZES = {
   right:    { key: 'ss.rightW',    def: 300, min: 300, max: 640 },  // inspector — grow leftward
   timeline: { key: 'ss.timelineH', def: 220, min: 120, max: 600 }
 };
+// Wizard side panel (full-focus): a vertical right column, wider than the
+// inspector so every setup field fits comfortably.
+const WIZARD_PANEL_W = 460;
 function readStoredSize(spec) {
   try {
     const v = Number(localStorage.getItem(spec.key));
@@ -281,6 +287,18 @@ export default function SceneStudioInner() {
   // When set, the wizard runs in edit mode against an existing spinner:
   // { layerId, assetId, config, name }
   const [editSpinnerTarget, setEditSpinnerTarget] = useState(null);
+  const [showWinSeqWizard, setShowWinSeqWizard] = useState(false);
+  // When set, the win-sequence wizard runs in edit mode against an existing
+  // winseq object: { layerId, assetId, config, name, skeleton }
+  const [editWinSeqTarget, setEditWinSeqTarget] = useState(null);
+  // Live wizard preview: while a wizard is open it owns the scene-view render —
+  // it pushes a synthetic preview scene + a transport clock here (mirrors the
+  // scenario `directPreview` swap). Cleared when the wizard closes.
+  const [wizardPreviewScene, setWizardPreviewScene] = useState(null);
+  const [wizardPreviewTime, setWizardPreviewTime] = useState(0);
+  // Bumped by "refresh assets" to force the viewport to rebuild from disk
+  // (re-reads every asset → fresh textures). Viewport-only; never serialized.
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
   const [selectedClipId, setSelectedClipId] = useState(null);
   // Multi-selection of timeline clips (ctrl/shift-click + marquee). The
@@ -588,6 +606,8 @@ export default function SceneStudioInner() {
 
   const addAssetItemFromBrowser = useCallback(async (item, spawnPos = null) => {
     if (!rootHandle) return;
+    // Adding objects to the hierarchy is a setup-mode action — auto-switch.
+    if (studioModeRef.current !== 'setup') { setStudioMode('setup'); studioModeRef.current = 'setup'; }
     try {
       const newLayerId = uid('L');
       // Build the layer patch common to all types: pre-assigned id + optional
@@ -667,6 +687,8 @@ export default function SceneStudioInner() {
       }
       const files = Array.from(e.dataTransfer.files || []);
       if (!files.length) return;
+      // Dropping assets into the scene is a setup-mode action — auto-switch.
+      if (studioModeRef.current !== 'setup') { setStudioMode('setup'); studioModeRef.current = 'setup'; }
       const { spineGroups, looseFiles } = groupSpineFiles(files);
       for (const g of spineGroups) await addSpineLayer(g);
       for (const f of looseFiles) {
@@ -885,6 +907,7 @@ export default function SceneStudioInner() {
     if (!asset || asset.type !== 'spinner') return;
     const config = normalizeSpinnerConfig(asset.spinner);
     if (!config) return;
+    setStudioMode('setup'); studioModeRef.current = 'setup';
     setShowSpinnerWizard(false);
     setEditSpinnerTarget({
       layerId,
@@ -915,6 +938,96 @@ export default function SceneStudioInner() {
     setSelectedLayerId(target.layerId);
     log(`Scene Studio: rebuilt spinner "${name}"`, 'ok');
   }, [log]);
+
+  // ── Win-sequence object ──────────────────────────────────────────────────
+  // Create a winseq asset (a Spine skeleton + tier/flow config) + its layer.
+  const handleCreateWinSeq = useCallback(({ name, winseqConfig, skeleton }) => {
+    setShowWinSeqWizard(false);
+    const newLayerId = uid('L');
+    setScene((prev) => {
+      const asset = {
+        id: uid('a'),
+        type: 'winseq',
+        src: skeleton?.src || null,
+        atlas: skeleton?.atlas || null,
+        texture: skeleton?.texture || null,
+        winseq: winseqConfig,
+        meta: { originalName: name }
+      };
+      const transforms = defaultTransformsForNewLayer(prev.stage);
+      return {
+        ...prev,
+        assets: [...prev.assets, asset],
+        layers: [...prev.layers, {
+          id: newLayerId,
+          name,
+          assetId: asset.id,
+          canvasId: prev.activeCanvasId || prev.canvases[0].id,
+          parentId: null,
+          visible: true,
+          blend: 'normal',
+          transforms
+        }]
+      };
+    });
+    setSelectedLayerId(newLayerId);
+    log(`Scene Studio: + win sequences "${name}"`, 'ok');
+  }, [log]);
+
+  // Re-open the win-sequence wizard pre-filled from an existing object.
+  const handleEditWinSeq = useCallback((layerId) => {
+    const cur = sceneRef.current;
+    const layer = cur.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const asset = cur.assets.find((a) => a.id === layer.assetId);
+    if (!asset || asset.type !== 'winseq') return;
+    const config = normalizeWinSeqConfig(asset.winseq);
+    setStudioMode('setup'); studioModeRef.current = 'setup';
+    setShowWinSeqWizard(false);
+    setEditWinSeqTarget({
+      layerId,
+      assetId: asset.id,
+      config,
+      name: asset.meta?.originalName || layer.name || 'Win Sequences',
+      skeleton: { src: asset.src, atlas: asset.atlas, texture: asset.texture },
+    });
+  }, []);
+
+  // Apply a wizard rebuild onto the existing winseq asset (and rename its layer).
+  const handleUpdateWinSeq = useCallback((target, { name, winseqConfig, skeleton }) => {
+    setEditWinSeqTarget(null);
+    setScene((prev) => ({
+      ...prev,
+      assets: prev.assets.map((a) =>
+        a.id === target.assetId
+          ? {
+              ...a,
+              src: skeleton?.src ?? a.src,
+              atlas: skeleton?.atlas ?? a.atlas,
+              texture: skeleton?.texture ?? a.texture,
+              winseq: winseqConfig,
+              meta: { ...a.meta, originalName: name }
+            }
+          : a
+      ),
+      layers: prev.layers.map((l) => (l.id === target.layerId ? { ...l, name } : l)),
+    }));
+    setSelectedLayerId(target.layerId);
+    log(`Scene Studio: rebuilt win sequences "${name}"`, 'ok');
+  }, [log]);
+
+  // Wizard launchers (moved from the toolbar into the left stack). Each forces
+  // setup mode and closes any other open wizard before opening its own.
+  const handleAddSpinner = useCallback(() => {
+    setStudioMode('setup'); studioModeRef.current = 'setup';
+    setShowWinSeqWizard(false); setEditWinSeqTarget(null); setEditSpinnerTarget(null);
+    setShowSpinnerWizard(true);
+  }, []);
+  const handleAddWinSeq = useCallback(() => {
+    setStudioMode('setup'); studioModeRef.current = 'setup';
+    setShowSpinnerWizard(false); setEditSpinnerTarget(null); setEditWinSeqTarget(null);
+    setShowWinSeqWizard(true);
+  }, []);
 
   // Swap a layer's animated object to an existing scene asset (keeps clips).
   const handleSwapLayerAsset = useCallback((layerId, assetId) => {
@@ -1308,7 +1421,11 @@ export default function SceneStudioInner() {
     // the layer (even when explicitly set to null = "no pose / setup pose"), we
     // never re-pick. Otherwise choosing "none" would be overwritten on the next
     // rebuild's onAssetReady.
-    if (Array.isArray(descriptor.animations) && descriptor.animations.length) {
+    // Only Spine assets get an auto-picked default animation. A winseq asset is
+    // Spine-backed too but its playback is flow-driven (no layer.spine config) —
+    // writing layer.spine here would pollute it and force needless rebuilds.
+    const readyAsset = sceneRef.current.assets.find((a) => a.id === assetId);
+    if (readyAsset?.type === 'spine' && Array.isArray(descriptor.animations) && descriptor.animations.length) {
       const pick = descriptor.animations.find((n) => /idle/i.test(n)) || descriptor.animations[0];
       setScene((prev) => {
         let changed = false;
@@ -1707,6 +1824,38 @@ export default function SceneStudioInner() {
     log('Scene Studio: project root cleared (quick mode)', 'info');
   }, [log]);
 
+  // Re-read the already-linked project folder from disk (no re-pick) and force
+  // the viewport (scene + wizard previews) to rebuild with the fresh bytes.
+  // Works on Chrome/Edge (live FileSystemDirectoryHandle) AND Firefox/Safari
+  // (their <input webkitdirectory> File objects re-read current disk content on
+  // access). NOTE: on the Firefox/Safari snapshot handle, EDITED existing files
+  // refresh, but NEWLY-ADDED files won't appear until the folder is re-picked.
+  const handleRefreshAssets = useCallback(async () => {
+    const handle = rootHandle;
+    if (!handle) return;
+    try {
+      // Re-verify permission inside this click gesture on real FS handles
+      // (virtual snapshot handles have no permission API).
+      if (!isVirtualHandle(handle) && handle.queryPermission) {
+        const state = await handle.queryPermission({ mode: 'readwrite' });
+        if (state !== 'granted' && handle.requestPermission) {
+          const req = await handle.requestPermission({ mode: 'readwrite' });
+          if (req !== 'granted') {
+            log('Scene Studio: folder permission denied — cannot refresh', 'err');
+            return;
+          }
+        }
+      }
+      await refreshAssetBrowser(handle);
+      setRefreshNonce((n) => n + 1);
+      log('Scene Studio: assets refreshed from disk', 'ok');
+    } catch (e) {
+      // Folder moved/deleted (NotFoundError) or permission revoked — keep the
+      // scene intact and report.
+      log(`Scene Studio: refresh failed: ${e?.message || e}`, 'err');
+    }
+  }, [rootHandle, refreshAssetBrowser, log]);
+
   // ── Session restore callbacks ─────────────────────────────────────────
 
   const handleDismissSession = useCallback(async () => {
@@ -1901,6 +2050,32 @@ export default function SceneStudioInner() {
     };
     return { scene, flowTime: scenarioSample.localTime };
   }, [studioMode, scenarioSample, scenarioPlayhead.playing, project]);
+
+  // ── Wizard preview (in-viewport, full-focus) ───────────────────────────
+  // A wizard takes over the scene view with a synthetic preview scene + its
+  // own transport clock. When no preview scene is pushed yet we render a blank
+  // stage so the real scene never flashes underneath.
+  const blankPreviewScene = useMemo(() => createEmptyScene('Wizard preview'), []);
+  const wizardActive = showSpinnerWizard || !!editSpinnerTarget || showWinSeqWizard || !!editWinSeqTarget;
+  useEffect(() => {
+    if (!wizardActive) { setWizardPreviewScene(null); setWizardPreviewTime(0); }
+  }, [wizardActive]);
+
+  // Wizard mode forces the scene view to "frame behind" so the preview object
+  // isn't greyed out by the in-front frame overlay. We stash whatever overlay
+  // mode the real scene view was using and restore it when the wizard closes.
+  const savedOverlayModeRef = useRef(null);
+  useEffect(() => {
+    if (wizardActive) {
+      if (savedOverlayModeRef.current == null) savedOverlayModeRef.current = overlayMode;
+      setOverlayMode('behind');
+    } else if (savedOverlayModeRef.current != null) {
+      setOverlayMode(savedOverlayModeRef.current);
+      savedOverlayModeRef.current = null;
+    }
+  // overlayMode intentionally omitted — we only react to wizard open/close.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardActive]);
 
   const selectedLayer = scene.layers.find((l) => l.id === selectedLayerId) || null;
   const selectedLayerAssetType = selectedLayer
@@ -2672,7 +2847,7 @@ export default function SceneStudioInner() {
       {/* Session restore banner — shown once on mount if IDB has a saved scene */}
       {sessionDraft && (
         <div className="scene-session-banner">
-          {sessionDraft.schemaVersion === SCHEMA ? (
+          {sessionDraft.schemaVersion === PROJECT_SCHEMA ? (
             <>
               <span className="scene-session-banner__text">
                 Poprzednia sesja: <strong>{sessionDraft.scene?.name || 'scena'}</strong>
@@ -2734,6 +2909,8 @@ export default function SceneStudioInner() {
         onPickRoot={handlePickRoot}
         onPickFolderFallback={handlePickFolderFallback}
         onClearRoot={handleClearRoot}
+        onRefreshAssets={handleRefreshAssets}
+        canRefreshAssets={!!rootHandle}
         onSave={handleSave}
         onLoad={handleLoad}
         onNewProject={handleNewProject}
@@ -2763,25 +2940,10 @@ export default function SceneStudioInner() {
         canRedo={historyDepth.redo > 0}
         onUnityExport={() => setShowUnityExport(true)}
         onWebMExport={() => setShowWebMExport(true)}
-        onAddSpinner={() => setShowSpinnerWizard(true)}
       />
 
-      {(showSpinnerWizard || editSpinnerTarget) && (
-        <SpinnerWizard
-          key={editSpinnerTarget ? `edit-${editSpinnerTarget.assetId}` : 'create'}
-          scene={scene}
-          assetItems={assetItems}
-          rootHandle={rootHandle}
-          existingConfig={editSpinnerTarget?.config || null}
-          existingName={editSpinnerTarget?.name || null}
-          onClose={() => { setShowSpinnerWizard(false); setEditSpinnerTarget(null); }}
-          onCreate={
-            editSpinnerTarget
-              ? (payload) => handleUpdateSpinner(editSpinnerTarget, payload)
-              : handleCreateSpinner
-          }
-        />
-      )}
+      {/* Wizards render embedded in the bottom-center slot (full-focus) — see
+          the center stack below — not as modal overlays. */}
 
       {showUnityExport && (
         <UnityExportDialog
@@ -2803,27 +2965,31 @@ export default function SceneStudioInner() {
       )}
 
       <div
-        className="scene-studio-body"
-        style={{ gridTemplateColumns: `${leftW}px 1fr ${rightW}px` }}
+        className={'scene-studio-body' + (!rootHandle ? ' scene-studio-body--locked' : '')}
+        style={{ gridTemplateColumns: wizardActive ? `1fr ${WIZARD_PANEL_W}px` : `${leftW}px 1fr ${rightW}px` }}
       >
-        {/* Drag handle: widen the hierarchy/workspace column (grow rightward). */}
-        <div
-          className="scene-resize-handle scene-resize-handle--col"
-          style={{ left: leftW, marginLeft: -4 }}
-          title="Drag to resize the hierarchy / workspace panel"
-          onPointerDown={(e) => beginPanelResize(e, {
-            axis: 'x', base: leftW, min: PANEL_SIZES.left.min, max: PANEL_SIZES.left.max, sign: 1, set: setLeftW
-          })}
-        />
-        {/* Drag handle: widen the inspector (grow leftward). */}
-        <div
-          className="scene-resize-handle scene-resize-handle--col"
-          style={{ right: rightW, marginRight: -4 }}
-          title="Drag to resize the inspector panel"
-          onPointerDown={(e) => beginPanelResize(e, {
-            axis: 'x', base: rightW, min: PANEL_SIZES.right.min, max: PANEL_SIZES.right.max, sign: -1, set: setRightW
-          })}
-        />
+        {/* Side-panel resize handles — hidden in full-focus wizard mode. */}
+        {!wizardActive && (
+          <div
+            className="scene-resize-handle scene-resize-handle--col"
+            style={{ left: leftW, marginLeft: -4 }}
+            title="Drag to resize the hierarchy / workspace panel"
+            onPointerDown={(e) => beginPanelResize(e, {
+              axis: 'x', base: leftW, min: PANEL_SIZES.left.min, max: PANEL_SIZES.left.max, sign: 1, set: setLeftW
+            })}
+          />
+        )}
+        {!wizardActive && (
+          <div
+            className="scene-resize-handle scene-resize-handle--col"
+            style={{ right: rightW, marginRight: -4 }}
+            title="Drag to resize the inspector panel"
+            onPointerDown={(e) => beginPanelResize(e, {
+              axis: 'x', base: rightW, min: PANEL_SIZES.right.min, max: PANEL_SIZES.right.max, sign: -1, set: setRightW
+            })}
+          />
+        )}
+        {!wizardActive && (
         <div className="scene-left-stack">
           {studioMode === 'direct' ? (
             <ScenarioTimelineList
@@ -2843,6 +3009,23 @@ export default function SceneStudioInner() {
                 onReorder={handleReorder}
                 onRenameScene={handleRename}
               />
+              <div className="scene-panel scene-wizards-panel">
+                <div className="scene-panel-head">🪄 wizards</div>
+                <div className="scene-wizards-panel-body">
+                  <button
+                    className="scene-btn scene-wizard-launch"
+                    onClick={handleAddSpinner}
+                    disabled={busy}
+                    title="Add a Spinner (slot reel machine) object via the setup wizard"
+                  >🎰 Spinner</button>
+                  <button
+                    className="scene-btn scene-wizard-launch"
+                    onClick={handleAddWinSeq}
+                    disabled={busy}
+                    title="Add a Win-Sequence object (chained win-tier animations) via the setup wizard"
+                  >🏆 Win Sequences</button>
+                </div>
+              </div>
               <AssetBrowserPanel
                 items={assetItems}
                 onAddItem={addAssetItemFromBrowser}
@@ -2861,17 +3044,18 @@ export default function SceneStudioInner() {
             </>
           )}
         </div>
+        )}
 
         <div
           ref={centerStackRef}
-          className={'scene-center-stack' + (studioMode === 'setup' ? ' scene-center-stack--no-timeline' : '')}
-          style={studioMode !== 'setup' ? { gridTemplateRows: `1fr ${timelineH}px` } : undefined}
+          className={'scene-center-stack' + (!wizardActive && studioMode !== 'setup' ? '' : ' scene-center-stack--no-timeline')}
+          style={(!wizardActive && studioMode !== 'setup') ? { gridTemplateRows: `1fr ${timelineH}px` } : undefined}
         >
-          {studioMode !== 'setup' && (
+          {(!wizardActive && studioMode !== 'setup') && (
             <div
               className="scene-resize-handle scene-resize-handle--row"
               style={{ bottom: timelineH, marginBottom: -4 }}
-              title="Drag to resize the timeline height"
+              title="Drag to resize the panel height"
               onPointerDown={(e) => beginPanelResize(e, {
                 axis: 'y',
                 base: timelineH,
@@ -2894,24 +3078,29 @@ export default function SceneStudioInner() {
             <PixiErrorBoundary>
               <PixiViewport
                 ref={pixiViewportRef}
-                scene={studioMode === 'direct' && directPreview ? directPreview.scene : sceneWithRuntime}
+                scene={wizardActive
+                  ? (wizardPreviewScene || blankPreviewScene)
+                  : (studioMode === 'direct' && directPreview ? directPreview.scene : sceneWithRuntime)}
                 rootHandle={rootHandle}
-                selectedLayerId={studioMode === 'direct' ? null : selectedLayerId}
-                selectedClip={studioMode === 'direct' ? null : selectedClipContext}
-                onSelectLayer={handleSelectLayer}
+                selectedLayerId={(wizardActive || studioMode === 'direct') ? null : selectedLayerId}
+                selectedClip={(wizardActive || studioMode === 'direct') ? null : selectedClipContext}
+                onSelectLayer={wizardActive ? undefined : handleSelectLayer}
                 onTransformLayer={handleTransformLayer}
                 onAssetReady={handleAssetReady}
                 onSpinnerAnimDurations={handleSpinnerAnimDurations}
-                flowTime={studioMode === 'direct' && directPreview ? directPreview.flowTime : flowState.time}
+                flowTime={wizardActive
+                  ? wizardPreviewTime
+                  : (studioMode === 'direct' && directPreview ? directPreview.flowTime : flowState.time)}
                 livePreview={livePreview}
                 overlayMode={overlayMode}
-                studioMode={studioMode}
+                refreshNonce={refreshNonce}
+                studioMode={wizardActive ? 'animate' : studioMode}
                 onViewportClick={() => handleFlowAction('clickResume')}
                 onSeekToKey={(t) => handleFlowAction('seek', t)}
                 onPathEdit={handlePathEdit}
               />
             </PixiErrorBoundary>
-            {scene.layers.length === 0 && (
+            {!wizardActive && scene.layers.length === 0 && (
               <div className="scene-viewport-empty">
                 <div className="scene-viewport-empty-icon">🎬</div>
                 <div>drop PNG / video / Spine files here</div>
@@ -2920,7 +3109,7 @@ export default function SceneStudioInner() {
             )}
           </div>
 
-          {studioMode === 'animate' && (
+          {!wizardActive && studioMode === 'animate' && (
           <TimelinePanel
             scene={scene}
             flowState={flowState}
@@ -2953,7 +3142,7 @@ export default function SceneStudioInner() {
             onFlowAction={handleFlowAction}
           />
           )}
-          {studioMode === 'direct' && (
+          {!wizardActive && studioMode === 'direct' && (
           <ScenarioGraphPanel
             project={project}
             scenario={activeScenario}
@@ -2985,10 +3174,53 @@ export default function SceneStudioInner() {
             onSelectEdge={setSelectedEdgeId}
           />
           )}
-          {/* Setup mode hides the bottom panel entirely. */}
+          {/* Wizards render in the right-side column (see below), not here. */}
         </div>
 
-        {studioMode === 'direct' ? (
+        {wizardActive ? (
+          <div className="scene-wizard-dock">
+            {(showSpinnerWizard || editSpinnerTarget) && (
+              <SpinnerWizard
+                key={editSpinnerTarget ? `edit-${editSpinnerTarget.assetId}` : 'create'}
+                embedded
+                scene={scene}
+                assetItems={assetItems}
+                rootHandle={rootHandle}
+                existingConfig={editSpinnerTarget?.config || null}
+                existingName={editSpinnerTarget?.name || null}
+                refreshNonce={refreshNonce}
+                onPreviewScene={setWizardPreviewScene}
+                onPreviewTime={setWizardPreviewTime}
+                onClose={() => { setShowSpinnerWizard(false); setEditSpinnerTarget(null); }}
+                onCreate={
+                  editSpinnerTarget
+                    ? (payload) => handleUpdateSpinner(editSpinnerTarget, payload)
+                    : handleCreateSpinner
+                }
+              />
+            )}
+            {(showWinSeqWizard || editWinSeqTarget) && (
+              <WinSequenceWizard
+                key={editWinSeqTarget ? `edit-${editWinSeqTarget.assetId}` : 'create'}
+                embedded
+                scene={scene}
+                assetItems={assetItems}
+                rootHandle={rootHandle}
+                existingConfig={editWinSeqTarget?.config || null}
+                existingName={editWinSeqTarget?.name || null}
+                existingSkeleton={editWinSeqTarget?.skeleton || null}
+                onPreviewScene={setWizardPreviewScene}
+                onPreviewTime={setWizardPreviewTime}
+                onClose={() => { setShowWinSeqWizard(false); setEditWinSeqTarget(null); }}
+                onCreate={
+                  editWinSeqTarget
+                    ? (payload) => handleUpdateWinSeq(editWinSeqTarget, payload)
+                    : handleCreateWinSeq
+                }
+              />
+            )}
+          </div>
+        ) : studioMode === 'direct' ? (
           <ScenarioInspectorSections
             scenario={activeScenario}
             project={project}
@@ -3024,7 +3256,20 @@ export default function SceneStudioInner() {
             onSwapAssetFromBrowserId={handleSwapLayerAssetFromBrowserId}
             onPatchAsset={handlePatchAsset}
             onEditSpinner={handleEditSpinner}
+            onEditWinSeq={handleEditWinSeq}
             studioMode={studioMode}
+          />
+        )}
+
+        {/* No workspace linked: grey out the body and force a load from the
+            centered gate (the body's children are non-interactive). */}
+        {!rootHandle && (
+          <WorkspaceLockOverlay
+            onPickRoot={handlePickRoot}
+            onPickFolderFallback={handlePickFolderFallback}
+            busy={busy}
+            pickError={pickError}
+            onDismissPickError={() => setPickError(null)}
           />
         )}
       </div>

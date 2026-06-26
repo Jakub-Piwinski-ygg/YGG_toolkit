@@ -10,6 +10,8 @@ export function StudioToolbar({
   onPickRoot,
   onPickFolderFallback,
   onClearRoot,
+  onRefreshAssets,
+  canRefreshAssets = false,
   onSave,
   onLoad,
   onNewProject,
@@ -38,8 +40,7 @@ export function StudioToolbar({
   canUndo = false,
   canRedo = false,
   onUnityExport,
-  onWebMExport,
-  onAddSpinner
+  onWebMExport
 }) {
   const supported = isFsAccessSupported();
   const handleFallbackInput = (e) => {
@@ -151,6 +152,14 @@ export function StudioToolbar({
           >
             📁 {rootHandle.name}{rootHandle.writable === false ? ' (read-only)' : ''}
           </span>
+          {onRefreshAssets && (
+            <button
+              className="scene-btn scene-btn--ghost"
+              onClick={onRefreshAssets}
+              disabled={busy || !canRefreshAssets}
+              title="Re-read the project folder from disk (updated Spine + PNG assets) without reloading the page"
+            >🔄</button>
+          )}
           <button className="scene-btn scene-btn--ghost" onClick={onClearRoot} title="Unlink project folder">✕</button>
         </>
       ) : (
@@ -211,12 +220,6 @@ export function StudioToolbar({
       <button className="scene-btn scene-btn--ghost" onClick={onNewProject} disabled={busy} title="New project (will prompt to save)">new</button>
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>
       <button className="scene-btn scene-btn--primary" onClick={onSave} disabled={busy}>save</button>
-      <button
-        className="scene-btn"
-        onClick={onAddSpinner}
-        disabled={busy}
-        title="Add a Spinner (slot reel machine) object via the setup wizard"
-      >🎰 spinner</button>
       <button
         className="scene-btn"
         onClick={onWebMExport}

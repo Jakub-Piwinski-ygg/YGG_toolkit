@@ -4,9 +4,16 @@
 // Keep them in sync with SCENE_STUDIO.md §4.
 
 import { SPINNER_ACTIONS, normalizeSpinnerClipPayload } from './spinner/spinnerModel.js';
+import { normalizeWinSeqClipPayload } from './winseq/winseqModel.js';
 
 /**
- * @typedef {'png' | 'spine' | 'video' | 'pngSequence' | 'spinner'} AssetType
+ * @typedef {'png' | 'spine' | 'video' | 'pngSequence' | 'spinner' | 'winseq'} AssetType
+ *
+ * A `winseq` asset is a Spine skeleton (win_sequence.json + atlas + texture)
+ * carrying a `winseq: WinSeqConfig` payload (see engine/winseq/winseqModel.js)
+ * that maps the skeleton's animations to win tiers and derives escalation
+ * flows. Win-sequence clips use `clip.winseq = { sequenceId, hangOnLastIdle }`
+ * to pick which flow plays (mirrors how a spine clip picks `clip.anim`).
  * @typedef {'landscape' | 'portrait'} Orientation
  * @typedef {'normal' | 'additive' | 'screen' | 'multiply'} BlendMode
  *
@@ -985,6 +992,14 @@ export function normalizeClip(c) {
     action: SPINNER_ACTIONS.includes(c.action) ? c.action : null,
     spinner: SPINNER_ACTIONS.includes(c.action)
       ? normalizeSpinnerClipPayload(c.action, c.spinner)
+      : null,
+    /**
+     * Win-sequence clips (layers whose asset is a `winseq`): which escalation
+     * flow this clip plays + whether to hang on the final idle (drop `_end`).
+     * Null on every other clip kind. See engine/winseq/winseqModel.js.
+     */
+    winseq: c.winseq && typeof c.winseq === 'object'
+      ? normalizeWinSeqClipPayload(c.winseq)
       : null
   };
 }

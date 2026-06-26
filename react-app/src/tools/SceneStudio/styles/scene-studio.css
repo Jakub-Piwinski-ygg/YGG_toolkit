@@ -216,6 +216,67 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   position: relative; /* positioning context for the column resize handles */
 }
 
+/* ── Workspace lock gate (no project root linked) ───────────────────────
+   Grey out + disable everything in the body except the lock overlay, so the
+   only available action is loading a workspace from the centered panel. */
+.scene-studio-body--locked > *:not(.scene-workspace-lock) {
+  filter: grayscale(0.85) brightness(0.5);
+  pointer-events: none;
+  user-select: none;
+}
+.scene-workspace-lock {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(8, 10, 14, 0.6);
+  backdrop-filter: blur(2px);
+}
+.scene-workspace-lock-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: min(540px, 84%);
+  padding: 40px 44px;
+  border: 1px solid var(--border-2, #3a4050);
+  border-radius: 14px;
+  background: var(--bg-2, #1a1d24);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  text-align: center;
+}
+.scene-workspace-lock-icon { font-size: 52px; line-height: 1; }
+.scene-workspace-lock-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-0, #e8eaf0);
+}
+.scene-workspace-lock-sub {
+  font-size: 14px;
+  color: var(--text-1, #a8afc0);
+  line-height: 1.5;
+  max-width: 400px;
+}
+.scene-workspace-lock-btn {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 13px 30px;
+  border-radius: 8px;
+  background: var(--orange, #ff9d3c);
+  border-color: var(--orange, #ff9d3c);
+  color: #1a1205;
+}
+.scene-workspace-lock-btn:hover:not(:disabled) {
+  background: #ffb05f;
+  border-color: #ffb05f;
+}
+.scene-workspace-lock-hint {
+  font-size: 12px;
+  color: var(--text-2, #6a7288);
+}
+
 /* Drag-to-resize handles — thin strips straddling a panel boundary. */
 .scene-resize-handle {
   position: absolute;
@@ -230,16 +291,36 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 
 .scene-left-stack {
   display: grid;
-  /* Hierarchy on top (1fr), Assets/folders below (capped to ~45% so its
-     scroll stays usable). minmax with a hard `1fr` floor on the top row
-     prevents the asset tree from pushing the viewport taller — the asset
-     row maxes at 45% of stack height and its `overflow-y:auto` scrolls
-     anything beyond that. */
-  grid-template-rows: 1fr minmax(120px, 45%);
+  /* Hierarchy on top (1fr), wizards (auto — sized to its buttons), Assets/
+     folders below (capped to ~45% so its scroll stays usable). minmax with a
+     hard `1fr` floor on the top row prevents the asset tree from pushing the
+     viewport taller — the asset row maxes at 45% of stack height and its
+     `overflow-y:auto` scrolls anything beyond that. */
+  grid-template-rows: 1fr auto minmax(120px, 45%);
   min-height: 0;
   border-right: 1px solid var(--border, #2e3340);
 }
 .scene-left-stack > * { min-height: 0; }
+
+/* Wizards panel — sits between the hierarchy and the workspace/asset tree. */
+.scene-wizards-panel {
+  flex: 0 0 auto;
+  border-right: none;
+  border-bottom: 1px solid var(--border, #2e3340);
+  overflow: visible;
+}
+.scene-wizards-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+}
+.scene-wizard-launch {
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  padding: 7px 10px;
+}
 
 .scene-center-stack {
   display: grid;
@@ -2848,3 +2929,89 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 }
 .ss-insp-chip.is-on { color: var(--text-0, #e6e9f0); border-color: var(--accent, #5b8cff); }
 .ss-insp-chip input { margin: 0; }
+
+/* ── Wizards dropdown (toolbar) ─────────────────────────────────────────── */
+.scene-wizards-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 1200;
+  display: flex; flex-direction: column; min-width: 180px;
+  background: var(--bg-2, #1a1d24); border: 1px solid var(--border-2, #3a4050);
+  border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+}
+.scene-wizards-item {
+  text-align: left; background: transparent; border: 0; color: var(--text-0, #e8eaf0);
+  font-size: 13px; padding: 7px 10px; border-radius: 6px; cursor: pointer;
+}
+.scene-wizards-item:hover { background: var(--bg-3, #21252e); }
+
+/* ── Win-sequence wizard ────────────────────────────────────────────────── */
+.winseq-tier-list { display: flex; flex-direction: column; gap: 6px; }
+.winseq-tier-row {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 7px 8px; border-radius: 6px;
+  background: var(--bg-2, #1a1d24); border: 1px solid var(--border, #2e3340);
+}
+.winseq-tier-row--absent { opacity: 0.7; }
+.winseq-tier-head { display: flex; align-items: center; gap: 6px; }
+.winseq-tier-flag {
+  margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-2, #6a7288); border: 1px solid var(--border-2, #3a4050);
+  border-radius: 10px; padding: 1px 7px;
+}
+.winseq-tier-slots { display: flex; gap: 6px; }
+.winseq-slot { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.winseq-slot-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
+.winseq-slot-label--ok   { color: #7fe0a0; }
+.winseq-slot-label--miss { color: var(--text-2, #6a7288); }
+.winseq-slot-select { width: 100%; min-width: 0; font-size: 11px; }
+
+.winseq-flow-list { display: flex; flex-direction: column; gap: 6px; }
+.winseq-flow-row {
+  text-align: left; cursor: pointer;
+  background: var(--bg-2, #1a1d24); border: 1px solid var(--border, #2e3340);
+  border-radius: 8px; padding: 8px 10px; color: var(--text-0, #e8eaf0);
+}
+.winseq-flow-row:hover { border-color: var(--accent, #4f9eff); }
+.winseq-flow-row.active { border-color: var(--accent, #4f9eff); background: var(--bg-3, #21252e); }
+.winseq-flow-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.winseq-flow-dur { margin-left: auto; font-size: 11px; color: var(--text-2, #6a7288); }
+.winseq-flow-chain { display: flex; flex-wrap: wrap; gap: 4px 6px; font-size: 10.5px; color: var(--text-2, #8a92a8); }
+.winseq-step--begin { color: #8fb4ff; }
+.winseq-step--idle  { color: #c9a6ff; }
+.winseq-step--end   { color: #ffb27f; }
+
+.winseq-preview { display: flex; flex-direction: column; gap: 6px; }
+.winseq-preview-bar {
+  position: relative; display: flex; width: 100%; height: 40px;
+  border: 1px solid var(--border, #2e3340); border-radius: 8px; overflow: hidden;
+  background: var(--bg-2, #1a1d24); cursor: pointer; user-select: none;
+}
+.winseq-seg {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 0; height: 100%; font-size: 10px; text-transform: uppercase;
+  color: var(--text-2, #8a92a8); border-right: 1px solid rgba(0,0,0,0.35);
+  overflow: hidden; white-space: nowrap;
+}
+.winseq-seg:last-child { border-right: 0; }
+.winseq-seg--begin { background: rgba(80,130,255,0.18); }
+.winseq-seg--idle  { background: rgba(150,110,255,0.18); }
+.winseq-seg--end   { background: rgba(255,140,90,0.20); }
+.winseq-seg.active { color: var(--text-0, #e8eaf0); filter: brightness(1.6); }
+.winseq-preview-playhead {
+  position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+  background: var(--accent, #4f9eff); pointer-events: none; box-shadow: 0 0 6px var(--accent, #4f9eff);
+}
+.winseq-preview-controls { display: flex; align-items: center; gap: 8px; }
+.winseq-preview-now { font-size: 11px; color: var(--text-1, #aab2c8); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.winseq-preview-time { font-size: 11px; color: var(--text-2, #6a7288); min-width: 90px; text-align: right; }
+
+/* ── Embedded wizard dock (right column, full-focus) ────────────────────── */
+.scene-wizard-dock {
+  height: 100%; min-height: 0; min-width: 0; overflow: hidden; display: flex;
+  background: var(--bg-1, #13151a); border-left: 1px solid var(--border, #2e3340);
+}
+.spinner-wizard--embedded {
+  width: 100%; max-width: none; height: 100%; max-height: none;
+  border: 0; border-radius: 0; box-shadow: none; background: transparent;
+}
+/* Vertical layout: the step row wraps; rows stack to fit the column width. */
+.spinner-wizard--embedded .spinner-wizard-steps { flex-wrap: wrap; }

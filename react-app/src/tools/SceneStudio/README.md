@@ -2,7 +2,25 @@
 
 See `react-app/SCENE_STUDIO.md` (root of react-app) for the full design.
 Phase 5 (deterministic slot-machine **Spinner** object) is designed in
-`react-app/SPINNER.md`.
+`react-app/SPINNER.md`. Phase 6 (**Win Sequences** — escalation-flow object,
+the second wizard) is in `react-app/WIN_SEQUENCES.md`.
+
+**Refresh assets (2026-06-25).** A 🔄 button next to the linked-root tag in the
+toolbar re-reads the project folder from disk (no re-pick) and force-rebuilds the
+viewport, so edited Spine/PNG assets show live in the scene view + wizard previews
+without a page reload. Works on Chrome/Edge (live `FileSystemDirectoryHandle`)
+AND Firefox/Safari (their `<input webkitdirectory>` File objects re-read disk on
+access) — though on Firefox/Safari only EDITED existing files refresh; newly-added
+files need a folder re-pick (the file list is a pick-time snapshot). Leak-safe: each rebuild revokes +
+`Assets.unload`s the previous build generation's blob URLs (per-build sink
+returned from `rebuildScene` as `handles.__blobUrls`; rotated in PixiViewport).
+
+**Phase 6 — Win Sequences (2026-06-24, web+timeline DONE).** Toolbar
+**🪄 wizards ▾** foldout now offers Spinner + Win Sequences. A win-sequence
+object is a single `win_sequence.json` Spine whose tier animations
+(`01a_small_begin` …) auto-map and chain into escalation flows; clips pick a
+flow + a "hang on last idle" toggle, with a "set full sequence time" button.
+Pure model `engine/winseq/`. Unity export deferred.
 
 ## Status (2026-06-12)
 

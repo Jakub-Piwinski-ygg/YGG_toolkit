@@ -24,7 +24,8 @@ slot-game preview utilities.
 **Status (2026-06-14)**: 20 registered tools in 4 categories — Art Tools 🎨 (12),
 Asset Pipeline 🏗️ (6 — Asset Checker, Project Scaffold, Char Extractor, Repo Content
 Browser, Templates, Asset Library), Scene Studio 🎬 (Pixi v8 scene editor/animator — design in
-`react-app/SCENE_STUDIO.md`, spinner in `react-app/SPINNER.md`), Cheets 🎲
+`react-app/SCENE_STUDIO.md`, spinner in `react-app/SPINNER.md`, win sequences in
+`react-app/WIN_SEQUENCES.md`), Cheets 🎲
 (Cheat Tool). The priority backlog lives in `TOOL_REVIEW.md` (root).
 
 ### Project structure
@@ -154,6 +155,7 @@ open items as of 2026-06-12:
 | `react-app/SCENE_STUDIO.md` | Scene Studio design doc (§18 phase audit, §20 as-built animation) |
 | `react-app/SCENE_STUDIO_PHASE_STATUS.md` | session-by-session Scene Studio changelog (most current) |
 | `react-app/SPINNER.md` | Spinner (Phase 5) design + milestone status |
+| `react-app/WIN_SEQUENCES.md` | Win Sequences (Phase 6) design + status — second wizard object |
 | `react-app/docs/asset-checker-checks.md` | Asset Checker rule reference |
 
 ---

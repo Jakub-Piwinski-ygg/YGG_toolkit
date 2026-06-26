@@ -4,7 +4,7 @@ tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
 priority: P0
-updated: 2026-06-16
+updated: 2026-06-26
 tags: [scene-studio, pixi, animation, unity]
 ---
 
@@ -54,11 +54,21 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
   source active-edge exclusivity, transition/entry inspector. P1–P4 shipped; Unity
   `YggScenarioPlayer.cs` export is P5. Full design: [[Scene Studio Direct Mode]].
 
+- **Win Sequences — Phase 1 SHIPPED 2026-06-26**: the second wizard-built object after
+  the Spinner. A single Spine skeleton (`win_sequence.json`) whose `NNx_tier_sub`
+  animations are mapped to win tiers and chained into escalation **flows**; on the
+  timeline it behaves like a Spine layer whose "animations" are those flows. Pure model
+  + 15 tests (`engine/winseq/`), Spine-backed runtime, wizard, timeline + inspector
+  integration. Unity export deferred to Phase 2. Wizard launchers now live in a left-stack
+  panel (under the hierarchy, above the workspace). Full design: [[Win Sequences Design]].
+
 ## Sub-objects & docs
 
 - [[Spinner Design]] — deterministic slot-machine Spinner object (Phase 5).
+- [[Win Sequences Design]] — chained win-tier Spine sequences (Phase 1).
 - Full design: [[Scene Studio Design]] · [[Scene Studio Direct Mode]] (scenario graph).
 - Sessions: [[Scene Studio Phase Status]], [[Next Phase Scene Tool]],
+  [[Win Sequences Phase 1]],
   [[Session 2026-06-16 Scene Studio Direct Scenario Mode]],
   [[Session 2026-06-15 Scene Studio Keyframe Multiselect Timeline and Overlays]].
 - Unity export sessions: [[Spinner Unity Phase 2]] … [[Spinner Unity Phase 5]].
@@ -66,5 +76,6 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
 > [!success] Shipped
 > Phases 1–3.7, per-key tangent model, path-mode position, Phase 4.2 Unity
 > `.unitypackage` export, the project/scenes/timelines + Setup-Animate rework
-> (per-timeline Unity bake), and the [[Spinner Design|Spinner]] all landed. The
-> retired Slot Machine soft-redirects here via `TOOL_ALIASES`.
+> (per-timeline Unity bake), the [[Spinner Design|Spinner]], and the
+> [[Win Sequences Design|Win Sequences]] object (Phase 1: web + timeline) all
+> landed. The retired Slot Machine soft-redirects here via `TOOL_ALIASES`.

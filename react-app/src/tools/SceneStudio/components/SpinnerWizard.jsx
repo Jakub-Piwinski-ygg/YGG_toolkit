@@ -31,19 +31,57 @@
 // events, direction, perReel) and only regenerates strips/board when the symbol
 // set or grid changed.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DragNumberField } from './DragNumberField.jsx';
 import { resolveAssetFile } from '../engine/persist.js';
+import {
+  createEmptyScene,
+  defaultTransformsForNewLayer,
+  deriveFlowGraph,
+  normalizeTrack,
+} from '../engine/sceneModel.js';
 import {
   generateNonWinningBoard,
   generateStrip,
   mulberry32,
+  hash32,
+  buildSpinnerTestClips,
   SPINNER_DEFAULT_STRIP_LEN,
   defaultSpinnerTiming,
   defaultSpinnerBounce,
   defaultSpinnerBlur,
   defaultSpinnerEvents,
 } from '../engine/spinner/spinnerModel.js';
+
+/** Build the synthetic spinner preview scene shown in the viewport while the
+ * wizard is open: the referenced symbol assets + a centered spinner layer,
+ * optionally with a one-shot test-spin track. */
+function buildSpinnerPreviewScene(spinnerConfig, refAssets, testTrack, projectRoot = null) {
+  if (!spinnerConfig) return null;
+  const base = createEmptyScene('Spinner preview');
+  base.projectRoot = projectRoot;
+  // STABLE ids — createEmptyScene mints random canvas/ids each call, which would
+  // change the viewport's structural hash on every rebuild (e.g. arming the test
+  // track) and force a full Pixi rebuild → texture reload flash. Pinning them so
+  // only a real config change (spinner.rev) rebuilds.
+  base.canvases = [{ id: 'sprev_canvas', name: 'Canvas', visible: true }];
+  base.activeCanvasId = 'sprev_canvas';
+  const spId = 'sprev_spinner';
+  base.assets = [...refAssets, { id: spId, type: 'spinner', spinner: spinnerConfig, meta: { originalName: 'preview' } }];
+  base.layers = [{
+    id: 'sprev_layer', name: 'preview', assetId: spId,
+    canvasId: 'sprev_canvas', parentId: null, visible: true, blend: 'normal',
+    transforms: defaultTransformsForNewLayer(base.stage)
+  }];
+  const tracks = testTrack ? [testTrack] : [];
+  base.flow = deriveFlowGraph({ tracks, markers: [], nodes: [], edges: [] });
+  base.timelines = [{ ...base.timelines[0], tracks }];
+  if (testTrack) {
+    const end = Math.max(1, ...testTrack.clips.map((c) => c.start + c.duration));
+    base.stage = { ...base.stage, duration: Math.max(base.stage.duration, end) };
+  }
+  return base;
+}
 import { makeBlurredSymbol } from '../engine/spinner/spinnerBlur.js';
 import { spineMatchScore, pickAnimName } from '../engine/spinner/symbolMatch.js';
 import { BoardGridEditor } from './SpinnerInspectorSections.jsx';
@@ -332,7 +370,11 @@ function AnimBadge({ label, anim, spinePool }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate, existingConfig = null, existingName = null }) {
+export function SpinnerWizard({
+  scene, assetItems, rootHandle, onClose, onCreate,
+  existingConfig = null, existingName = null,
+  embedded = false, onPreviewScene, onPreviewTime, refreshNonce = 0,
+}) {
   const isEdit = !!existingConfig;
   const [step, setStep] = useState('grid');
 
@@ -446,6 +488,9 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
   // ── Spine animation lists (read from the actual .json files) ─────────────
   // assetId → string[] (animation names) | null (file unreadable).
   const spineAnimsCacheRef = useRef(new Map());
+  // "Refresh assets" re-reads files from disk — drop cached anim-name lists so
+  // edited spine .json files re-parse.
+  useEffect(() => { spineAnimsCacheRef.current.clear(); }, [refreshNonce]);
 
   const loadSpineAnims = useCallback(async (spineAsset) => {
     if (!spineAsset) return null;
@@ -615,6 +660,126 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
   // ── BoardGridEditor preview config ────────────────────────────────────────
   const previewConfig = { grid: { reels, rows, cellW, cellH, spacingX, spacingY }, symbols: validSymbols };
 
+  // ── Live scene-view preview (embedded/full-focus) ──────────────────────────
+  // Symbol art assets referenced by the (valid) symbols, so the preview spinner
+  // can resolve its textures in the viewport.
+  const referencedAssets = useMemo(() => {
+    const ids = new Set(
+      validSymbols.flatMap((s) => [s.assetId, s.blurAssetId, s.landAnim?.assetId, s.winAnim?.assetId]).filter(Boolean)
+    );
+    const out = [];
+    for (const a of allPngAssets) if (ids.has(a.id)) out.push({ id: a.id, type: 'png', src: a.src, meta: a.meta });
+    for (const a of allSpineAssets) if (ids.has(a.id)) out.push({ id: a.id, type: 'spine', src: a.src, atlas: a.atlas, texture: a.texture, meta: a.meta });
+    return out;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbols, allPngAssets.length, allSpineAssets.length]);
+
+  // Stable strips for the preview (don't regenerate on every timing tweak).
+  const previewStrips = useMemo(() => {
+    const ids = validSymbols.map((s) => s.id);
+    if (ids.length < 2) return null;
+    const rand = mulberry32(seed);
+    return Array.from({ length: reels }, () => generateStrip(ids, SPINNER_DEFAULT_STRIP_LEN, rand));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbols, reels, seed]);
+
+  // The spinner config the preview renders. `rev` is a content hash so the
+  // viewport rebuilds when grid/symbols/timing/blur change (the spinner caches
+  // timing into its Pixi object at build time).
+  //
+  const [testRun, setTestRun] = useState(null); // { clips, total } | null
+  const testTimeRef = useRef(0);
+  const testRafRef = useRef(0);
+  const testLastRef = useRef(0);
+
+  // The spinner bakes its timing/blur into the Pixi object at BUILD time, and
+  // Pixi v8 dislikes rapid rebuilds (SPINNER.md §20.10). We DEBOUNCE the rebuild:
+  // `bakedRev` only catches up to the live content hash after edits settle
+  // (150ms), so dragging a slider doesn't thrash the renderer, AND the object
+  // stays STABLE during a test spin (no texture reload → no blank/blur flash).
+  const contentHash = useMemo(() => hash32(JSON.stringify({
+    s: validSymbols.map((s) => [s.id, s.assetId, s.blurAssetId, s.landAnim, s.winAnim]),
+    g: { reels, rows, cellW, cellH, spacingX, spacingY },
+    t: timing, b: blur, board: initialBoard,
+  })) || 1, [symbols, reels, rows, cellW, cellH, spacingX, spacingY, timing, blur, initialBoard]);
+  const [bakedRev, setBakedRev] = useState(contentHash);
+  useEffect(() => {
+    const id = setTimeout(() => setBakedRev(contentHash), 150);
+    return () => clearTimeout(id);
+  }, [contentHash]);
+
+  const previewSpinnerConfig = useMemo(() => {
+    const ids = validSymbols.map((s) => s.id);
+    if (ids.length < 2 || !previewStrips) return null;
+    const idSet = new Set(ids);
+    const boardValid = initialBoard && initialBoard.length === reels
+      && initialBoard.every((col) => Array.isArray(col) && col.length === rows && col.every((c) => idSet.has(c)));
+    const board = boardValid ? initialBoard : generateNonWinningBoard(ids, reels, rows, seed);
+    const cfg = {
+      symbols: validSymbols,
+      grid: { reels, rows, cellW, cellH, spacingX, spacingY },
+      strips: previewStrips,
+      initialBoard: board,
+      seed,
+      direction: existingConfig?.direction ?? 1,
+      timing,
+      bounce: existingConfig?.bounce || defaultSpinnerBounce(),
+      blur,
+      events: existingConfig?.events || defaultSpinnerEvents(),
+      perReel: existingConfig?.perReel || [],
+    };
+    // Debounced rebuild rev (settles ~150ms after the last edit).
+    cfg.rev = bakedRev;
+    return cfg;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [symbols, reels, rows, cellW, cellH, spacingX, spacingY, timing, blur, initialBoard, seed, previewStrips, bakedRev]);
+
+  // Test-spin transport: when `testRun` is set, the preview scene includes a
+  // one-shot startSpin→spin→stopSpin track and the clock runs once to its end.
+  const testTrack = useMemo(() => {
+    if (!testRun) return null;
+    return normalizeTrack({ id: 'sprev_track', layerId: 'sprev_layer', clips: testRun.clips });
+  }, [testRun]);
+
+  const previewScene = useMemo(
+    () => buildSpinnerPreviewScene(previewSpinnerConfig, referencedAssets, testTrack, scene?.projectRoot || null),
+    [previewSpinnerConfig, referencedAssets, testTrack, scene?.projectRoot]
+  );
+
+  // Push the preview scene up to the host viewport.
+  useEffect(() => {
+    if (!embedded || !onPreviewScene) return;
+    onPreviewScene(previewScene);
+  }, [embedded, onPreviewScene, previewScene]);
+
+  // Drive the test-spin clock once through, then hold on the result.
+  useEffect(() => {
+    if (!embedded || !onPreviewTime) return undefined;
+    if (!testRun) { testTimeRef.current = 0; onPreviewTime(0); return undefined; }
+    testTimeRef.current = 0;
+    testLastRef.current = 0;
+    onPreviewTime(0);
+    const frame = (ts) => {
+      const dt = testLastRef.current ? Math.min(0.05, (ts - testLastRef.current) / 1000) : 0;
+      testLastRef.current = ts;
+      testTimeRef.current = Math.min(testRun.total, testTimeRef.current + dt);
+      onPreviewTime(testTimeRef.current);
+      if (testTimeRef.current < testRun.total) testRafRef.current = requestAnimationFrame(frame);
+    };
+    testRafRef.current = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(testRafRef.current);
+  }, [embedded, onPreviewTime, testRun]);
+
+  const runTestSpin = () => {
+    if (!previewSpinnerConfig) return;
+    // Arm the one-shot test track (a fresh object each click restarts the
+    // clock). The spinner is already baked with current timing (debounced
+    // rebuild), so no flash — it spins from the current board exactly like the
+    // scene timeline.
+    setTestRun(buildSpinnerTestClips(previewSpinnerConfig));
+  };
+  const resetPreview = () => setTestRun(null);
+
   const goToStep = (next) => {
     if (next === 'review') {
       const ids = validSymbols.map((s) => s.id);
@@ -700,9 +865,10 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
     true;
 
   // ── Render ────────────────────────────────────────────────────────────────
+  const Shell = embedded ? SpinnerEmbeddedShell : SpinnerOverlayShell;
   return (
-    <div className="scene-confirm-overlay" style={{ zIndex: 1100 }}>
-      <div className="spinner-wizard">
+    <Shell>
+      <div className={'spinner-wizard' + (embedded ? ' spinner-wizard--embedded' : '')}>
 
         <div className="spinner-wizard-head">
           <span className="spinner-wizard-title">{isEdit ? '✎ Edit Spinner' : '＋ New Spinner'}</span>
@@ -998,6 +1164,8 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
               <div className="scene-field-group-head">Timing</div>
               <DragNumberField label="spin speed c/s" value={timing.spinSpeed} step={0.5} min={1}
                 onChange={(v) => patchTiming({ spinSpeed: Math.max(1, v) })} />
+              <DragNumberField label="min spin time s" value={timing.minSpinTime ?? 1} step={0.1} min={0.1}
+                onChange={(v) => patchTiming({ minSpinTime: Math.max(0.1, v) })} />
               <DragNumberField label="start dur s" value={timing.startDuration} step={0.05} min={0.05}
                 onChange={(v) => patchTiming({ startDuration: Math.max(0.05, v) })} />
               <DragNumberField label="stop dur s" value={timing.stopDuration} step={0.05} min={0.05}
@@ -1038,10 +1206,33 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
                   Go back to Symbols — need at least 2.
                 </div>
               )}
+              {embedded && (
+                <>
+                  <div className="scene-field-group-head" style={{ marginTop: 12 }}>
+                    Test spin
+                    <span className="scene-pill">plays in the scene view ↑</span>
+                  </div>
+                  <div className="spinner-wizard-auto-row">
+                    <button
+                      type="button"
+                      className="scene-btn scene-btn--primary"
+                      onClick={runTestSpin}
+                      disabled={validSymbols.length < 2}
+                      title={`startSpin → spin (${(timing.minSpinTime ?? 1)}s) → stopSpin, using the current timing`}
+                    >
+                      🎰 test spin ({(timing.minSpinTime ?? 1)}s)
+                    </button>
+                    <button type="button" className="scene-btn scene-btn--ghost" onClick={resetPreview} disabled={!testRun}>
+                      ↺ reset
+                    </button>
+                  </div>
+                </>
+              )}
+
               <div className="scene-field-group-head" style={{ marginTop: 12 }}>Summary</div>
               <div className="scene-spinner-meta">
                 <strong>{name || 'Spinner'}</strong> · {reels}×{rows} · {validSymbols.length} symbols
-                · speed {timing.spinSpeed} c/s
+                · speed {timing.spinSpeed} c/s · spin {timing.minSpinTime ?? 1}s
                 {blur.enabled ? ` · blur ${blur.vLo}–${blur.vHi} c/s` : ' · blur off'}
                 {generatedAssets.length > 0 ? ` · ${generatedAssets.length} blur(s) generated` : ''}
               </div>
@@ -1072,6 +1263,16 @@ export function SpinnerWizard({ scene, assetItems, rootHandle, onClose, onCreate
         </div>
 
       </div>
-    </div>
+    </Shell>
   );
+}
+
+/** Modal overlay wrapper (standalone use). */
+function SpinnerOverlayShell({ children }) {
+  return <div className="scene-confirm-overlay" style={{ zIndex: 1100 }}>{children}</div>;
+}
+
+/** Docked panel wrapper (embedded in the bottom slot). */
+function SpinnerEmbeddedShell({ children }) {
+  return <>{children}</>;
 }

@@ -1,6 +1,7 @@
 // PixiViewport — mounts Pixi v8, owns pan/zoom + selection/move interactions.
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { Assets } from 'pixi.js';
 import {
   applyFlowAtTime,
   createPixiApp,
@@ -19,7 +20,7 @@ import {
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 import { pickWebmMime, recordCanvasFrames } from '../engine/webmExport.js';
 
-export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate' }, ref) {
+export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate', refreshNonce = 0 }, ref) {
   const hostRef = useRef(null);
   const appRef = useRef(null);
   const viewportRef = useRef(null);
@@ -30,6 +31,10 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   const dimOverlayRef = useRef(null);
   const guideRectRef = useRef(null); // {x,y,w,h} of the device guide in stage coords
   const handlesRef = useRef(new Map());
+  // Blob: URLs minted by the live build generation. When a new build commits we
+  // revoke + Assets.unload the PREVIOUS generation's URLs so repeated "refresh
+  // assets" rebuilds don't leak GPU textures / object URLs.
+  const buildBlobUrlsRef = useRef(null);
   const buildIdRef = useRef(0);
   const pendingRef = useRef(Promise.resolve());
   const detachControllerRef = useRef(null);
@@ -294,12 +299,24 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         const handles = await rebuildScene(
           app, content, selectionOverlayRef.current, scene, selectedLayerId, rootHandle, onAssetReady, onSpinnerAnimDurations
         );
-        if (myBuild === buildIdRef.current) handlesRef.current = handles;
+        if (myBuild === buildIdRef.current) {
+          handlesRef.current = handles;
+          // Rotate blob-URL generations: the new build is live, so the previous
+          // generation's URLs are dead — unload their cached textures + revoke.
+          const prev = buildBlobUrlsRef.current;
+          buildBlobUrlsRef.current = handles.__blobUrls || null;
+          if (prev) {
+            for (const url of prev) {
+              try { Assets.unload(url).catch(() => {}); } catch { /* not cached */ }
+              try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+            }
+          }
+        }
       } catch (e) {
         console.warn('[SceneStudio] rebuild failed', e);
       }
     });
-  }, [structHash, rootHandle, pixiTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [structHash, rootHandle, pixiTick, refreshNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cheap path: transform / visibility / blend changes don't trigger
   // rebuild — they update existing handles in place. This is what makes

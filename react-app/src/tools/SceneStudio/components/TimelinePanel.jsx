@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CURVE_PRESETS, TWEEN_PROPS, uid } from '../engine/sceneModel.js';
 import { channelKeyDots, CHANNEL_NAMES, evalChannel, isPathChannel, maxChannelKeyTime } from '../engine/animation/keyframes.js';
 import { SPINNER_ACTIONS } from '../engine/spinner/spinnerModel.js';
+import { normalizeWinSeqConfig, findWinSeqFlow, winSeqFlowDuration } from '../engine/winseq/winseqModel.js';
 
 const LABEL_COL_W = 140;
 
@@ -264,7 +265,22 @@ export function TimelinePanel({
     const layer = scene.layers.find((l) => l.id === layerId);
     if (!layer) return 1;
     const asset = scene.assets.find((a) => a.id === layer.assetId);
-    if (asset?.type === 'spinner') return spinnerActionDuration(spinnerAction || 'spin');
+    if (asset?.type === 'spinner') {
+      // 'spin' clips default to the configured min spin time; other actions use
+      // their fixed defaults.
+      if ((spinnerAction || 'spin') === 'spin') {
+        const mst = Number(asset.spinner?.timing?.minSpinTime);
+        if (Number.isFinite(mst) && mst > 0) return mst;
+      }
+      return spinnerActionDuration(spinnerAction || 'spin');
+    }
+    if (asset?.type === 'winseq') {
+      const config = normalizeWinSeqConfig(asset.winseq);
+      const flow = findWinSeqFlow(config, animOverride);
+      if (!flow) return 1;
+      const durations = assetDescriptors?.[asset.id]?.animationDurations || {};
+      return Math.max(0.05, winSeqFlowDuration(flow, durations, { hangOnLastIdle: false }));
+    }
     if (asset?.type !== 'spine') return 1;
     const animName = animOverride || layer.spine?.defaultAnimation || null;
     if (!animName) return 1;
@@ -278,6 +294,7 @@ export function TimelinePanel({
     const layer = scene.layers.find((l) => l.id === layerId);
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     const isSpinner = asset?.type === 'spinner';
+    const isWinSeq = asset?.type === 'winseq';
     const base = {
       id: uid('C'),
       name: null,
@@ -290,11 +307,18 @@ export function TimelinePanel({
       curve: 'linear',
       speed: 1,
       mixDuration: null,
-      autoFitDuration: !isSpinner
+      autoFitDuration: !isSpinner && !isWinSeq
     };
     if (isSpinner) {
       base.action = spinnerAction || 'startSpin';
       base.spinner = null;
+    }
+    if (isWinSeq) {
+      // Default to the first generated flow; the clip inspector lets the artist
+      // pick another and refit the duration.
+      const config = normalizeWinSeqConfig(asset.winseq);
+      const flow = config?.sequences?.[0] || null;
+      base.winseq = { sequenceId: flow?.id || null, hangOnLastIdle: false };
     }
     return base;
   }, [scene.layers, scene.assets]);
@@ -660,14 +684,25 @@ export function TimelinePanel({
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     const isSpinner = asset?.type === 'spinner';
     const isSpine = asset?.type === 'spine';
+    const isWinSeq = asset?.type === 'winseq';
     const spinnerAction = isSpinner ? nextSpinnerAction(clip.action || 'startSpin') : null;
     // Spine: the new clip inherits the source clip's animation + speed, so it's
     // a meaningful full-cycle clip the user can re-point — not a 1s stub.
     const inheritSpeed = isSpine && Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
+    // Win-seq: inherit the source clip's flow + hang flag so the adjacent clip
+    // is a meaningful full-sequence clip, sized to the same flow.
+    const winseqOverride = isWinSeq && clip.winseq
+      ? { sequenceId: clip.winseq.sequenceId ?? null, hangOnLastIdle: clip.winseq.hangOnLastIdle === true }
+      : null;
     const extraProps = isSpinner ? { action: spinnerAction }
       : isSpine ? { anim: clip.anim ?? null, speed: inheritSpeed }
+      : isWinSeq ? { winseq: winseqOverride }
       : null;
-    const wantedDuration = defaultClipDurationForLayer(track.layerId, inheritSpeed, isSpine ? (clip.anim ?? null) : null, spinnerAction);
+    const wantedDuration = defaultClipDurationForLayer(
+      track.layerId, inheritSpeed,
+      isSpine ? (clip.anim ?? null) : isWinSeq ? (clip.winseq?.sequenceId ?? null) : null,
+      spinnerAction
+    );
     const seeded = isSpinner ? null : seedChannelsFromClipEdge(clip, side);
     if (side === 'left') {
       const gap = clip.start - leftBound;
@@ -1058,6 +1093,11 @@ export function TimelinePanel({
     const layer = scene.layers.find((l) => l.id === track.layerId);
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     if (asset?.type === 'spinner') return clip.action || 'spinner';
+    if (asset?.type === 'winseq') {
+      const flow = findWinSeqFlow(normalizeWinSeqConfig(asset.winseq), clip.winseq?.sequenceId);
+      const tag = clip.winseq?.hangOnLastIdle ? ' (hang)' : '';
+      return (flow?.label || clip.winseq?.sequenceId || 'win seq') + tag;
+    }
     // Compute default: "<layer name> clip N"
     const sameTrackClips = track.clips || [];
     const clipIdx = sameTrackClips.findIndex((c) => c.id === clip.id);
@@ -1380,8 +1420,12 @@ export function TimelinePanel({
                   const trackAsset = trackLayer ? scene.assets.find((a) => a.id === trackLayer.assetId) : null;
                   const isSpine = trackAsset?.type === 'spine';
                   const isSpinner = trackAsset?.type === 'spinner';
+                  const isWinSeq = trackAsset?.type === 'winseq';
                   const spineAnimations = isSpine
                     ? (assetDescriptors?.[trackAsset.id]?.animations || [])
+                    : [];
+                  const winseqFlows = isWinSeq
+                    ? (normalizeWinSeqConfig(trackAsset.winseq)?.sequences || [])
                     : [];
                   return (
                     <ClipBlock
@@ -1390,7 +1434,9 @@ export function TimelinePanel({
                       label={labelForClip(track, c)}
                       isSpine={isSpine}
                       isSpinner={isSpinner}
+                      isWinSeq={isWinSeq}
                       spineAnimations={spineAnimations}
+                      winseqFlows={winseqFlows}
                       selected={selectedSet.has(c.id)}
                       primary={c.id === selectedClipId}
                       inMultiSelection={selectedSet.has(c.id) && selectedSet.size > 1}
@@ -1546,7 +1592,7 @@ const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', t
 
 const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', presentWin: '#c5a', holdResult: '#88a' };
 
-function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, flowTime = 0, stickToPlayhead = false, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys, onSeekClipLocal }) {
+function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAnimations = [], winseqFlows = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, flowTime = 0, stickToPlayhead = false, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys, onSeekClipLocal }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -1725,6 +1771,19 @@ function ClipBlock({ clip, label, isSpine, isSpinner, spineAnimations = [], sele
           >
             <option value="">(setup pose)</option>
             {spineAnimations.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        ) : isWinSeq && winseqFlows.length > 0 ? (
+          <select
+            className="scene-clip-spine-select"
+            value={clip.winseq?.sequenceId || ''}
+            title="Win sequence"
+            onPointerDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation();
+              onPatch?.({ winseq: { sequenceId: e.target.value || null, hangOnLastIdle: clip.winseq?.hangOnLastIdle === true } });
+            }}
+          >
+            {winseqFlows.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
         ) : (
           <span className="scene-clip-label" title={label}>{label}</span>

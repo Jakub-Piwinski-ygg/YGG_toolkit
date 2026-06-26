@@ -1,7 +1,7 @@
 ---
 type: moc
 title: YGG Toolkit — Brain
-updated: 2026-06-16
+updated: 2026-06-26
 tags: [moc, home]
 ---
 
@@ -32,7 +32,7 @@ Yggdrasil Gaming artists (image processing, asset browsing, slot-game preview).
 
 ## Design docs
 
-- [[Scene Studio Design]] · [[Scene Studio Direct Mode]] · [[Spinner Design]] · [[Asset Checker Checks]] · [[Cheat Tool Architecture]]
+- [[Scene Studio Design]] · [[Scene Studio Direct Mode]] · [[Spinner Design]] · [[Win Sequences Design]] · [[Asset Checker Checks]] · [[Cheat Tool Architecture]]
 
 ## Backlog & meta
 
@@ -42,6 +42,7 @@ Yggdrasil Gaming artists (image processing, asset browsing, slot-game preview).
 
 ## Sessions / changelog
 
+- [[Win Sequences Phase 1]] — second wizard-built Scene Studio object (web + timeline shipped)
 - [[Session 2026-06-16 Scene Studio Direct Scenario Mode]] — new Blueprint-style scenario node-graph mode
 - [[Session 2026-06-14 Audit and P0]] — backlog re-audit + WebM export + Art-Tools batch/infra
 - [[Scene Studio Phase Status]] — session-by-session Scene Studio log

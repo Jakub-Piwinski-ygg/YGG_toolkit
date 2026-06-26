@@ -37,6 +37,22 @@
 > result. See "Phase 5 round 5" under §6 for details. Still needs live Unity-import
 > verification (baked overlays actually play; native sizing tuning).
 
+> **2026-06-24 — wizard is now an in-place full-focus panel + live test-spin.**
+> The Spinner wizard no longer opens as a modal: it docks as a **wide vertical
+> right-side column** and takes over the **scene view** with a live preview
+> (rendered through the main viewport renderer — a synthetic preview scene, like
+> scenario `directPreview`). Opening it auto-switches to **setup mode**; the
+> hierarchy + inspector hide. A new **`timing.minSpinTime`** field (default 1.0s)
+> is the duration of `spin` action clips added to the timeline AND drives the
+> wizard's **🎰 test spin** button, which plays the FULL cycle
+> startSpin → spin(minSpinTime) → stopSpin → presentWin (landing a seeded
+> *winning* board so present-win has something to show), exactly like the scene
+> timeline. The preview object is **stable during a test spin** (no texture-reload
+> flash): rebuilds are **debounced** (~150ms after edits settle) so dragging
+> timing/blur sliders doesn't thrash the renderer (§20.10 rapid-rebuild crash).
+> Adding objects to the hierarchy from the workspace is now setup-mode-only
+> (auto-switches). Companion: `react-app/WIN_SEQUENCES.md`.
+
 Deterministic slot-machine reel object for Scene Studio ("pixie engine"), replacing
 the old `SlotMachineTool` art tool. Cross-target by design: the core model is a pure
 JSON spec + evaluator with **zero rendering dependencies**, rendered first by Pixi

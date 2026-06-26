@@ -22,6 +22,8 @@ import { resolvePointHandles } from './animation/pathSpline.js';
 import { Spine } from '@esotericsoftware/spine-pixi-v8';
 import { buildSpineFromUrls, loadSkeletonData, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
 import { buildSpinnerObject, applySpinnerAtTime } from './spinner/spinnerRuntime.js';
+import { applyWinSeqAtTime, resetWinSeqState, winSeqDurationsFromSpine } from './winseq/winseqRuntime.js';
+import { normalizeWinSeqConfig } from './winseq/winseqModel.js';
 
 async function loadTextureFromUrl(url) {
   // Use Pixi v8 Assets.load — it returns a Texture whose `source.orig` is
@@ -236,6 +238,11 @@ export function setStageFrameZOrder(viewport, stageFrame, content, overlayMode) 
 export async function rebuildScene(app, content, selectionOverlay, scene, selectedLayerId, rootHandle, onAssetReady, onSpinnerAnimDurations) {
   clearContainer(content);
   const handles = new Map();
+  // Every `blob:` URL minted while resolving this build's assets is collected
+  // here so the caller (PixiViewport) can revoke / Assets.unload the PREVIOUS
+  // build generation once this one is live — bounding the memory of a "refresh
+  // assets" loop. Attached to the returned Map as a non-enumerable-ish field.
+  const blobUrls = new Set();
   const orientation = scene.stage.activeOrientation;
 
   // Build per-canvas trees and walk depth-first; each layer's Pixi object
@@ -249,10 +256,10 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
     if (!layer.visible) return;
     const asset = scene.assets.find((a) => a.id === layer.assetId);
     if (!asset) return;
-    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations);
+    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations, blobUrls);
     if (!obj) return;
 
-    if (asset.type === 'spine' && onAssetReady) {
+    if ((asset.type === 'spine' || asset.type === 'winseq') && onAssetReady) {
       try { onAssetReady(asset.id, describeSpine(obj)); }
       catch (e) { console.warn('[SceneStudio] describeSpine failed', e); }
     }
@@ -286,6 +293,7 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
     drawSelection(selectionOverlay, handles.get(selectedLayerId), vScale, content);
   }
   if (app?.renderer) app.render();
+  handles.__blobUrls = blobUrls;
   return handles;
 }
 
@@ -295,16 +303,17 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
 // Overlay spines are scrub-driven only: autoUpdate off, no __isSpine mark, so
 // neither the shared ticker nor the live-preview RAF advances them —
 // setTrackTime(t) is the single source of pose truth.
-function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath) {
+function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath, urlSink = null) {
+  const rec = (r) => { if (urlSink && r?.url && r.url.startsWith('blob:')) urlSink.add(r.url); return r; };
   const dataCache = new Map(); // assetId → Promise<SkeletonData|null>
   const skeletonDataFor = (assetId) => {
     if (!dataCache.has(assetId)) {
       dataCache.set(assetId, (async () => {
         const asset = (scene?.assets || []).find((a) => a.id === assetId && a.type === 'spine');
         if (!asset) return null;
-        const skelR = await resolveAssetUrl(asset.src, rootHandle, sceneBasePath);
-        const atlasR = await resolveAssetUrl(asset.atlas, rootHandle, sceneBasePath);
-        const texR = await resolveAssetUrl(asset.texture, rootHandle, sceneBasePath);
+        const skelR = rec(await resolveAssetUrl(asset.src, rootHandle, sceneBasePath));
+        const atlasR = rec(await resolveAssetUrl(asset.atlas, rootHandle, sceneBasePath));
+        const texR = rec(await resolveAssetUrl(asset.texture, rootHandle, sceneBasePath));
         if (!skelR || !atlasR || !texR) return null;
         return await loadSkeletonData(skelR.url, atlasR.url, texR.url);
       })().catch((e) => {
@@ -343,16 +352,20 @@ function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath) {
   };
 }
 
-async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null, onSpinnerAnimDurations = null) {
+async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null, onSpinnerAnimDurations = null, urlSink = null) {
+  // Record every blob: URL minted for this layer so the previous build
+  // generation can be revoked/unloaded when the next build goes live.
+  const rec = (r) => { if (urlSink && r?.url && r.url.startsWith('blob:')) urlSink.add(r.url); return r; };
+  const resolve = async (src) => rec(await resolveAssetUrl(src, rootHandle, sceneBasePath));
   try {
     if (asset.type === 'spinner') {
       return await buildSpinnerObject(asset, layer, {
         scene,
         rootHandle,
         sceneBasePath,
-        resolveAssetUrl,
+        resolveAssetUrl: async (src, rh, bp) => rec(await resolveAssetUrl(src, rh, bp)),
         loadTexture: loadTextureFromUrl,
-        createSpineContainer: makeSpineOverlayFactory(scene, rootHandle, sceneBasePath),
+        createSpineContainer: makeSpineOverlayFactory(scene, rootHandle, sceneBasePath, urlSink),
         // Persist resolved per-symbol Spine durations back to the model so the
         // inspector's clip-length button and the Unity bake see real lengths.
         onSpinnerAnimDurations: onSpinnerAnimDurations
@@ -361,15 +374,15 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       });
     }
     if (asset.type === 'png') {
-      const resolved = await resolveAssetUrl(asset.src, rootHandle, sceneBasePath);
+      const resolved = await resolve(asset.src);
       if (!resolved) return null;
       const texture = await loadTextureFromUrl(resolved.url);
       return new Sprite(texture);
     }
     if (asset.type === 'spine') {
-      const skelR = await resolveAssetUrl(asset.src, rootHandle, sceneBasePath);
-      const atlasR = await resolveAssetUrl(asset.atlas, rootHandle, sceneBasePath);
-      const texR = await resolveAssetUrl(asset.texture, rootHandle, sceneBasePath);
+      const skelR = await resolve(asset.src);
+      const atlasR = await resolve(asset.atlas);
+      const texR = await resolve(asset.texture);
       if (!skelR || !atlasR || !texR) return null;
       const spine = await buildSpineFromUrls(skelR.url, atlasR.url, texR.url);
       applySpineState(spine, {
@@ -392,8 +405,28 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
       return spine;
     }
+    if (asset.type === 'winseq') {
+      // A win-sequence object IS a Spine (win_sequence.json). It is driven
+      // entirely by applyWinSeqAtTime (deterministic, t-driven) — so it is
+      // NOT marked __isSpine (the live-preview RAF must not auto-advance it).
+      const config = normalizeWinSeqConfig(asset.winseq);
+      if (!config) return null;
+      const skelR = await resolve(asset.src);
+      const atlasR = await resolve(asset.atlas);
+      const texR = await resolve(asset.texture);
+      if (!skelR || !atlasR || !texR) return null;
+      const spine = await buildSpineFromUrls(skelR.url, atlasR.url, texR.url);
+      // Start on the setup pose; applyWinSeqAtTime takes over per frame.
+      applySpineState(spine, { animation: null, loop: false, skin: null });
+      snapshotSpineBounds(spine);
+      if (!spine.anchor) spine.anchor = { x: 0, y: 0, set() {} };
+      try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
+      spine.__winseq = { config, durations: winSeqDurationsFromSpine(spine) };
+      spine.__wsCache = { anim: null, loop: null };
+      return spine;
+    }
     if (asset.type === 'video') {
-      const resolved = await resolveAssetUrl(asset.src, rootHandle, sceneBasePath);
+      const resolved = await resolve(asset.src);
       if (!resolved) return null;
       const vid = document.createElement('video');
       vid.src = resolved.url;
@@ -814,6 +847,9 @@ export function sceneStructuralHash(scene) {
     // land/win overlay pool re-loads with the now-valid skeleton). Without this,
     // the repaired references would never reach the Pixi build.
     if (a.type === 'spine') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '');
+    // Win-sequence objects are Spine-backed too — atlas/texture are structural,
+    // and `rev` bumps on wizard re-runs (tier mapping / enabled set changed).
+    if (a.type === 'winseq') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '', 'rev', String(a.winseq?.rev ?? 1));
     // Spinner structural edits bump `rev` (wizard re-runs) — clip/timing
     // edits stay on the cheap apply path via the resolve-key memo.
     if (a.type === 'spinner') parts.push('rev', String(a.spinner?.rev ?? 1));
@@ -965,6 +1001,12 @@ export function applyFlowAtTime(handles, scene, t) {
       continue;
     }
 
+    if (asset.type === 'winseq' && obj.__winseq) {
+      applyWinSeqAtTime(obj, layer, tracks, t);
+      applyPngChannels(obj, layer, tracks, t, orientation);
+      continue;
+    }
+
     if (asset.type === 'video' && obj.texture?.source?.resource?.source) {
       applyVideoClip(obj, tracks[0], t, runtimePlaying, runtimeHeld);
       applyPngChannels(obj, layer, tracks, t, orientation);
@@ -1003,6 +1045,9 @@ export function resetAnimationState(handles, scene) {
     }
     if (obj.__spinner) {
       try { applySpinnerAtTime(obj, layer, [], 0); } catch { /* ignore */ }
+    }
+    if (obj.__winseq) {
+      try { resetWinSeqState(obj); } catch { /* ignore */ }
     }
     const video = obj.texture?.source?.resource?.source;
     if (video && video.nodeName?.toLowerCase() === 'video') {

@@ -1,5 +1,47 @@
 # Scene Studio — status po sesji (2026-06-02, sesja 2)
 
+## Win Sequences — Faza 1 (web + timeline) — UKOŃCZONA ✅ (2026-06-26)
+
+Drugi obiekt budowany kreatorem w Scene Studio (po Spinnerze). **Faza 1 = autoring
+web + runtime na osi czasu**; **Faza 2 (przyszłość) = eksport Unity `.unitypackage`**
+(`YggWinSequence`), analogicznie do podziału Spinner Phase 5 → fazy Unity. Build
+zielony, 15/15 testów modelu. Pełna specyfikacja: `react-app/WIN_SEQUENCES.md`.
+
+- **Sesja 2026-06-24** — dokument projektowy + czysty model (`engine/winseq/winseqModel.js`)
+  + runtime oparty o Spine (`engine/winseq/winseqRuntime.js`). Parsowanie animacji
+  `NNx_tier_sub`, generowanie eskalacyjnych **flowów** (od `small`, każdy tier
+  `begin → idle`, tylko końcowy `end`), normalizacja/derywacja sekwencji, ewaluacja
+  flow (krok + czas lokalny), sumowanie długości, `hangOnLastIdle`, `large`/`max`
+  bramkowane (domyślnie off). Pierwszy render web + na osi czasu.
+- **Sesja 2026-06-25** — kreator (`components/WinSequenceWizard.jsx`): pobranie tripletu
+  szkieletu, auto-mapowanie tierów **+ ręczne dropdowny begin/idle/end per tier**,
+  generowanie flowów, pasek-transport podglądu w panelu. Dopracowanie modelu + pełny
+  zestaw 15 testów (`winseqModel.test.mjs`): pojedyncza klatka respektowana (bez
+  doklejania do 1s), fallback nieznanej animacji, pętla końcowego idle w trybie hang.
+- **Sesja 2026-06-26** — kreatory **przeniesione z toolbara do lewego stacka** (pod
+  hierarchią, nad workspace) — `StudioToolbar.jsx` / `SceneStudioInner.jsx`
+  (`.scene-wizards-panel`). Bramka „No Workspace Loaded" (wyszarzenie + wymuszone
+  centralne ładowanie gdy brak roota, `WorkspaceLockOverlay.jsx`). Tryb kreatora
+  domyślnie ustawia widok sceny na **frame behind** (zapis/przywrócenie poprzedniego
+  trybu nakładki przy zamknięciu), żeby podglądany obiekt nie był wyszarzany ramką
+  „in front". Faza 1 ogłoszona ukończoną.
+
+Notatka sesji (EN): `brain/50-Sessions/Win Sequences Phase 1.md`.
+
+| Warstwa | Plik |
+|---|---|
+| Czysty model (tiery, parse, flowy, normalize, eval, długości) | `engine/winseq/winseqModel.js` (+ `.test.mjs`, 15/15) |
+| Runtime Pixi (Spine, scrub-safe `setAnimation + trackTime`) | `engine/winseq/winseqRuntime.js` |
+| Build/apply/reset/hash/onAssetReady | `engine/pixiApp.js` |
+| `clip.winseq` + typ assetu `winseq` | `engine/sceneModel.js` |
+| Kreator (fetch szkieletu + mapa tierów + gen flow + podgląd) | `components/WinSequenceWizard.jsx` |
+| Panel-launcher kreatorów (lewy stack) | `SceneStudioInner.jsx` (`.scene-wizards-panel`) |
+| Handlery create/edit/update + render | `SceneStudioInner.jsx` |
+| Inspektor klipu (flow picker, hang, set-duration, re-edit) | `components/InspectorPanel.jsx` |
+| Etykieta klipu + flow picker + domyślna długość | `components/TimelinePanel.jsx` |
+
+---
+
 ## Redesign ścieżki keyframe + głęboki zoom + skalowalne panele (2026-06-15) ✅
 
 Trzy bramkowane fazy z `SCENE_STUDIO_KICKOFF.md`, każda zweryfikowana na żywo przez

@@ -25,6 +25,7 @@ import { CurveEditor, CurveThumbnail } from './CurveEditor.jsx';
 import { DragNumberField } from './DragNumberField.jsx';
 import { SpinnerSection, SpinnerClipSection, spinnerClipDurationAction } from './SpinnerInspectorSections.jsx';
 import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
+import { normalizeWinSeqConfig, findWinSeqFlow, winSeqFlowDuration } from '../engine/winseq/winseqModel.js';
 
 const BLEND_OPTIONS = ['normal', 'additive', 'screen', 'multiply'];
 const CURVES = CURVE_PRESETS;
@@ -132,6 +133,7 @@ export function InspectorPanel({
   onSwapAssetFromBrowserId,
   onPatchAsset,
   onEditSpinner,
+  onEditWinSeq,
   studioMode = 'animate'
 }) {
   const layer = scene.layers.find((l) => l.id === selectedLayerId);
@@ -212,6 +214,19 @@ export function InspectorPanel({
           title="Re-open the setup wizard to edit the grid, symbols, timing & initial board, then rebuild this spinner"
         >
           ✎ edit spinner in setup wizard
+        </button>
+      )}
+
+      {/* Win-sequence re-edit — top of the inspector, setup mode only. */}
+      {asset?.type === 'winseq' && studioMode === 'setup' && onEditWinSeq && (
+        <button
+          type="button"
+          className="scene-btn scene-btn--primary"
+          style={{ width: '100%', marginBottom: 8 }}
+          onClick={() => onEditWinSeq(selectedLayerId)}
+          title="Re-open the setup wizard to adjust the skeleton, tier mapping & generated flows, then rebuild this object"
+        >
+          ✎ edit win sequences in setup wizard
         </button>
       )}
 
@@ -355,11 +370,12 @@ export function InspectorPanel({
           flowTime={flowTime}
           selectedKey={selectedKey}
           onSelectKey={onSelectKey}
-          descriptor={asset?.type === 'spine' ? assetDescriptors[asset.id] : null}
+          descriptor={(asset?.type === 'spine' || asset?.type === 'winseq') ? assetDescriptors[asset.id] : null}
           onPatchFlow={onPatchFlow}
           onFlowAction={onFlowAction}
           defaultTangentMode={defaultTangentMode}
           spinnerConfig={asset?.type === 'spinner' ? normalizeSpinnerConfig(asset.spinner) : null}
+          winseqConfig={asset?.type === 'winseq' ? normalizeWinSeqConfig(asset.winseq) : null}
         />
       )}
     </div>
@@ -508,7 +524,7 @@ function VideoSection({ layer, onPatchLayer }) {
  * All mutations go through `onPatchFlow(newFlow)` because clips live on
  * `scene.flow.tracks[].clips[]`.
  */
-function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction, defaultTangentMode = 'auto', spinnerConfig = null }) {
+function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction, defaultTangentMode = 'auto', spinnerConfig = null, winseqConfig = null }) {
   const patchClip = (patch) => {
     const nextTracks = (scene.flow?.tracks || []).map((tr) =>
       tr.id === track.id
@@ -538,6 +554,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
   const animations = descriptor?.animations || [];
   const isSpine = asset?.type === 'spine';
   const isSpinner = asset?.type === 'spinner';
+  const isWinSeq = asset?.type === 'winseq';
   const supportsChannels = asset?.type === 'png' || asset?.type === 'pngSequence';
   const speed = Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
   const mixDuration = Number.isFinite(Number(clip.mixDuration)) ? Number(clip.mixDuration) : null;
@@ -545,6 +562,29 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
   const rawAnimDuration = resolvedAnim ? Number(descriptor?.animationDurations?.[resolvedAnim]) : NaN;
   const hasAnimDuration = Number.isFinite(rawAnimDuration) && rawAnimDuration > 0;
   const cycleDuration = hasAnimDuration ? (rawAnimDuration / Math.max(0.01, speed)) : null;
+
+  // Win-sequence clip: which flow plays + the hang-on-idle toggle. Durations
+  // come from the live skeleton via the asset descriptor (same source spine
+  // clips use), so the "set duration" math matches what the runtime plays.
+  const winseqFlows = isWinSeq ? (winseqConfig?.sequences || []) : [];
+  const winseqDurations = descriptor?.animationDurations || {};
+  const winseqHang = clip.winseq?.hangOnLastIdle === true;
+  const winseqFlow = isWinSeq ? findWinSeqFlow(winseqConfig, clip.winseq?.sequenceId) : null;
+  const winseqClipDuration = winseqFlow
+    ? Math.max(0.05, winSeqFlowDuration(winseqFlow, winseqDurations, { hangOnLastIdle: winseqHang }))
+    : null;
+
+  const patchWinSeq = (patch, opts = {}) => {
+    const nextPayload = { sequenceId: clip.winseq?.sequenceId ?? null, hangOnLastIdle: winseqHang, ...patch };
+    const flow = findWinSeqFlow(winseqConfig, nextPayload.sequenceId);
+    const next = { winseq: nextPayload };
+    // Recalculate the clip length so it reflects the (possibly end-less) flow.
+    if (opts.refit && flow) {
+      next.duration = Math.max(0.05, winSeqFlowDuration(flow, winseqDurations, { hangOnLastIdle: nextPayload.hangOnLastIdle }));
+      next.autoFitDuration = false;
+    }
+    patchClip(next);
+  };
 
   const setClipAnimation = (nextAnimRaw) => {
     const nextAnim = nextAnimRaw || null;
@@ -566,16 +606,24 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
     : [];
   const headerLabel = isSpine
     ? (clip.anim || '(setup pose)')
-    : (animatedChannels.length ? animatedChannels.join(' · ') : 'static');
+    : isWinSeq
+      ? (winseqFlow?.label || clip.winseq?.sequenceId || '(no flow)')
+      : (animatedChannels.length ? animatedChannels.join(' · ') : 'static');
 
   // "Set clip duration = computed time" action — moved to the very top of the
   // clip section (above name) so it's always one click away for spine/spinner.
   const durationAction = isSpinner
     ? spinnerClipDurationAction(spinnerConfig, clip)
-    : (isSpine && hasAnimDuration)
-      ? { duration: cycleDuration, label: 'Match anim time',
-          title: 'Set clip duration to one animation cycle at current speed' }
-      : null;
+    : isWinSeq && winseqClipDuration
+      ? { duration: winseqClipDuration,
+          label: winseqHang ? 'Set time (hang on idle)' : 'Set full sequence time',
+          title: winseqHang
+            ? 'Set clip duration to the chained sequence WITHOUT the final _end (holds on the last idle)'
+            : 'Set clip duration to the full chained sequence (one cycle of every animation)' }
+      : (isSpine && hasAnimDuration)
+        ? { duration: cycleDuration, label: 'Match anim time',
+            title: 'Set clip duration to one animation cycle at current speed' }
+        : null;
 
   return (
     <div className="scene-field-group scene-clip-section">
@@ -595,6 +643,37 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
             {animations.map((a) => <option key={a} value={a}>{a}</option>)}
           </select>
         </label>
+      )}
+
+      {isWinSeq && (
+        <>
+          <label className="scene-field">
+            <span>sequence</span>
+            <select
+              value={clip.winseq?.sequenceId ?? (winseqFlows[0]?.id || '')}
+              onChange={(e) => patchWinSeq({ sequenceId: e.target.value || null }, { refit: true })}
+            >
+              {!winseqFlows.length && <option value="">— no flows —</option>}
+              {winseqFlows.map((f) => <option key={f.id} value={f.id}>{f.label} · {f.id}</option>)}
+            </select>
+          </label>
+          <label className="scene-field scene-field--check">
+            <input
+              type="checkbox"
+              checked={winseqHang}
+              onChange={(e) => patchWinSeq({ hangOnLastIdle: e.target.checked }, { refit: true })}
+            />
+            <span>hang on last idle (drop the _end — waits for player tap in-game)</span>
+          </label>
+          {winseqFlow && (
+            <div className="scene-clip-anim-meta">
+              <span className="scene-clip-anim-meta-text">
+                {winseqFlow.steps.length} steps · {winseqHang ? 'ends on idle' : 'plays _end'} ·
+                {' '}{winseqClipDuration ? winseqClipDuration.toFixed(2) : '—'}s
+              </span>
+            </div>
+          )}
+        </>
       )}
 
       {durationAction && (
@@ -643,7 +722,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
             onChange={(v) => patchClip({ start: Math.max(0, v) })} />
           <DragNumberField label="duration" value={clip.duration} step={0.01} min={0.05}
             onChange={(v) => patchClip({ duration: Math.max(0.05, v), autoFitDuration: false })} />
-          {!isSpinner && (
+          {!isSpinner && !isWinSeq && (
             <DragNumberField label="speed" value={speed} step={0.01} min={0.01}
               onChange={(v) => patchClip({ speed: Math.max(0.01, v) })} />
           )}
@@ -663,7 +742,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
         />
       )}
 
-      {!isSpinner && !isSpine && (
+      {!isSpinner && !isSpine && !isWinSeq && (
         <LoopHoldToggle clip={clip} patchClip={patchClip} />
       )}
 
