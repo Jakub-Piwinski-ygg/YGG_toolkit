@@ -37,8 +37,72 @@ export function RepoBrowserProvider({ children }) {
   const blobCacheRef = useRef({});
   const treeCacheRef = useRef({}); // fullName → tree[]
 
-  // Load persisted config
+  // Load config — URL params take priority over persisted localStorage.
+  //
+  // A shareable deep-link can embed an access token so opening it on a fresh
+  // session auto-connects and scans:
+  //   ?sid=<token>&url=<base>&prefix=<repo-prefix>
+  // `sid` is deliberately ambiguous (reads like a session id) so the token
+  // isn't obviously a PAT at a glance; `pat` is still honoured as a legacy
+  // fallback for old bookmarks. The token is consumed into localStorage and
+  // then stripped from the address bar so it doesn't linger / get bookmarked.
   useEffect(() => {
+    let urlToken = '';
+    let urlBase = '';
+    let urlPrefix = '';
+    try {
+      const params = new URLSearchParams(window.location.search);
+      urlToken = (params.get('sid') || params.get('pat') || '').trim();
+      urlBase = (params.get('url') || '').trim();
+      urlPrefix = (params.get('prefix') || '').trim();
+    } catch {
+      /* ignore */
+    }
+
+    if (urlToken) {
+      const det = detectProvider(urlToken) || 'gitlab';
+      const base = urlBase || (det === 'gitlab' ? 'https://gitlab.yggdrasil.lan' : '');
+      setProvider(det);
+      setToken(urlToken);
+      setAuthed(true);
+      if (urlBase) setBaseUrl(urlBase);
+      if (urlPrefix) setPrefix(urlPrefix);
+      try {
+        localStorage.setItem(
+          LS_KEY,
+          JSON.stringify({ provider: det, baseUrl: base, token: urlToken, prefix: urlPrefix })
+        );
+      } catch {
+        /* ignore */
+      }
+      // Strip the sensitive params from the URL without a history entry.
+      try {
+        const u = new URL(window.location.href);
+        ['sid', 'pat', 'url', 'prefix'].forEach((k) => u.searchParams.delete(k));
+        window.history.replaceState({}, '', u.toString());
+      } catch {
+        /* ignore */
+      }
+      // Auto-scan with explicit values (state isn't committed yet this tick).
+      (async () => {
+        setLoadingRepos(true);
+        setError('');
+        log(`Connecting from link${urlPrefix ? ' (prefix "' + urlPrefix + '")' : ''}…`, 'info');
+        try {
+          const rs = await fetchRepos(det, urlToken, base, urlPrefix);
+          setRepos(rs);
+          setReposLoaded(true);
+          log(`✓ ${rs.length} repo${rs.length !== 1 ? 's' : ''} found`, 'ok');
+        } catch (e) {
+          setError(e.message);
+          log('✗ ' + e.message, 'err');
+        } finally {
+          setLoadingRepos(false);
+        }
+      })();
+      return;
+    }
+
     try {
       const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
       if (s.provider) setProvider(s.provider);
@@ -51,6 +115,7 @@ export function RepoBrowserProvider({ children }) {
     } catch {
       /* ignore */
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const saveConfig = useCallback(
