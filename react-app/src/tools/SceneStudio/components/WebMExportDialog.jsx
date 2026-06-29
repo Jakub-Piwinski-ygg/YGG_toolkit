@@ -1,20 +1,23 @@
-// WebMExportDialog — render the active timeline to a .webm video.
+// WebMExportDialog — render a chosen timeline or scenario to a video file.
 //
-// Deterministic, opaque capture: PixiViewport.exportWebM() drives the scene
-// frame-by-frame (0 → duration) at native stage resolution and records it via
-// MediaRecorder. Settings persist in localStorage so they're tuned once.
+// Deterministic, opaque capture: PixiViewport.exportVideo() drives the scene
+// frame-by-frame (0 → duration) at native stage resolution. WebM and (where the
+// browser supports it) MP4 record via MediaRecorder; MP4 on Chrome/Firefox
+// falls back to ffmpeg.wasm. Settings persist in localStorage.
 
-import { useEffect, useRef, useState } from 'react';
-import { pickWebmMime } from '../engine/webmExport.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { pickWebmMime, pickVideoMime } from '../engine/webmExport.js';
 
-const LS_KEY = 'ygg-toolkit:scene-webm-export:v1';
+const LS_KEY = 'ygg-toolkit:scene-webm-export:v2';
 
+// WebM bitrate presets (videoBitsPerSecond) and the MP4 ffmpeg CRF they map to.
 const QUALITY_OPTIONS = [
-  ['high', 'High (~16 Mbps)', 16_000_000],
-  ['medium', 'Medium (~8 Mbps)', 8_000_000],
-  ['low', 'Low (~4 Mbps)', 4_000_000]
+  ['high', 'High', 16_000_000, 18],
+  ['medium', 'Medium', 8_000_000, 22],
+  ['low', 'Low', 4_000_000, 26]
 ];
 
+const FORMAT_OPTIONS = [['webm', 'WebM (VP9/VP8)'], ['mp4', 'MP4 (H.264)']];
 const FPS_OPTIONS = [15, 24, 30, 60];
 const SCALE_OPTIONS = [[1, '100% (native)'], [0.5, '50%'], [0.25, '25%']];
 
@@ -49,27 +52,51 @@ function Row({ label, title, children }) {
   );
 }
 
-export function WebMExportDialog({ scene, viewportRef, onClose, log }) {
+export function WebMExportDialog({ scene, viewportRef, sources, makeFrameProvider, onClose, log }) {
   const stage = scene.stage.orientations[scene.stage.activeOrientation];
-  const stageDur = scene.stage?.duration || 5;
   const saved = loadSettings();
 
+  // Flatten the source options (timelines, then scenarios). Default to the
+  // active timeline so a plain "export" still does the obvious thing.
+  const sourceList = useMemo(() => {
+    const tls = sources?.timelines || [];
+    const scs = sources?.scenarios || [];
+    return [
+      ...tls.map((t) => ({ ...t, key: `timeline:${t.id}`, group: 'Timeline' })),
+      ...scs.map((s) => ({ ...s, key: `scenario:${s.id}`, group: 'Scenario' }))
+    ];
+  }, [sources]);
+
+  const defaultSourceKey = useMemo(() => {
+    const active = (sources?.timelines || []).find((t) => t.id === scene.activeTimelineId);
+    return active ? `timeline:${active.id}` : (sourceList[0]?.key || '');
+  }, [sources, scene.activeTimelineId, sourceList]);
+
+  const [sourceKey, setSourceKey] = useState(saved.sourceKey && sourceList.some((s) => s.key === saved.sourceKey) ? saved.sourceKey : defaultSourceKey);
+  useEffect(() => {
+    if (!sourceList.some((s) => s.key === sourceKey)) setSourceKey(defaultSourceKey);
+  }, [sourceList, sourceKey, defaultSourceKey]);
+  const source = sourceList.find((s) => s.key === sourceKey) || sourceList[0] || null;
+
+  const [format, setFormat] = useState(FORMAT_OPTIONS.some(([v]) => v === saved.format) ? saved.format : 'webm');
   const [fps, setFps] = useState(saved.fps || scene.stage?.fps || 30);
   const [quality, setQuality] = useState(saved.quality || 'high');
   const [scale, setScale] = useState(saved.scale || 1);
   const [bg, setBg] = useState(saved.bg || '#000000');
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(null); // { frame, total }
-  const [result, setResult] = useState(null);      // { fileName, ... } | { error }
+  const [progress, setProgress] = useState(null); // { frame, total, phase? }
+  const [result, setResult] = useState(null);
   const abortRef = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
-  const supported = !!pickWebmMime();
+  const webmSupported = !!pickWebmMime();
+  const mp4Native = !!pickVideoMime('mp4');
+  const supported = format === 'webm' ? webmSupported : true; // mp4 always has the ffmpeg fallback
 
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ fps, quality, scale, bg })); } catch { /* quota */ }
-  }, [fps, quality, scale, bg]);
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ sourceKey, format, fps, quality, scale, bg })); } catch { /* quota */ }
+  }, [sourceKey, format, fps, quality, scale, bg]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !busy) closeRef.current?.(); };
@@ -77,29 +104,36 @@ export function WebMExportDialog({ scene, viewportRef, onClose, log }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [busy]);
 
+  const dur = Math.max(0.1, source?.duration || scene.stage?.duration || 5);
   const outW = Math.max(2, Math.round(stage.w * Number(scale)));
   const outH = Math.max(2, Math.round(stage.h * Number(scale)));
-  const totalFrames = Math.max(1, Math.ceil(stageDur * Number(fps)));
+  const totalFrames = Math.max(1, Math.ceil(dur * Number(fps)));
 
   const runExport = async () => {
+    if (!source) { setResult({ error: 'Pick something to export.' }); return; }
     setBusy(true);
     setResult(null);
     setProgress({ frame: 0, total: totalFrames });
     const signal = { aborted: false };
     abortRef.current = signal;
     try {
-      const bitrate = (QUALITY_OPTIONS.find((q) => q[0] === quality) || [])[2];
-      const out = await viewportRef.current?.exportWebM({
+      const preset = QUALITY_OPTIONS.find((q) => q[0] === quality) || QUALITY_OPTIONS[0];
+      const out = await viewportRef.current?.exportVideo({
+        format,
         fps: Number(fps),
-        durationSec: stageDur,
+        durationSec: dur,
         scale: Number(scale),
         backgroundColor: parseInt(bg.slice(1), 16) || 0,
-        bitrate,
+        bitrate: preset[2],
+        crf: preset[3],
+        frameProvider: makeFrameProvider?.(source),
         onProgress: setProgress,
         signal
       });
       if (!out) throw new Error('Export unavailable — the viewport is not ready.');
-      const fileName = `${(scene.name || 'scene').replace(/[^\w.-]+/g, '_')}.webm`;
+      const ext = out.format === 'mp4' ? 'mp4' : 'webm';
+      const base = `${(scene.name || 'scene')}_${source.name}`.replace(/[^\w.-]+/g, '_');
+      const fileName = `${base}.${ext}`;
       const url = URL.createObjectURL(out.blob);
       const a = document.createElement('a');
       a.href = url;
@@ -111,10 +145,10 @@ export function WebMExportDialog({ scene, viewportRef, onClose, log }) {
       log?.(`Scene Studio: exported ${fileName} (${out.width}×${out.height}, ${out.frames} frames @ ${out.fps}fps, ${mb} MB)`, 'ok');
     } catch (err) {
       if (err?.message === 'cancelled') {
-        log?.('WebM export cancelled', 'warn');
+        log?.('Video export cancelled', 'warn');
       } else {
         console.error(err);
-        log?.(`WebM export failed: ${err.message}`, 'err');
+        log?.(`Video export failed: ${err.message}`, 'err');
         setResult({ error: err.message });
       }
     } finally {
@@ -131,81 +165,103 @@ export function WebMExportDialog({ scene, viewportRef, onClose, log }) {
     <div style={overlayStyle} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose?.(); }}>
       <div style={panelStyle}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-          <strong style={{ fontSize: 14 }}>Export WebM video</strong>
+          <strong style={{ fontSize: 14 }}>Export video</strong>
           <div style={{ flex: 1 }} />
           <button className="scene-btn scene-btn--ghost" onClick={onClose} disabled={busy}>✕</button>
         </div>
 
-        {!supported ? (
-          <div style={{ color: '#ff7878', fontSize: 12, margin: '8px 0' }}>
-            This browser can't record WebM. Use Chrome or Firefox.
+        <Row label="Source" title="Which timeline or scenario to render">
+          <select className="scene-toolbar-select" value={sourceKey} onChange={(e) => setSourceKey(e.target.value)} disabled={busy}>
+            {!sourceList.length && <option value="">— nothing to export —</option>}
+            {(sources?.timelines || []).length > 0 && (
+              <optgroup label="Timelines">
+                {sources.timelines.map((t) => (
+                  <option key={`timeline:${t.id}`} value={`timeline:${t.id}`}>{t.name} ({t.duration.toFixed(2)}s)</option>
+                ))}
+              </optgroup>
+            )}
+            {(sources?.scenarios || []).length > 0 && (
+              <optgroup label="Scenarios">
+                {sources.scenarios.map((s) => (
+                  <option key={`scenario:${s.id}`} value={`scenario:${s.id}`} disabled={!s.ok}>
+                    {s.name}{s.ok ? ` (${s.duration.toFixed(2)}s)` : ' — invalid'}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </Row>
+
+        <Row label="Format" title="Container & codec">
+          <select className="scene-toolbar-select" value={format} onChange={(e) => setFormat(e.target.value)} disabled={busy}>
+            {FORMAT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Row>
+
+        <Row label="Frame rate" title="Frames rendered per second of timeline">
+          <select className="scene-toolbar-select" value={fps} onChange={(e) => setFps(Number(e.target.value))} disabled={busy}>
+            {FPS_OPTIONS.map((f) => <option key={f} value={f}>{f} fps</option>)}
+          </select>
+        </Row>
+
+        <Row label="Quality" title={format === 'mp4' ? 'x264 CRF (lower = larger/better)' : 'Target video bitrate'}>
+          <select className="scene-toolbar-select" value={quality} onChange={(e) => setQuality(e.target.value)} disabled={busy}>
+            {QUALITY_OPTIONS.map(([v, l, br, crf]) => (
+              <option key={v} value={v}>{l}{format === 'mp4' ? ` (CRF ${crf})` : ` (~${(br / 1_000_000)} Mbps)`}</option>
+            ))}
+          </select>
+        </Row>
+
+        <Row label="Resolution" title="Output size relative to the stage resolution">
+          <select className="scene-toolbar-select" value={scale} onChange={(e) => setScale(Number(e.target.value))} disabled={busy}>
+            {SCALE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Row>
+
+        <Row label="Background" title="Output is opaque — choose the fill behind transparent areas">
+          <input type="color" value={bg} onChange={(e) => setBg(e.target.value)} disabled={busy} style={{ width: 48, height: 28, padding: 0, border: 'none', background: 'none' }} />
+        </Row>
+
+        <div style={{ fontSize: 11, color: 'var(--muted, #8a93a3)', margin: '10px 0' }}>
+          Renders <strong>{source ? source.name : '—'}</strong> (0 → {dur.toFixed(2)}s) of the {scene.stage.activeOrientation} stage.
+          Output: <strong>{outW}×{outH}</strong>, {totalFrames} frames. Opaque background.
+          {format === 'mp4' && !mp4Native && ' MP4 uses ffmpeg.wasm (first run downloads the encoder from CDN).'}
+          {format === 'webm' && !webmSupported && ' This browser can’t record WebM — try MP4 or use Chrome/Firefox.'}
+        </div>
+
+        {progress && (
+          <div style={{ margin: '10px 0' }}>
+            <div style={{ height: 6, background: 'var(--line, #2a313b)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent, #4f9eff)', transition: 'width .1s' }} />
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted, #8a93a3)', marginTop: 4 }}>
+              {progress.phase ? `${progress.phase} — ` : ''}frame {progress.frame} / {progress.total} ({pct}%)
+            </div>
           </div>
-        ) : (
-          <>
-            <Row label="Frame rate" title="Frames rendered per second of timeline">
-              <select className="scene-toolbar-select" value={fps} onChange={(e) => setFps(Number(e.target.value))} disabled={busy}>
-                {FPS_OPTIONS.map((f) => <option key={f} value={f}>{f} fps</option>)}
-              </select>
-            </Row>
-
-            <Row label="Quality" title="Target video bitrate">
-              <select className="scene-toolbar-select" value={quality} onChange={(e) => setQuality(e.target.value)} disabled={busy}>
-                {QUALITY_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </Row>
-
-            <Row label="Resolution" title="Output size relative to the stage resolution">
-              <select className="scene-toolbar-select" value={scale} onChange={(e) => setScale(Number(e.target.value))} disabled={busy}>
-                {SCALE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </Row>
-
-            <Row label="Background" title="WebM is opaque — choose the fill behind transparent areas">
-              <input type="color" value={bg} onChange={(e) => setBg(e.target.value)} disabled={busy} style={{ width: 48, height: 28, padding: 0, border: 'none', background: 'none' }} />
-            </Row>
-
-            <div style={{ fontSize: 11, color: 'var(--muted, #8a93a3)', margin: '10px 0' }}>
-              Renders the active timeline (0 → {stageDur.toFixed(2)}s) of the {scene.stage.activeOrientation} stage.
-              Output: <strong>{outW}×{outH}</strong>, {totalFrames} frames. Opaque background
-              (transparency isn't preserved). Spine, spinner and PNG layers are captured;
-              video layers may not be frame-accurate.
-            </div>
-
-            {progress && (
-              <div style={{ margin: '10px 0' }}>
-                <div style={{ height: 6, background: 'var(--line, #2a313b)', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent, #4f9eff)', transition: 'width .1s' }} />
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--muted, #8a93a3)', marginTop: 4 }}>
-                  rendering frame {progress.frame} / {progress.total} ({pct}%)
-                </div>
-              </div>
-            )}
-
-            {result?.error && (
-              <div style={{ color: '#ff7878', fontSize: 12, margin: '8px 0' }}>✗ {result.error}</div>
-            )}
-            {result && !result.error && (
-              <div style={{ color: '#7dd87d', fontSize: 12, margin: '8px 0' }}>
-                ✓ {result.fileName} downloaded ({result.width}×{result.height}, {result.frames} frames, {result.mb} MB)
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
-              {busy ? (
-                <button className="scene-btn" onClick={cancel}>cancel</button>
-              ) : (
-                <button
-                  className="scene-btn scene-btn--primary"
-                  onClick={runExport}
-                  disabled={!scene.layers.length}
-                  title={scene.layers.length ? '' : 'Add a layer first'}
-                >▶ Export .webm</button>
-              )}
-              <button className="scene-btn" onClick={onClose} disabled={busy}>close</button>
-            </div>
-          </>
         )}
+
+        {result?.error && (
+          <div style={{ color: '#ff7878', fontSize: 12, margin: '8px 0' }}>✗ {result.error}</div>
+        )}
+        {result && !result.error && (
+          <div style={{ color: '#7dd87d', fontSize: 12, margin: '8px 0' }}>
+            ✓ {result.fileName} downloaded ({result.width}×{result.height}, {result.frames} frames, {result.mb} MB)
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+          {busy ? (
+            <button className="scene-btn" onClick={cancel}>cancel</button>
+          ) : (
+            <button
+              className="scene-btn scene-btn--primary"
+              onClick={runExport}
+              disabled={!scene.layers.length || !source || !supported}
+              title={!scene.layers.length ? 'Add a layer first' : (!source ? 'Nothing to export' : '')}
+            >▶ Export {format === 'mp4' ? '.mp4' : '.webm'}</button>
+          )}
+          <button className="scene-btn" onClick={onClose} disabled={busy}>close</button>
+        </div>
       </div>
     </div>
   );

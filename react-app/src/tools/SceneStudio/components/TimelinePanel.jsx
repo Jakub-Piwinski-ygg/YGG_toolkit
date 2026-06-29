@@ -1,8 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CURVE_PRESETS, TWEEN_PROPS, uid } from '../engine/sceneModel.js';
 import { channelKeyDots, CHANNEL_NAMES, evalChannel, isPathChannel, maxChannelKeyTime } from '../engine/animation/keyframes.js';
-import { SPINNER_ACTIONS } from '../engine/spinner/spinnerModel.js';
+import { SPINNER_ACTIONS, normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 import { normalizeWinSeqConfig, findWinSeqFlow, winSeqFlowDuration } from '../engine/winseq/winseqModel.js';
+import { spinnerClipDurationAction } from './SpinnerInspectorSections.jsx';
+
+/**
+ * Compute the clip length that matches the content a clip points at — one spine
+ * animation cycle, the full win-sequence flow, or a spinner action's computed
+ * time. Returns null when there's no meaningful auto-duration. Shared by the
+ * timeline pickers so selecting new content re-fits the clip automatically.
+ */
+function fittedClipDuration(asset, clip, layer, descriptor) {
+  if (!asset) return null;
+  if (asset.type === 'spine') {
+    const resolved = clip.anim || layer?.spine?.defaultAnimation || null;
+    if (!resolved) return null;
+    const speed = Number(clip.speed) > 0 ? Number(clip.speed) : 1;
+    const d = Number(descriptor?.animationDurations?.[resolved]);
+    return Number.isFinite(d) && d > 0 ? Math.max(0.05, d / speed) : null;
+  }
+  if (asset.type === 'winseq') {
+    const flow = findWinSeqFlow(normalizeWinSeqConfig(asset.winseq), clip.winseq?.sequenceId);
+    if (!flow) return null;
+    return Math.max(0.05, winSeqFlowDuration(flow, descriptor?.animationDurations || {},
+      { hangOnLastIdle: clip.winseq?.hangOnLastIdle === true }));
+  }
+  if (asset.type === 'spinner') {
+    const act = spinnerClipDurationAction(normalizeSpinnerConfig(asset.spinner), clip);
+    return act && Number.isFinite(act.duration) ? act.duration : null;
+  }
+  return null;
+}
 
 const LABEL_COL_W = 140;
 
@@ -601,7 +630,24 @@ export function TimelinePanel({
     setFlow({ ...(scene.flow || {}), tracks: tracks.filter((t) => t.id !== trackId) });
   };
 
-  const patchClip = (trackId, clipId, patch) => {
+  const patchClip = (trackId, clipId, rawPatch) => {
+    // Auto-fit: when a picker changes the animation / win-sequence / spinner
+    // action and the caller didn't set a duration explicitly, snap the clip
+    // length to the freshly-selected content (no manual "set time" click).
+    let patch = rawPatch;
+    if (!Object.prototype.hasOwnProperty.call(rawPatch, 'duration') &&
+        (Object.prototype.hasOwnProperty.call(rawPatch, 'anim') ||
+         Object.prototype.hasOwnProperty.call(rawPatch, 'action') ||
+         Object.prototype.hasOwnProperty.call(rawPatch, 'winseq'))) {
+      const track = tracks.find((t) => t.id === trackId);
+      const clip = track?.clips.find((c) => c.id === clipId);
+      const layer = track ? scene.layers.find((l) => l.id === track.layerId) : null;
+      const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
+      if (clip && asset) {
+        const fit = fittedClipDuration(asset, { ...clip, ...rawPatch }, layer, assetDescriptors?.[asset.id]);
+        if (Number.isFinite(fit) && fit > 0) patch = { ...rawPatch, duration: fit };
+      }
+    }
     const nextTracks = tracks.map((t) => {
       if (t.id !== trackId) return t;
       return {

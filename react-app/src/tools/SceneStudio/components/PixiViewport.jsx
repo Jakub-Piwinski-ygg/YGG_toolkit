@@ -18,7 +18,7 @@ import {
   syncTransforms
 } from '../engine/pixiApp.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
-import { pickWebmMime, recordCanvasFrames } from '../engine/webmExport.js';
+import { pickVideoMime, recordCanvasFrames, grabCanvasFrames } from '../engine/webmExport.js';
 
 export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate', refreshNonce = 0 }, ref) {
   const hostRef = useRef(null);
@@ -432,8 +432,20 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
      * exported asset rather than the editor view. Everything is restored in
      * `finally`, so a cancel or error leaves the editor untouched.
      */
-    async exportWebM({
-      fps, durationSec, scale = 1, backgroundColor = 0x000000, bitrate, onProgress, signal
+    /**
+     * Render the chosen source to a video Blob.
+     *
+     * @param {object} o
+     * @param {'webm'|'mp4'} [o.format]  container/codec to produce
+     * @param {number} [o.crf]           ffmpeg x264 quality for the MP4 fallback
+     * @param {(globalT:number)=>({scene:object,flowTime:number}|null)} [o.frameProvider]
+     *        maps export time → the scene+flowTime to render that frame; defaults
+     *        to the live active timeline. Used to render an arbitrary timeline or
+     *        a flattened scenario.
+     */
+    async exportVideo({
+      fps, durationSec, scale = 1, backgroundColor = 0x000000, bitrate,
+      format = 'webm', crf = 22, frameProvider, onProgress, signal
     } = {}) {
       const app = appRef.current;
       const viewport = viewportRef.current;
@@ -443,9 +455,14 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       const deviceGuide = deviceGuideRef.current;
       const scene = sceneRef.current;
       if (!app?.renderer || !viewport || !scene) throw new Error('Scene is not ready.');
+      if (typeof app.canvas.captureStream !== 'function') {
+        throw new Error('This browser cannot capture the canvas. Try Chrome or Firefox.');
+      }
 
-      const mimeType = pickWebmMime();
-      if (!mimeType || typeof app.canvas.captureStream !== 'function') {
+      // Native mime for the requested format (null ⇒ MP4 needs the ffmpeg fallback).
+      const nativeMime = pickVideoMime(format);
+      const useFfmpeg = format === 'mp4' && !nativeMime;
+      if (format === 'webm' && !nativeMime) {
         throw new Error('This browser cannot record WebM. Try Chrome or Firefox.');
       }
 
@@ -455,6 +472,11 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       const realFps = Math.max(1, Math.round(fps || scene.stage.fps || 30));
       const dur = Math.max(0.1, durationSec || scene.stage.duration || 5);
       const frameCount = Math.max(1, Math.ceil(dur * realFps));
+      const renderFrame = (t) => {
+        const fp = frameProvider ? frameProvider(t) : { scene: sceneRef.current, flowTime: t };
+        if (fp?.scene) applyFlowAtTime(handlesRef.current, fp.scene, fp.flowTime ?? t);
+        app.render();
+      };
 
       // ---- enter export mode: stop live drivers, stash editor view ----
       exportingRef.current = true;
@@ -481,20 +503,31 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       viewport.scale.set(scale, scale);
 
       try {
-        const blob = await recordCanvasFrames({
-          canvas: app.canvas,
-          frameCount,
-          fps: realFps,
-          mimeType,
-          bitrate,
-          renderFrame: (t) => {
-            applyFlowAtTime(handlesRef.current, scene, t);
-            app.render();
-          },
-          onProgress,
-          signal
-        });
-        return { blob, width: outW, height: outH, fps: realFps, frames: frameCount, mimeType };
+        let blob;
+        let mimeType;
+        if (useFfmpeg) {
+          // No native MP4 recorder — grab discrete frames and encode with
+          // ffmpeg.wasm (lazy CDN import, so the core only downloads on demand).
+          const frames = await grabCanvasFrames({
+            canvas: app.canvas, frameCount, fps: realFps, renderFrame,
+            onProgress: (p) => onProgress?.({ ...p, phase: 'rendering' }), signal
+          });
+          if (signal?.aborted) throw new Error('cancelled');
+          const { encodeFramesToMp4 } = await import('../engine/mp4Export.js');
+          blob = await encodeFramesToMp4(frames, {
+            fps: realFps, crf,
+            onProgress: (p) => onProgress?.({ frame: frameCount, total: frameCount, ...p }),
+            signal
+          });
+          mimeType = 'video/mp4';
+        } else {
+          mimeType = nativeMime;
+          blob = await recordCanvasFrames({
+            canvas: app.canvas, frameCount, fps: realFps, mimeType, bitrate,
+            renderFrame, onProgress, signal
+          });
+        }
+        return { blob, width: outW, height: outH, fps: realFps, frames: frameCount, mimeType, format };
       } finally {
         // ---- restore editor view ----
         if (stageFrame) stageFrame.visible = saved.frameVis;

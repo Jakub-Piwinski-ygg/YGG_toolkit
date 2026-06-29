@@ -308,6 +308,27 @@ export function findWinSeqFlow(config, sequenceId) {
 }
 
 /**
+ * Build one ready-to-use timeline per escalation flow (small/medium/big/…),
+ * each holding a single clip that plays that whole sequence. Returned as raw
+ * { name, tracks } entries for sceneModel.addPrebuiltTimelines (ids backfilled
+ * on normalize). `durations` is the asset descriptor's `{ [anim]: seconds }`.
+ */
+export function buildWinSeqTimelines(layerId, config, durations = {}) {
+  const flows = config?.sequences || [];
+  return flows.map((flow) => ({
+    name: `win · ${flow.label || flow.tier || flow.id}`,
+    tracks: [{
+      layerId,
+      clips: [{
+        start: 0,
+        duration: Math.max(0.05, winSeqFlowDuration(flow, durations, { hangOnLastIdle: false })),
+        winseq: { sequenceId: flow.id, hangOnLastIdle: false }
+      }]
+    }]
+  }));
+}
+
+/**
  * Total playback length of a flow (seconds) given a `{ [anim]: seconds }`
  * duration map. When `hangOnLastIdle`, the terminal end step is excluded so
  * the clip ends exactly at the final idle's first cycle.

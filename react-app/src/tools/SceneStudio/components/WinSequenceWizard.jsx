@@ -481,13 +481,14 @@ export function WinSequenceWizard({
   const previewFlow = flows.find((f) => f.id === previewFlowId) || flows[flows.length - 1] || null;
 
   // Number step: which tier's IDLE to pose the preview on (begin frames often
-  // hide the bone). Defaults to the lowest enabled tier (small).
+  // hide the bone). Defaults to the BIGGEST enabled tier (e.g. mega) — its idle
+  // is the most likely to show the number bone clearly.
   const [poseFlowId, setPoseFlowId] = useState(null);
   useEffect(() => {
     if (!flows.length) { setPoseFlowId(null); return; }
-    if (!flows.some((f) => f.id === poseFlowId)) setPoseFlowId(flows[0].id);
+    if (!flows.some((f) => f.id === poseFlowId)) setPoseFlowId(flows[flows.length - 1].id);
   }, [flows, poseFlowId]);
-  const poseFlow = flows.find((f) => f.id === poseFlowId) || flows[0] || null;
+  const poseFlow = flows.find((f) => f.id === poseFlowId) || flows[flows.length - 1] || null;
 
   // Push the synthetic preview scene to the host viewport (full-focus mode).
   // Rebuilds only when the skeleton / tier set / selected flow / durations
@@ -704,12 +705,17 @@ export function WinSequenceWizard({
                       onChange={(e) => { fontTouchedRef.current = true; setNumField('fontSrc', e.target.value || null); }}
                     >
                       {!num.fontSrc && <option value="">— pick a font atlas —</option>}
+                      {/* Built-in template first, in italics; auto-found project
+                          candidates list below it (the auto-select rule still
+                          prefers a real project font when one matches). */}
+                      <option value={TEMPLATE_FONT_ID} style={{ fontStyle: 'italic' }}>
+                        Built-in template — font_win
+                      </option>
                       {fontPool.map((f) => (
                         <option key={f.src} value={f.src}>
                           {f.label}{looksLikeFont(f.label) || looksLikeFont(f.src) ? ' ◆' : ''}
                         </option>
                       ))}
-                      <option value={TEMPLATE_FONT_ID}>Built-in template — font_win ◆</option>
                     </select>
                   </label>
 

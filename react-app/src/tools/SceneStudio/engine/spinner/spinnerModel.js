@@ -356,6 +356,20 @@ export function buildSpinnerTestClips(config) {
   return { clips, total: start + spin + stop + present };
 }
 
+/**
+ * Build a single ready-to-use timeline holding the complete spin chain
+ * (startSpin → spin → stopSpin → presentWin) for the given spinner layer.
+ * Returned as a raw { name, tracks } entry for
+ * sceneModel.addPrebuiltTimelines (ids backfilled on normalize).
+ */
+export function buildSpinnerFullSpinTimeline(layerId, config) {
+  const { clips } = buildSpinnerTestClips(config);
+  return {
+    name: 'spin · full',
+    tracks: [{ layerId, clips }]
+  };
+}
+
 // ── Strips & boards ────────────────────────────────────────────────────
 
 /**

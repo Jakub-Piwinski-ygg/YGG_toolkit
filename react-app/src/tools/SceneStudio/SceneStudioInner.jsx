@@ -10,9 +10,9 @@ import { InspectorPanel } from './components/InspectorPanel.jsx';
 import { PixiErrorBoundary } from './components/PixiErrorBoundary.jsx';
 import { PixiViewport } from './components/PixiViewport.jsx';
 import { SpinnerWizard } from './components/SpinnerWizard.jsx';
-import { normalizeSpinnerConfig } from './engine/spinner/spinnerModel.js';
+import { normalizeSpinnerConfig, buildSpinnerFullSpinTimeline } from './engine/spinner/spinnerModel.js';
 import { WinSequenceWizard } from './components/WinSequenceWizard.jsx';
-import { normalizeWinSeqConfig } from './engine/winseq/winseqModel.js';
+import { normalizeWinSeqConfig, buildWinSeqTimelines } from './engine/winseq/winseqModel.js';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { WorkspaceLockOverlay } from './components/WorkspaceLockOverlay.jsx';
 import { RepoWorkspacePicker } from './components/RepoWorkspacePicker.jsx';
@@ -31,6 +31,7 @@ import {
   isDescendantOf,
   uid,
   addTimeline,
+  addPrebuiltTimelines,
   setActiveTimeline,
   renameTimeline,
   removeTimeline,
@@ -1037,6 +1038,34 @@ export default function SceneStudioInner() {
       initialStep,
     });
   }, []);
+
+  // Generate one ready-to-use timeline per win-sequence flow (small/medium/…),
+  // each a single clip playing that whole sequence — available in the Director.
+  const handleGenerateWinSeqTimelines = useCallback((layerId) => {
+    const cur = sceneRef.current;
+    const layer = cur.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const asset = cur.assets.find((a) => a.id === layer.assetId);
+    if (!asset || asset.type !== 'winseq') return;
+    const config = normalizeWinSeqConfig(asset.winseq);
+    const durations = assetDescriptors[asset.id]?.animationDurations || {};
+    const built = buildWinSeqTimelines(layerId, config, durations);
+    if (!built.length) { log('No win-sequence flows to generate timelines from', 'warn'); return; }
+    setScene((prev) => addPrebuiltTimelines(prev, built));
+    log(`Scene Studio: generated ${built.length} win-sequence timeline${built.length === 1 ? '' : 's'}`, 'ok');
+  }, [assetDescriptors, log, setScene]);
+
+  // Generate a single full-spin timeline (start → spin → stop → presentWin).
+  const handleGenerateSpinnerTimeline = useCallback((layerId) => {
+    const cur = sceneRef.current;
+    const layer = cur.layers.find((l) => l.id === layerId);
+    if (!layer) return;
+    const asset = cur.assets.find((a) => a.id === layer.assetId);
+    if (!asset || asset.type !== 'spinner') return;
+    const built = buildSpinnerFullSpinTimeline(layerId, normalizeSpinnerConfig(asset.spinner));
+    setScene((prev) => addPrebuiltTimelines(prev, [built]));
+    log('Scene Studio: generated full-spin timeline', 'ok');
+  }, [log, setScene]);
 
   // Apply a wizard rebuild onto the existing winseq asset (and rename its layer).
   const handleUpdateWinSeq = useCallback((target, { name, winseqConfig, skeleton }) => {
@@ -2181,6 +2210,70 @@ export default function SceneStudioInner() {
   activeScenarioRef.current = activeScenario;
   const projectTimelines = useMemo(() => listProjectTimelines(project), [project]);
 
+  // ── Video export sources ───────────────────────────────────────────────
+  // Everything the exporter can render: each timeline in the active scene plus
+  // each project scenario (flattened). Durations drive the export frame count.
+  const videoExportSources = useMemo(() => {
+    const tlDur = (tracks) => (tracks || []).reduce((mx, tr) =>
+      (tr.clips || []).reduce((m, c) => Math.max(m, (c.start || 0) + (c.duration || 0)), mx), 0);
+    const timelines = (scene.timelines || []).map((tl) => ({
+      kind: 'timeline', id: tl.id, name: tl.name || tl.id,
+      // The active timeline's live edits live in scene.flow, not yet synced.
+      duration: Math.max(0.1, tl.id === scene.activeTimelineId ? tlDur(scene.flow?.tracks) : tlDur(tl.tracks))
+    }));
+    const scenarios = (project.scenarios || []).map((sc) => {
+      const flat = buildScenarioTimeline(sc, project);
+      return { kind: 'scenario', id: sc.id, name: sc.name || sc.id, duration: Math.max(0.1, flat.total || 0), ok: flat.ok };
+    });
+    return { timelines, scenarios };
+  }, [scene.timelines, scene.activeTimelineId, scene.flow, project]);
+
+  // Build the per-frame (time → {scene, flowTime}) provider for a chosen source.
+  // Timelines render against the active scene's layers (handles already match);
+  // scenarios are flattened + sampled per frame, degrading blends to cuts and
+  // skipping cross-scene segments (only the active scene's layers exist).
+  const makeVideoFrameProvider = useCallback((source) => {
+    if (!source) return null;
+    const cur = sceneRef.current;
+    if (source.kind === 'timeline') {
+      const isActive = source.id === cur.activeTimelineId;
+      const tl = (cur.timelines || []).find((t) => t.id === source.id);
+      const tracks = isActive ? (cur.flow?.tracks || []) : (tl?.tracks || []);
+      const markers = isActive ? (cur.flow?.markers || []) : (tl?.markers || []);
+      const flow = deriveFlowGraph({ tracks, markers, nodes: [], edges: [] });
+      const renderScene = { ...cur, flow };
+      return (t) => ({ scene: renderScene, flowTime: t });
+    }
+    const sc = (project.scenarios || []).find((s) => s.id === source.id);
+    if (!sc) return null;
+    const flat = buildScenarioTimeline(sc, project);
+    // The live handles belong to the active scene only; segments from other
+    // scenes can't render without a graph rebuild, so we skip them. (Compare
+    // against the PROJECT scene id — the working scene's own id differs.)
+    const activeSceneId = project.activeSceneId;
+    let warnedCross = false;
+    return (t) => {
+      const s = sampleScenario(flat, t);
+      if (!s) return null;
+      // sampleScenario degrades cross-scene crossfades to a cut; same-scene
+      // crossfades come back as 'blend' — take the incoming side as a cut.
+      const segTimelineId = s.kind === 'blend' ? s.in.timelineId : s.timelineId;
+      const segLocalTime = s.kind === 'blend' ? s.in.localTime : s.localTime;
+      if (s.sceneId !== activeSceneId) {
+        if (!warnedCross) { warnedCross = true; log('Scenario spans multiple scenes — only the active scene renders in export', 'warn'); }
+        return null;
+      }
+      // Active timeline's freshest tracks live in cur.flow; others are stored.
+      const isActive = segTimelineId === cur.activeTimelineId;
+      const tl = (cur.timelines || []).find((x) => x.id === segTimelineId);
+      if (!isActive && !tl) return null;
+      const tracks = isActive ? (cur.flow?.tracks || []) : (tl?.tracks || []);
+      const markers = isActive ? (cur.flow?.markers || []) : (tl?.markers || []);
+      const flow = deriveFlowGraph({ tracks, markers, nodes: [], edges: [] });
+      return { scene: { ...cur, flow }, flowTime: segLocalTime };
+    };
+  }, [project, log]);
+
   // Flattened, scrubbable scenario timeline (segments + total) — recomputed
   // whenever the scenario or project changes, so the scrubber + preview follow.
   const scenarioTimeline = useMemo(
@@ -3165,6 +3258,8 @@ export default function SceneStudioInner() {
         <WebMExportDialog
           scene={scene}
           viewportRef={pixiViewportRef}
+          sources={videoExportSources}
+          makeFrameProvider={makeVideoFrameProvider}
           onClose={() => setShowWebMExport(false)}
           log={log}
         />
@@ -3464,6 +3559,8 @@ export default function SceneStudioInner() {
             onPatchAsset={handlePatchAsset}
             onEditSpinner={handleEditSpinner}
             onEditWinSeq={handleEditWinSeq}
+            onGenerateWinSeqTimelines={handleGenerateWinSeqTimelines}
+            onGenerateSpinnerTimeline={handleGenerateSpinnerTimeline}
             studioMode={studioMode}
           />
         )}

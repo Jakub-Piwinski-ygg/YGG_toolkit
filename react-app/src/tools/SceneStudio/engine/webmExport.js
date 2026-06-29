@@ -10,18 +10,34 @@
 // so the recorder samples exactly the deterministic render, not whatever the
 // live editor happens to be showing.
 
-const WEBM_MIME_CANDIDATES = [
-  'video/webm;codecs=vp9',
-  'video/webm;codecs=vp8',
-  'video/webm'
-];
+const VIDEO_MIME_CANDIDATES = {
+  webm: [
+    'video/webm;codecs=vp9',
+    'video/webm;codecs=vp8',
+    'video/webm'
+  ],
+  // H.264-in-MP4 — Safari (and some Chromium builds) can record this natively;
+  // when none are supported we fall back to ffmpeg.wasm (see mp4Export.js).
+  mp4: [
+    'video/mp4;codecs=avc1.640029',
+    'video/mp4;codecs=avc1.42E01E',
+    'video/mp4;codecs=h264',
+    'video/mp4'
+  ]
+};
 
-/** First WebM mime this browser's MediaRecorder can produce, or null. */
-export function pickWebmMime() {
+/** First mime of the given format this browser's MediaRecorder can produce, or null. */
+export function pickVideoMime(format = 'webm') {
   if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
     return null;
   }
-  return WEBM_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m)) || null;
+  const list = VIDEO_MIME_CANDIDATES[format] || VIDEO_MIME_CANDIDATES.webm;
+  return list.find((m) => MediaRecorder.isTypeSupported(m)) || null;
+}
+
+/** First WebM mime this browser's MediaRecorder can produce, or null. */
+export function pickWebmMime() {
+  return pickVideoMime('webm');
 }
 
 /** True when this browser can record a canvas to WebM at all (Chrome/Firefox). */
@@ -99,4 +115,34 @@ export async function recordCanvasFrames({
   await stopped;
   if (cancelled) throw new Error('cancelled');
   return new Blob(chunks, { type: mimeType.split(';')[0] || 'video/webm' });
+}
+
+/** Promise wrapper around canvas.toBlob(image/png). */
+function canvasToPng(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas.toBlob returned null'))), 'image/png');
+  });
+}
+
+/**
+ * Grab `frameCount` deterministic frames as PNG byte arrays (no MediaRecorder).
+ * Used by the ffmpeg.wasm MP4 path, which needs discrete frames rather than a
+ * live stream — so it also works across per-frame scene swaps (scenario export).
+ *
+ * @returns {Promise<Uint8Array[]>} one PNG per frame, in order
+ */
+export async function grabCanvasFrames({ canvas, frameCount, fps, renderFrame, onProgress, signal }) {
+  if (!canvas) throw new Error('No canvas to capture.');
+  const frames = [];
+  for (let i = 0; i < frameCount; i++) {
+    if (signal?.aborted) throw new Error('cancelled');
+    renderFrame(i / fps, i);
+    // eslint-disable-next-line no-await-in-loop
+    const png = await canvasToPng(canvas);
+    // eslint-disable-next-line no-await-in-loop
+    const buf = new Uint8Array(await png.arrayBuffer());
+    frames.push(buf);
+    onProgress?.({ frame: i + 1, total: frameCount });
+  }
+  return frames;
 }

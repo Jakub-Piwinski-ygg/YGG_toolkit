@@ -12,6 +12,7 @@
 
 import { Matrix } from 'pixi.js';
 import { winNumberValueAt, formatWinNumber } from './winNumberModel.js';
+import { CHANNEL_DEFS } from '../animation/keyframes.js';
 
 const _m = new Matrix();
 
@@ -31,8 +32,11 @@ function sameGlyphSet(a, b) {
  *        (glyph scale / spacing / currency / decimals) apply by re-laying out the
  *        existing glyphs, with NO scene rebuild. Falls back to the built config
  *        when the glyph set differs (a structural change rebuilds separately).
+ * @param {{alpha?:number, tint?:{r:number,g:number,b:number}}|null} colorOverride
+ *        keyframed colour from the number layer's clips (alpha multiplies the
+ *        layer's static alpha; tint is applied straight). null = no animation.
  */
-export function applyWinNumberAtTime(numObj, parentObj, layer, ut, sampleOverride = null, liveNum = null) {
+export function applyWinNumberAtTime(numObj, parentObj, layer, ut, sampleOverride = null, liveNum = null, colorOverride = null) {
   const built = numObj?.__winnumber?.num;
   if (!built) return;
   if (!parentObj?.skeleton) { numObj.visible = false; return; }
@@ -85,6 +89,13 @@ export function applyWinNumberAtTime(numObj, parentObj, layer, ut, sampleOverrid
   numObj.scale.x *= ut?.scaleX ?? 1;
   numObj.scale.y *= ut?.scaleY ?? 1;
   numObj.rotation += ut?.rotation ?? 0;
-  numObj.alpha = typeof ut?.alpha === 'number' ? Math.max(0, Math.min(1, ut.alpha)) : 1;
+
+  // 4) colour: keyframed alpha multiplies the layer's static alpha (so a fade
+  //    composes with a dimmed layer), tint applies straight (white = no tint).
+  const baseAlpha = typeof ut?.alpha === 'number' ? ut.alpha : 1;
+  const animAlpha = typeof colorOverride?.alpha === 'number' ? colorOverride.alpha : 1;
+  numObj.alpha = Math.max(0, Math.min(1, baseAlpha * animAlpha));
+  if (colorOverride?.tint) CHANNEL_DEFS.tint.apply(numObj, colorOverride.tint);
+  else numObj.tint = 0xffffff;
   numObj.visible = layer.visible !== false;
 }

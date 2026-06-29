@@ -1,7 +1,7 @@
 ---
 type: architecture
 title: Repo Browser
-updated: 2026-06-14
+updated: 2026-06-29
 tags: [architecture, github, gitlab]
 ---
 
@@ -27,7 +27,17 @@ the `_gh` state block (`index.html` L2325+).
 > headers. For private assets: fetch with auth headers, wrap in
 > `URL.createObjectURL(blob)`, cache the blob URL. See [[Gotchas]].
 
-In the React app the equivalent state lives in `RepoBrowserContext.jsx` — note the
-**unbounded blob+tree caches** flagged in [[Tool Review]].
+In the React app the equivalent state lives in `RepoBrowserContext.jsx` (provider
+wraps the whole Shell, so any tool can `useRepoBrowser()`) — note the **unbounded
+blob+tree caches** flagged in [[Tool Review]]. Pure helpers live in
+`utils/repoBrowser.js`: `detectProvider`, `authHeaders`, `fetchRepos` (with a
+`canWrite` flag), `fetchTree`, `fetchBranches`, `listDir`, `authBlobUrl`, `rawUrl`,
+`commitFile`, `runPool`.
 
-Related: [[Repo Content Browser]] · [[Gotchas]]
+> [!note] Now also backs Scene Studio remote workspaces
+> Since 2026-06-29 this layer powers [[Session 2026-06-29 Scene Studio Remote Workspace|Scene Studio's remote workspace]]:
+> a read-only repo-backed `FileSystemDirectoryHandle` (`engine/repoHandle.js`) is
+> built from a `fetchTree` result and lazily resolves files via `authBlobUrl`, so the
+> auth/cache flow is shared with the Content Browser.
+
+Related: [[Repo Content Browser]] · [[Scene Studio]] · [[Gotchas]]

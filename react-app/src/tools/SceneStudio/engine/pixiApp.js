@@ -1047,7 +1047,10 @@ export function applyFlowAtTime(handles, scene, t) {
       // existing glyphs without a full scene rebuild.
       const parentAsset = scene.assets.find((a) => a.id === obj.__winnumber.parentAssetId);
       const liveNum = normalizeWinNumber(parentAsset?.winseq?.number);
-      applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation), sampleOverride, liveNum);
+      // Colour (alpha + tint) can be keyframed on the number layer's clips —
+      // composed on top of the bone follow inside applyWinNumberAtTime.
+      const colorOverride = evalWinNumberColor(tracks, t);
+      applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation), sampleOverride, liveNum, colorOverride);
       continue;
     }
 
@@ -1310,6 +1313,33 @@ function channelIsLive(ch) {
  * takes over from its first key onward. Multiple tracks animating the same
  * channel = last-wins (track array order).
  */
+/**
+ * Fold one channel's value across the clips live at time `t` (oldest first, so
+ * the most recent contributor wins). Returns undefined when no clip overrides
+ * the channel — keep the base pose. Shared by the PNG/Spine transform pass and
+ * the win-number colour pass.
+ */
+function evalChannelAcrossClips(clips, name, t) {
+  let val; // undefined = no override yet
+  for (const clip of clips) {
+    const ch = clip.channels[name];
+    if (!channelIsLive(ch)) continue;
+    // Per-clip opt-out: once the playhead is past a clip that asked to clear,
+    // it stops contributing (mirrors the Spine hold/clear path).
+    if (clip.clearAfterEnd === true && t >= clip.start + clip.duration) continue;
+    // Un-wrapped, speed-scaled local time — detects "before this channel's
+    // first key" on the clip's first pass. Before that key the clip does NOT
+    // contribute, so an earlier clip's held value carries through.
+    const rawLocal = Math.max(0, t - clip.start) * validSpeed(clip);
+    const firstT = channelFirstKeyTime(ch);
+    if (firstT != null && rawLocal < firstT - 1e-6) continue;
+    const localT = clipLocalSeconds(clip, t, { clampPastEnd: true });
+    const v = evalChannel(ch, localT, name);
+    if (v != null) val = v;
+  }
+  return val;
+}
+
 function applyPngChannels(obj, layer, tracks, t, orientation) {
   if (!tracks.length) return;
   const baseT = orientation === 'portrait'
@@ -1327,24 +1357,32 @@ function applyPngChannels(obj, layer, tracks, t, orientation) {
     if (!clips.length) continue;
 
     for (const name of CHANNEL_NAMES) {
-      let val; // undefined = no override yet → keep base pose
-      for (const clip of clips) {
-        const ch = clip.channels[name];
-        if (!channelIsLive(ch)) continue;
-        // Per-clip opt-out: once the playhead is past a clip that asked to
-        // clear, it stops contributing (mirrors the Spine hold/clear path).
-        if (clip.clearAfterEnd === true && t >= clip.start + clip.duration) continue;
-        // Un-wrapped, speed-scaled local time — detects "before this channel's
-        // first key" on the clip's first pass. Before that key the clip does
-        // NOT contribute, so an earlier clip's held value carries through.
-        const rawLocal = Math.max(0, t - clip.start) * validSpeed(clip);
-        const firstT = channelFirstKeyTime(ch);
-        if (firstT != null && rawLocal < firstT - 1e-6) continue;
-        const localT = clipLocalSeconds(clip, t, { clampPastEnd: true });
-        const v = evalChannel(ch, localT, name);
-        if (v != null) val = v;
-      }
+      const val = evalChannelAcrossClips(clips, name, t);
       if (val !== undefined) CHANNEL_DEFS[name]?.apply?.(obj, val);
     }
   }
+}
+
+/**
+ * Evaluate ONLY the colour channels (alpha + tint) for a win-number layer's
+ * clips. Win numbers are bone-driven, so position/scale/rotation are not
+ * keyframable — colour is, to allow fade in/out. Returns { alpha?, tint? } or
+ * null when nothing animates.
+ */
+const WINNUMBER_COLOR_CHANNELS = ['alpha', 'tint'];
+function evalWinNumberColor(tracks, t) {
+  if (!tracks?.length) return null;
+  let out = null;
+  for (const track of tracks) {
+    if (!track?.clips?.length) continue;
+    const clips = track.clips
+      .filter((c) => c.start <= t && c.channels)
+      .sort((a, b) => a.start - b.start);
+    if (!clips.length) continue;
+    for (const name of WINNUMBER_COLOR_CHANNELS) {
+      const v = evalChannelAcrossClips(clips, name, t);
+      if (v !== undefined) { out = out || {}; out[name] = v; }
+    }
+  }
+  return out;
 }

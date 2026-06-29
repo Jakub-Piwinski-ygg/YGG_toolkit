@@ -491,38 +491,44 @@ function applyResize(obj, handle, anchorWorld, mouseWorld, startInfo, contentRoo
   const top0 = -baseH * ay;
   const bottom0 = top0 + baseH;
 
+  // Unscaled local-frame positions of the dragged handle and the pinned
+  // (opposite) handle. These never change during the drag.
   const opposite = oppositeHandle(handle);
   const anchorLocal = handleLocalPoint(opposite, left0, right0, top0, bottom0);
-  const mouseLocal = contentToParentLocal(obj, mouseWorld.x, mouseWorld.y, contentRoot);
+  const dragLocal = handleLocalPoint(handle, left0, right0, top0, bottom0);
 
-  let left = left0;
-  let right = right0;
-  let top = top0;
-  let bottom = bottom0;
-
-  if (handle.includes('w')) left = mouseLocal.x;
-  if (handle.includes('e')) right = mouseLocal.x;
-  if (handle.includes('n')) top = mouseLocal.y;
-  if (handle.includes('s')) bottom = mouseLocal.y;
-
-  const minSize = 1;
-  if (Math.abs(right - left) < minSize) {
-    if (handle.includes('w')) left = right - minSize * Math.sign(right - left || 1);
-    else right = left + minSize * Math.sign(right - left || 1);
-  }
-  if (Math.abs(bottom - top) < minSize) {
-    if (handle.includes('n')) top = bottom - minSize * Math.sign(bottom - top || 1);
-    else bottom = top + minSize * Math.sign(bottom - top || 1);
-  }
-
-  const scaleX = (right - left) / baseW;
-  const scaleY = (bottom - top) / baseH;
-  obj.scale.set(scaleX, scaleY);
-
+  // Work entirely in the object's PARENT-local space and against the pinned
+  // anchor. Crucially we never reverse-map through obj's own (live, mid-drag)
+  // scale — doing so created a feedback loop where shrinking the object
+  // inflated the inverse-mapped pointer, so the rect oscillated ("sprang")
+  // instead of settling under the cursor.
   const parent = obj.parent || contentRoot;
   const parentAnchor = contentToParentLocal(parent, anchorWorld.x, anchorWorld.y, contentRoot);
+  const parentMouse = contentToParentLocal(parent, mouseWorld.x, mouseWorld.y, contentRoot);
+
+  // Un-rotate the anchor→pointer vector into the object's local axes.
   const c = Math.cos(obj.rotation || 0);
   const s = Math.sin(obj.rotation || 0);
+  const vx = parentMouse.x - parentAnchor.x;
+  const vy = parentMouse.y - parentAnchor.y;
+  const dx = vx * c + vy * s;
+  const dy = -vx * s + vy * c;
+
+  // Derive each axis scale directly: scale = projected pointer offset / base
+  // span. The perpendicular axis of an edge handle (zero span) keeps its
+  // current scale, so edge drags no longer reset the other dimension.
+  const spanX = dragLocal.x - anchorLocal.x;
+  const spanY = dragLocal.y - anchorLocal.y;
+  const minScale = 1e-3;
+  let scaleX = obj.scale.x;
+  let scaleY = obj.scale.y;
+  if (Math.abs(spanX) > 1e-6) scaleX = dx / spanX;
+  if (Math.abs(spanY) > 1e-6) scaleY = dy / spanY;
+  if (Math.abs(scaleX) < minScale) scaleX = Math.sign(scaleX || 1) * minScale;
+  if (Math.abs(scaleY) < minScale) scaleY = Math.sign(scaleY || 1) * minScale;
+  obj.scale.set(scaleX, scaleY);
+
+  // Re-pin the opposite anchor exactly where it was in world space.
   const sxAx = anchorLocal.x * scaleX;
   const syAy = anchorLocal.y * scaleY;
   const rx = sxAx * c - syAy * s;

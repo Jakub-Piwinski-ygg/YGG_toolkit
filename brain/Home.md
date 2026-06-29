@@ -1,7 +1,7 @@
 ---
 type: moc
 title: YGG Toolkit — Brain
-updated: 2026-06-26
+updated: 2026-06-29
 tags: [moc, home]
 ---
 
@@ -42,6 +42,7 @@ Yggdrasil Gaming artists (image processing, asset browsing, slot-game preview).
 
 ## Sessions / changelog
 
+- [[Session 2026-06-29 Scene Studio Remote Workspace]] — open a GitHub/GitLab repo folder as the Scene Studio workspace
 - [[Win Sequences Phase 1]] — second wizard-built Scene Studio object (web + timeline shipped)
 - [[Session 2026-06-16 Scene Studio Direct Scenario Mode]] — new Blueprint-style scenario node-graph mode
 - [[Session 2026-06-14 Audit and P0]] — backlog re-audit + WebM export + Art-Tools batch/infra

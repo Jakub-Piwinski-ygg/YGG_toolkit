@@ -4,7 +4,7 @@ tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
 priority: P0
-updated: 2026-06-26
+updated: 2026-06-29
 tags: [scene-studio, pixi, animation, unity]
 ---
 
@@ -54,6 +54,15 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
   source active-edge exclusivity, transition/entry inspector. P1–P4 shipped; Unity
   `YggScenarioPlayer.cs` export is P5. Full design: [[Scene Studio Direct Mode]].
 
+- **Remote Workspace SHIPPED 2026-06-29**: the "load workspace" gate can now open a
+  **GitHub / GitLab repo folder as the workspace** (white "🌐 Open REMOTE workspace"
+  button) next to the local pick. A read-only repo-backed `FileSystemDirectoryHandle`
+  (`engine/repoHandle.js`) fetches assets lazily over the auth API — so the existing
+  loaders work unchanged — with an optional pre-download progress bar (skippable),
+  branch selection, shared auth with the [[Repo Content Browser]], session
+  auto-restore, and gated commit-back (`canWrite`). Full log:
+  [[Session 2026-06-29 Scene Studio Remote Workspace]].
+
 - **Win Sequences — Phase 1 SHIPPED 2026-06-26**: the second wizard-built object after
   the Spinner. A single Spine skeleton (`win_sequence.json`) whose `NNx_tier_sub`
   animations are mapped to win tiers and chained into escalation **flows**; on the
@@ -68,6 +77,7 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
 - [[Win Sequences Design]] — chained win-tier Spine sequences (Phase 1).
 - Full design: [[Scene Studio Design]] · [[Scene Studio Direct Mode]] (scenario graph).
 - Sessions: [[Scene Studio Phase Status]], [[Next Phase Scene Tool]],
+  [[Session 2026-06-29 Scene Studio Remote Workspace]],
   [[Win Sequences Phase 1]],
   [[Session 2026-06-16 Scene Studio Direct Scenario Mode]],
   [[Session 2026-06-15 Scene Studio Keyframe Multiselect Timeline and Overlays]].

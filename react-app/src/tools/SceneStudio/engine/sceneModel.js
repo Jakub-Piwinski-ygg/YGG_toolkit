@@ -340,6 +340,25 @@ export function addTimeline(scene, name) {
   };
 }
 
+/**
+ * Append one or more pre-built timelines (e.g. the win-sequence / full-spin
+ * generators). Each entry is { name, tracks?, markers? } with raw tracks/clips
+ * (ids backfilled by normalizeTrack). The active timeline is committed first
+ * and left unchanged — the new timelines are added inactive so they show up in
+ * the Director / timeline list ready to use.
+ */
+export function addPrebuiltTimelines(scene, built) {
+  const list = Array.isArray(built) ? built.filter(Boolean) : [];
+  if (!list.length) return scene;
+  const synced = syncFlowToActiveTimeline(scene);
+  const made = list.map((b) => ({
+    ...createTimeline(b.name),
+    tracks: (b.tracks || []).map(normalizeTrack).filter(Boolean),
+    markers: Array.isArray(b.markers) ? b.markers : []
+  }));
+  return { ...synced, timelines: [...(synced.timelines || []), ...made] };
+}
+
 /** Rename a timeline by id. */
 export function renameTimeline(scene, timelineId, name) {
   return {

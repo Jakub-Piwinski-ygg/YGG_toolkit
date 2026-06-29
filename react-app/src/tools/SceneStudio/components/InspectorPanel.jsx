@@ -134,6 +134,8 @@ export function InspectorPanel({
   onPatchAsset,
   onEditSpinner,
   onEditWinSeq,
+  onGenerateWinSeqTimelines,
+  onGenerateSpinnerTimeline,
   studioMode = 'animate'
 }) {
   const layer = scene.layers.find((l) => l.id === selectedLayerId);
@@ -216,6 +218,17 @@ export function InspectorPanel({
           ✎ edit spinner in setup wizard
         </button>
       )}
+      {asset?.type === 'spinner' && studioMode === 'setup' && onGenerateSpinnerTimeline && (
+        <button
+          type="button"
+          className="scene-btn"
+          style={{ width: '100%', marginBottom: 8 }}
+          onClick={() => onGenerateSpinnerTimeline(selectedLayerId)}
+          title="Create a ready-made timeline with the whole spin (start → spin → stop → present win) for use in the Director"
+        >
+          ⚙ generate full-spin timeline
+        </button>
+      )}
 
       {/* Win-sequence re-edit — top of the inspector, setup mode only. */}
       {asset?.type === 'winseq' && studioMode === 'setup' && onEditWinSeq && (
@@ -227,6 +240,17 @@ export function InspectorPanel({
           title="Re-open the setup wizard to adjust the skeleton, tier mapping & generated flows, then rebuild this object"
         >
           ✎ edit win sequences in setup wizard
+        </button>
+      )}
+      {asset?.type === 'winseq' && studioMode === 'setup' && onGenerateWinSeqTimelines && (
+        <button
+          type="button"
+          className="scene-btn"
+          style={{ width: '100%', marginBottom: 8 }}
+          onClick={() => onGenerateWinSeqTimelines(selectedLayerId)}
+          title="Create one ready-made timeline per win sequence (small, medium, big …) for use in the Director"
+        >
+          ⚙ generate win-sequence timelines
         </button>
       )}
 
@@ -576,7 +600,12 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
   const isSpine = asset?.type === 'spine';
   const isSpinner = asset?.type === 'spinner';
   const isWinSeq = asset?.type === 'winseq';
-  const supportsChannels = asset?.type === 'png' || asset?.type === 'pngSequence';
+  // Win-number layers are bone-driven (pos/scale/rot locked), but their COLOUR
+  // can be keyframed — expose only the alpha + tint channels so artists can add
+  // fade in/out without fighting the bone follow.
+  const isWinNumber = asset?.type === 'winnumber';
+  const channelNames = isWinNumber ? ['alpha', 'tint'] : CHANNEL_NAMES;
+  const supportsChannels = asset?.type === 'png' || asset?.type === 'pngSequence' || isWinNumber;
   const speed = Number.isFinite(Number(clip.speed)) && Number(clip.speed) > 0 ? Number(clip.speed) : 1;
   const mixDuration = Number.isFinite(Number(clip.mixDuration)) ? Number(clip.mixDuration) : null;
   const resolvedAnim = isSpine ? (clip.anim || layer.spine?.defaultAnimation || '') : '';
@@ -609,10 +638,11 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
 
   const setClipAnimation = (nextAnimRaw) => {
     const nextAnim = nextAnimRaw || null;
-    const prevResolved = clip.anim || layer.spine?.defaultAnimation || null;
     const nextResolved = nextAnim || layer.spine?.defaultAnimation || null;
     const patch = { anim: nextAnim };
-    if ((clip.autoFitDuration || !prevResolved) && nextResolved) {
+    // Always snap the clip length to the freshly-picked animation so the
+    // timeline reflects the selection without a manual "Match anim time" click.
+    if (nextResolved) {
       const d = Number(descriptor?.animationDurations?.[nextResolved]);
       if (Number.isFinite(d) && d > 0) patch.duration = Math.max(0.05, d / speed);
     }
@@ -623,7 +653,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
   // What to render in the clip header — gives users a fast hint at what
   // the clip does without opening the channels block.
   const animatedChannels = supportsChannels
-    ? CHANNEL_NAMES.filter((n) => clip.channels?.[n]?.keys?.length || isPathChannel(clip.channels?.[n]))
+    ? channelNames.filter((n) => clip.channels?.[n]?.keys?.length || isPathChannel(clip.channels?.[n]))
     : [];
   const headerLabel = isSpine
     ? (clip.anim || '(setup pose)')
@@ -760,6 +790,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           onSelectKey={onSelectKey}
           onFlowAction={onFlowAction}
           defaultTangentMode={defaultTangentMode}
+          channelList={channelNames}
         />
       )}
 
@@ -907,7 +938,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
  * - Auto-key writes (from viewport drags or transform-field edits)
  *   land here via SceneStudioInner's `onPatchTransform` decision logic.
  */
-function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: externalKey = null, onSelectKey: externalOnSelectKey = null, onFlowAction = null, defaultTangentMode = 'auto' }) {
+function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: externalKey = null, onSelectKey: externalOnSelectKey = null, onFlowAction = null, defaultTangentMode = 'auto', channelList = CHANNEL_NAMES }) {
   const channels = clip.channels || {};
   // A channel counts as "enabled" if it has linked keys OR any split
   // sub-list has keys. Split channels store `perComp.x.keys` etc., not
@@ -1134,7 +1165,7 @@ function PngChannelEditor({ clip, basePose, flowTime, onPatchClip, selectedKey: 
     <div className="scene-channels-editor">
       <div className="scene-tween-chips">
         <span className="scene-field-group-sub">animate:</span>
-        {CHANNEL_NAMES.map((name) => {
+        {channelList.map((name) => {
           const isPosPath = name === 'position' && positionIsPath;
           return (
             <button
