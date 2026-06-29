@@ -75,7 +75,11 @@ export async function fetchRepos(provider, token, baseUrl, searchPrefix) {
           description: x.description || '',
           updatedAt: x.last_activity_at,
           defaultBranch: x.default_branch || 'main',
-          isPrivate: x.visibility !== 'public'
+          isPrivate: x.visibility !== 'public',
+          // Developer (30) or higher can push commits.
+          canWrite:
+            (x.permissions?.project_access?.access_level || 0) >= 30 ||
+            (x.permissions?.group_access?.access_level || 0) >= 30
         });
       if (data.length < 100) break;
       page++;
@@ -102,7 +106,8 @@ export async function fetchRepos(provider, token, baseUrl, searchPrefix) {
         description: x.description || '',
         updatedAt: x.updated_at,
         defaultBranch: x.default_branch || 'main',
-        isPrivate: x.private
+        isPrivate: x.private,
+        canWrite: x.permissions?.push === true
       });
     if (data.length < 100) break;
     page++;
@@ -145,6 +150,51 @@ export async function fetchTree(provider, token, baseUrl, repo) {
     type: i.type === 'tree' ? 'tree' : 'blob',
     size: i.size || 0
   }));
+}
+
+// List branch names for a repo. Returns the default branch first.
+export async function fetchBranches(provider, token, baseUrl, repo) {
+  const headers = authHeaders(provider, token);
+  const def = repo.defaultBranch || 'main';
+  let names = [];
+  if (provider === 'gitlab') {
+    const base = (baseUrl || 'https://gitlab.yggdrasil.lan').replace(/\/$/, '');
+    const projId = encodeURIComponent(repo.fullName);
+    let page = 1;
+    let all = [];
+    while (true) {
+      const r = await fetch(
+        `${base}/api/v4/projects/${projId}/repository/branches?per_page=100&page=${page}`,
+        { headers }
+      );
+      if (!r.ok) throw new Error('GitLab branches ' + r.status);
+      const items = await r.json();
+      if (!items.length) break;
+      all = all.concat(items);
+      const np = r.headers.get('x-next-page');
+      if (!np || parseInt(np) <= page) break;
+      page = parseInt(np);
+    }
+    names = all.map((b) => b.name);
+  } else {
+    let page = 1;
+    let all = [];
+    while (true) {
+      const r = await fetch(
+        `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/branches?per_page=100&page=${page}`,
+        { headers: { Accept: 'application/vnd.github+json', ...headers } }
+      );
+      if (!r.ok) throw new Error('GitHub branches ' + r.status);
+      const items = await r.json();
+      if (!items.length) break;
+      all = all.concat(items);
+      if (items.length < 100) break;
+      page++;
+    }
+    names = all.map((b) => b.name);
+  }
+  // Default branch first, rest sorted.
+  return [def, ...names.filter((n) => n !== def).sort()];
 }
 
 export function listDir(prefix, tree, typeFilter) {
@@ -236,6 +286,58 @@ export async function authBlobUrl(provider, token, baseUrl, repo, path, cache) {
   const u = URL.createObjectURL(blob);
   cache[key] = u;
   return u;
+}
+
+// UTF-8 string → base64 (GitHub contents API wants base64-encoded content).
+function toBase64Utf8(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+// Commit a text file to a repo branch (create or update). Only meaningful when
+// the token has write access (see `canWrite` on the repo). Throws on failure;
+// a 403/404 typically means the token is read-only.
+// @returns {Promise<{mode:'commit', path:string, branch:string}>}
+export async function commitFile(provider, token, baseUrl, repo, path, contentText, message) {
+  const headers = authHeaders(provider, token);
+  const branch = repo.defaultBranch || 'main';
+  if (provider === 'gitlab') {
+    const base = (baseUrl || 'https://gitlab.yggdrasil.lan').replace(/\/$/, '');
+    const projId = encodeURIComponent(repo.fullName);
+    const fileUrl = `${base}/api/v4/projects/${projId}/repository/files/${encodeURIComponent(path)}`;
+    // PUT updates an existing file, POST creates a new one.
+    const head = await fetch(`${fileUrl}?ref=${encodeURIComponent(branch)}`, { headers });
+    const method = head.ok ? 'PUT' : 'POST';
+    const r = await fetch(fileUrl, {
+      method,
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch, content: contentText, commit_message: message })
+    });
+    if (!r.ok) {
+      throw new Error('GitLab commit ' + r.status + (r.status === 403 ? ' — token lacks write access' : ''));
+    }
+    return { mode: 'commit', path, branch };
+  }
+  const apiPath = path.split('/').map(encodeURIComponent).join('/');
+  const url = `https://api.github.com/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/contents/${apiPath}`;
+  let sha;
+  const head = await fetch(`${url}?ref=${encodeURIComponent(branch)}`, {
+    headers: { Accept: 'application/vnd.github+json', ...headers }
+  });
+  if (head.ok) {
+    try { sha = (await head.json()).sha; } catch { /* new file */ }
+  }
+  const r = await fetch(url, {
+    method: 'PUT',
+    headers: { Accept: 'application/vnd.github+json', ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, content: toBase64Utf8(contentText), branch, ...(sha ? { sha } : {}) })
+  });
+  if (!r.ok) {
+    throw new Error('GitHub commit ' + r.status + (r.status === 403 || r.status === 404 ? ' — token lacks write access' : ''));
+  }
+  return { mode: 'commit', path, branch };
 }
 
 // Run an async worker over `items` with bounded concurrency. shouldAbort() is

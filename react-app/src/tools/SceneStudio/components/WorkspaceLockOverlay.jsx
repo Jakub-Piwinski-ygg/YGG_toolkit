@@ -9,6 +9,7 @@ import { isFsAccessSupported } from '../engine/persist.js';
 export function WorkspaceLockOverlay({
   onPickRoot,
   onPickFolderFallback, // (File[]) => void — Firefox / Safari fallback
+  onPickRepo,           // () => void — open the remote (GitHub/GitLab) picker
   busy = false,
   pickError = null,
   onDismissPickError
@@ -32,7 +33,7 @@ export function WorkspaceLockOverlay({
             onClick={onPickRoot}
             disabled={busy}
           >
-            {busy ? '⏳ opening picker…' : '📁 load workspace folder'}
+            {busy ? '⏳ opening picker…' : '📁 Open LOCAL folder workspace'}
           </button>
         ) : (
           <label className={'scene-btn scene-workspace-lock-btn' + (busy ? ' scene-btn--disabled' : '')}>
@@ -50,8 +51,20 @@ export function WorkspaceLockOverlay({
               }}
               disabled={busy}
             />
-            {busy ? '⏳ loading…' : '📁 load workspace folder'}
+            {busy ? '⏳ loading…' : '📁 Open LOCAL folder workspace'}
           </label>
+        )}
+        {onPickRepo && (
+          <>
+            <div className="scene-workspace-lock-or">or</div>
+            <button
+              className="scene-btn scene-workspace-lock-btn scene-workspace-lock-btn--remote"
+              onClick={onPickRepo}
+              disabled={busy}
+            >
+              🌐 Open REMOTE workspace
+            </button>
+          </>
         )}
         <div className="scene-workspace-lock-hint">…or drop a project folder onto the toolbar.</div>
         {pickError && (

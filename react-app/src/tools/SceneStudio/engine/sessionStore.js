@@ -25,14 +25,28 @@ function openDb() {
 /**
  * Write the current scene + root handle to IndexedDB (debounced by caller).
  * Silent on failure — autosave must never interrupt the user.
+ *
+ * A repo-backed handle (engine/repoHandle.js) carries closures and is NOT
+ * structurally-cloneable — storing it would throw and abort the whole write.
+ * Instead we persist its serializable `repoMeta` descriptor (provider + repo
+ * coords + subPath, no token) and rebuild the handle on restore.
  */
 export async function saveSession(project, rootHandle) {
   try {
+    const repoMeta = rootHandle?.repoMeta?.kind === 'repo' ? rootHandle.repoMeta : null;
+    // Don't try to clone a repo (or otherwise non-cloneable) handle.
+    const storableHandle = repoMeta ? null : (rootHandle ?? null);
     const db = await openDb();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readwrite');
       tx.objectStore(STORE).put(
-        { project, rootHandle: rootHandle ?? null, savedAt: new Date().toISOString(), schemaVersion: PROJECT_SCHEMA },
+        {
+          project,
+          rootHandle: storableHandle,
+          repoMeta,
+          savedAt: new Date().toISOString(),
+          schemaVersion: PROJECT_SCHEMA
+        },
         KEY
       );
       tx.oncomplete = resolve;

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
+import { useRepoBrowser } from '../../context/RepoBrowserContext.jsx';
+import { fetchTree, commitFile, authBlobUrl, runPool, LS_KEY } from '../../utils/repoBrowser.js';
 import { AssetBrowserPanel } from './components/AssetBrowserPanel.jsx';
 import { HierarchyPanel } from './components/HierarchyPanel.jsx';
 import { InspectorPanel } from './components/InspectorPanel.jsx';
@@ -13,6 +15,7 @@ import { WinSequenceWizard } from './components/WinSequenceWizard.jsx';
 import { normalizeWinSeqConfig } from './engine/winseq/winseqModel.js';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { WorkspaceLockOverlay } from './components/WorkspaceLockOverlay.jsx';
+import { RepoWorkspacePicker } from './components/RepoWorkspacePicker.jsx';
 import { TimelinePanel } from './components/TimelinePanel.jsx';
 import { ScenarioTimelineList } from './components/ScenarioTimelineList.jsx';
 import { ScenarioGraphPanel } from './components/ScenarioGraphPanel.jsx';
@@ -90,9 +93,11 @@ import {
   loadProjectFromHandle,
   pickProjectRoot,
   repairSceneSpineAssets,
-  saveProject
+  saveProject,
+  serializeProject
 } from './engine/persist.js';
 import { makeVirtualRootHandle, readFolderDropAsFiles, isVirtualHandle } from './engine/virtualHandle.js';
+import { makeRepoRootHandle } from './engine/repoHandle.js';
 import { patchTransform, resetPortrait } from './engine/orientationManager.js';
 import { groupSpineFiles } from './engine/spineLoader.js';
 import {
@@ -116,6 +121,21 @@ import { insertOrUpdatePathPoint, resolvePointHandles } from './engine/animation
 import './styles/scene-studio.css';
 
 const VIDEO_EXT = /\.(mp4|webm|mov|m4v)$/i;
+
+// Asset file types worth pre-downloading from a repo workspace into the blob
+// cache (images, spine skeletons/atlases, video). Other repo files lazy-load.
+const REPO_ASSET_EXT = /\.(png|jpe?g|webp|gif|bmp|tga|json|mp4|webm|mov|m4v)$/i;
+function collectRepoMediaFiles(tree, subPath) {
+  const prefix = String(subPath || '').replace(/\/+$/, '');
+  const norm = prefix ? prefix + '/' : '';
+  const out = [];
+  for (const it of tree) {
+    if (it.type !== 'blob') continue;
+    if (norm && !it.path.startsWith(norm)) continue;
+    if (REPO_ASSET_EXT.test(it.path) || /\.atlas(\.txt)?$/i.test(it.path)) out.push(it.path);
+  }
+  return out;
+}
 
 /** Zero-offset transforms for a bone-following child (e.g. a win-number layer).
  *  The bone follow places it; this transform is just the user's tweak on top. */
@@ -282,6 +302,11 @@ function shiftAllChannelKeys(channels, delta) {
 
 export default function SceneStudioInner() {
   const { log } = useApp();
+  const rb = useRepoBrowser();
+  const [showRepoPicker, setShowRepoPicker] = useState(false);
+  // Repo asset pre-download progress: null | { total, done, repo }
+  const [prefetch, setPrefetch] = useState(null);
+  const prefetchAbortRef = useRef(false);
   // The document is a Project (shared asset pool + multiple scenes). The
   // working `scene` is materialized from the active scene's data + the shared
   // pool, so every existing scene.* / scene.flow consumer keeps working.
@@ -1881,6 +1906,75 @@ export default function SceneStudioInner() {
     }
   }, [linkProjectRoot, log]);
 
+  // Build a read-only repo-backed handle (lazy authenticated file fetches) and
+  // link it exactly like a local folder.
+  const linkRepoSelection = useCallback(async (selection) => {
+    setBusy(true);
+    try {
+      const handle = makeRepoRootHandle({
+        provider: selection.provider,
+        token: selection.token,
+        baseUrl: selection.baseUrl,
+        repo: selection.repo,
+        subPath: selection.subPath,
+        tree: selection.tree,
+        blobCache: rb.blobCacheRef.current
+      });
+      await linkProjectRoot(handle);
+      log(`Scene Studio: linked repo ${selection.repo.fullName}@${selection.repo.defaultBranch}` +
+        (selection.subPath ? `/${selection.subPath}` : ''), 'ok');
+    } catch (e) {
+      console.warn('[SceneStudio] repo root link failed', e);
+      setPickError(e?.message || String(e));
+      log(`Scene Studio: ${e?.message || e}`, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }, [linkProjectRoot, log, rb.blobCacheRef]);
+
+  // Open a GitHub/GitLab repo folder AS the workspace. Before linking, warm the
+  // blob cache by downloading every asset in the chosen folder (with a progress
+  // bar). Skipping falls back to lazy load — the handle fetches on demand.
+  const handlePickRepoRoot = useCallback(async (selection) => {
+    if (!selection?.repo || !selection?.tree) return;
+    setPickError(null);
+    setShowRepoPicker(false);
+
+    const mediaFiles = collectRepoMediaFiles(selection.tree, selection.subPath);
+    if (!mediaFiles.length) { await linkRepoSelection(selection); return; }
+
+    prefetchAbortRef.current = false;
+    setPrefetch({ total: mediaFiles.length, done: 0, repo: selection.repo.fullName });
+    let done = 0;
+    await runPool(
+      mediaFiles,
+      async (path) => {
+        if (prefetchAbortRef.current) return;
+        try {
+          await authBlobUrl(
+            selection.provider, selection.token, selection.baseUrl,
+            selection.repo, path, rb.blobCacheRef.current
+          );
+        } catch { /* skip unreadable file — it'll lazy-load later */ }
+        done += 1;
+        setPrefetch((p) => (p ? { ...p, done } : p));
+      },
+      8,
+      () => prefetchAbortRef.current
+    );
+    setPrefetch(null);
+    if (prefetchAbortRef.current) {
+      log('Scene Studio: asset pre-download skipped — loading on demand', 'info');
+    } else {
+      log(`Scene Studio: cached ${done} asset${done !== 1 ? 's' : ''} from repo`, 'ok');
+    }
+    await linkRepoSelection(selection);
+  }, [linkRepoSelection, log, rb.blobCacheRef]);
+
+  const handleSkipPrefetch = useCallback(() => {
+    prefetchAbortRef.current = true;
+  }, []);
+
   const handleClearRoot = useCallback(() => {
     setRootHandle(null);
     setAssetItems([]);
@@ -1952,6 +2046,27 @@ export default function SceneStudioInner() {
     setSessionDraft(null);
     autosaveEnabledRef.current = true;
     log(`Scene Studio: session restored (${sessionLayerCount(draft.project)} layers)`, 'ok');
+    if (draft.repoMeta?.kind === 'repo') {
+      // Rebuild the repo-backed handle: token from localStorage, tree refetched.
+      try {
+        let token = '';
+        try { token = JSON.parse(localStorage.getItem(LS_KEY) || '{}').token || ''; } catch { /* none */ }
+        if (!token) {
+          log('Scene Studio: repo workspace needs a token — reopen it from the gate', 'info');
+          return;
+        }
+        const { provider, baseUrl, repo, subPath } = draft.repoMeta;
+        const tree = await fetchTree(provider, token, baseUrl, repo);
+        const handle = makeRepoRootHandle({
+          provider, token, baseUrl, repo, subPath, tree, blobCache: rb.blobCacheRef.current
+        });
+        await linkProjectRoot(handle);
+        log(`Scene Studio: repo workspace reconnected (${repo.fullName})`, 'ok');
+      } catch (e) {
+        log(`Scene Studio: could not reconnect repo workspace: ${e.message || e}`, 'info');
+      }
+      return;
+    }
     if (draft.rootHandle) {
       try {
         const perm = await draft.rootHandle.requestPermission({ mode: 'readwrite' });
@@ -1964,7 +2079,7 @@ export default function SceneStudioInner() {
         log(`Scene Studio: could not restore project folder: ${e.message || e}`, 'info');
       }
     }
-  }, [replaceProjectNoHistory, resetEditorStateForScene, log, linkProjectRoot]);
+  }, [replaceProjectNoHistory, resetEditorStateForScene, log, linkProjectRoot, rb.blobCacheRef]);
 
   // ── New project ───────────────────────────────────────────────────────
 
@@ -2800,6 +2915,32 @@ export default function SceneStudioInner() {
     }
   }, [rootHandle, log]);
 
+  // Commit project.json straight to the repo branch. Only reachable when the
+  // workspace is a repo handle whose token has write access (canCommit gate).
+  const handleCommit = useCallback(async () => {
+    const meta = rootHandle?.repoMeta;
+    if (!meta || meta.kind !== 'repo' || !meta.repo?.canWrite) return;
+    setBusy(true);
+    try {
+      let token = '';
+      try { token = JSON.parse(localStorage.getItem(LS_KEY) || '{}').token || ''; } catch { /* none */ }
+      if (!token) throw new Error('no repo token available — reconnect the workspace');
+      const synced = syncFlowToActiveTimeline(sceneRef.current);
+      const projToSave = foldSceneIntoProject(projectRef.current, synced);
+      const { text, baseRel } = serializeProject(projToSave);
+      const repoPath = [meta.subPath, baseRel, 'project.json'].filter(Boolean).join('/');
+      const result = await commitFile(
+        meta.provider, token, meta.baseUrl, meta.repo, repoPath, text,
+        `Update ${projToSave.name || 'project'} (Scene Studio)`
+      );
+      log(`Scene Studio: committed ${result.path}@${result.branch}`, 'ok');
+    } catch (e) {
+      log(`Scene Studio commit failed: ${e.message || e}`, 'err');
+    } finally {
+      setBusy(false);
+    }
+  }, [rootHandle, log]);
+
   const handleLoad = useCallback(async () => {
     setBusy(true);
     try {
@@ -2976,6 +3117,8 @@ export default function SceneStudioInner() {
         canRefreshAssets={!!rootHandle}
         onSave={handleSave}
         onLoad={handleLoad}
+        canCommit={!!rootHandle?.repoMeta?.repo?.canWrite}
+        onCommit={handleCommit}
         onNewProject={handleNewProject}
         projectScenes={project.scenes}
         activeSceneId={project.activeSceneId}
@@ -3331,12 +3474,39 @@ export default function SceneStudioInner() {
           <WorkspaceLockOverlay
             onPickRoot={handlePickRoot}
             onPickFolderFallback={handlePickFolderFallback}
+            onPickRepo={() => setShowRepoPicker(true)}
             busy={busy}
             pickError={pickError}
             onDismissPickError={() => setPickError(null)}
           />
         )}
       </div>
+      <RepoWorkspacePicker
+        open={showRepoPicker}
+        onClose={() => setShowRepoPicker(false)}
+        onConfirm={handlePickRepoRoot}
+      />
+      {prefetch && (
+        <div className="scene-confirm-overlay">
+          <div className="scene-prefetch-card">
+            <div className="scene-confirm-title">⬇ Downloading workspace assets</div>
+            <div className="scene-prefetch-sub">
+              {prefetch.repo} — {prefetch.done} / {prefetch.total}
+            </div>
+            <div className="scene-prefetch-bar">
+              <div
+                className="scene-prefetch-fill"
+                style={{ width: `${prefetch.total ? Math.round((prefetch.done / prefetch.total) * 100) : 0}%` }}
+              />
+            </div>
+            <div className="scene-prefetch-actions">
+              <button className="scene-btn" onClick={handleSkipPrefetch}>
+                Skip — load on demand
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {rootDropHover && (
         <div className="scene-root-drop-overlay">
           <div className="scene-root-drop-card">

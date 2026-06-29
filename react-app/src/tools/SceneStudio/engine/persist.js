@@ -543,11 +543,16 @@ function downloadJson(obj, filename) {
  *
  * @returns {Promise<{mode:'scaffold'|'download', path?:string}>}
  */
-export async function saveProject(project, rootHandle) {
+/**
+ * Serialize a project to its on-disk `project.json` shape (paths baked, live
+ * flow dropped). Returns the doc, its pretty-printed text, and the base
+ * directory (relative to the project root) where project.json should live.
+ * Shared by `saveProject` (download / FS write) and the repo commit path.
+ */
+export function serializeProject(project) {
   const scenes = project.scenes || [];
   const active = scenes.find((s) => s.id === project.activeSceneId) || scenes[0];
   const base = normalizeRelPath(active?.data?.projectRoot || '');
-
   const doc = {
     $schema: PROJECT_SCHEMA,
     version: PROJECT_VERSION,
@@ -566,7 +571,11 @@ export async function saveProject(project, rootHandle) {
     exports: project.exports || {},
     meta: project.meta || {}
   };
-  const text = JSON.stringify(doc, null, PRETTY_JSON_INDENT);
+  return { doc, text: JSON.stringify(doc, null, PRETTY_JSON_INDENT), baseRel: base };
+}
+
+export async function saveProject(project, rootHandle) {
+  const { doc, text, baseRel: base } = serializeProject(project);
 
   const canWrite = rootHandle
     && isFsAccessSupported()

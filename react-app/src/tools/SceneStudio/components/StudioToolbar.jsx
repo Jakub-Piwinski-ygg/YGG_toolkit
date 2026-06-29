@@ -10,6 +10,8 @@ export function StudioToolbar({
   onPickRoot,
   onPickFolderFallback,
   onClearRoot,
+  canCommit = false,
+  onCommit,
   onRefreshAssets,
   canRefreshAssets = false,
   onSave,
@@ -220,6 +222,14 @@ export function StudioToolbar({
       <button className="scene-btn scene-btn--ghost" onClick={onNewProject} disabled={busy} title="New project (will prompt to save)">new</button>
       <button className="scene-btn" onClick={onLoad} disabled={busy}>open…</button>
       <button className="scene-btn scene-btn--primary" onClick={onSave} disabled={busy}>save</button>
+      {canCommit && (
+        <button
+          className="scene-btn"
+          onClick={onCommit}
+          disabled={busy}
+          title="Commit project.json straight to the repo branch"
+        >⬆ commit</button>
+      )}
       <button
         className="scene-btn"
         onClick={onWebMExport}
