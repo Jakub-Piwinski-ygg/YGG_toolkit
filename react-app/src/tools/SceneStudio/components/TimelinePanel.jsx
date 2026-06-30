@@ -336,6 +336,9 @@ export function TimelinePanel({
       curve: 'linear',
       speed: 1,
       mixDuration: null,
+      // Spine AnimationState track index (see sceneModel.js). Default 0; the
+      // clip badge / inspector let the artist bump it to mix animations.
+      track: 0,
       autoFitDuration: !isSpinner && !isWinSeq
     };
     if (isSpinner) {
@@ -628,6 +631,20 @@ export function TimelinePanel({
   /** Remove a track + its clips. */
   const removeTrack = (trackId) => {
     setFlow({ ...(scene.flow || {}), tracks: tracks.filter((t) => t.id !== trackId) });
+  };
+
+  /**
+   * Move a track up (dir -1) or down (dir +1) in the array — i.e. above/below
+   * an adjacent track. Array order = the row stacking order, and for spine
+   * layers it also breaks a same-index tie at runtime (later row wins).
+   */
+  const moveTrack = (trackId, dir) => {
+    const idx = tracks.findIndex((t) => t.id === trackId);
+    const swap = idx + dir;
+    if (idx < 0 || swap < 0 || swap >= tracks.length) return;
+    const next = [...tracks];
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    setFlow({ ...(scene.flow || {}), tracks: next });
   };
 
   const patchClip = (trackId, clipId, rawPatch) => {
@@ -1181,18 +1198,6 @@ export function TimelinePanel({
     ? scene.layers.find((l) => l.id === selectedLayerId)
     : null;
 
-  // Which existing track shows the in-lane "New Clip" ghost — the one holding
-  // the selected clip, else the first track of the selected object.
-  const ghostTargetTrackId = useMemo(() => {
-    if (!selectedLayerId) return null;
-    if (selectedClipId) {
-      const t = tracks.find((tk) => (tk.clips || []).some((c) => c.id === selectedClipId));
-      if (t) return t.id;
-    }
-    const t = tracks.find((tk) => tk.layerId === selectedLayerId);
-    return t ? t.id : null;
-  }, [tracks, selectedLayerId, selectedClipId]);
-
   return (
     <div className="scene-timeline">
       <div className="scene-timeline-head">
@@ -1418,6 +1423,22 @@ export function TimelinePanel({
                 <span className="scene-timeline-label-text">{labelForTrack(track)}</span>
                 <button
                   className="scene-icon-btn scene-track-action"
+                  title="Move this track up (above the track over it)"
+                  disabled={tracks.indexOf(track) === 0}
+                  onClick={(e) => { e.stopPropagation(); moveTrack(track.id, -1); }}
+                >
+                  ▲
+                </button>
+                <button
+                  className="scene-icon-btn scene-track-action"
+                  title="Move this track down (below the track under it)"
+                  disabled={tracks.indexOf(track) === tracks.length - 1}
+                  onClick={(e) => { e.stopPropagation(); moveTrack(track.id, 1); }}
+                >
+                  ▼
+                </button>
+                <button
+                  className="scene-icon-btn scene-track-action"
                   title="Add another track for this layer"
                   onClick={(e) => { e.stopPropagation(); addTrackForLayer(track.layerId); }}
                 >
@@ -1443,10 +1464,10 @@ export function TimelinePanel({
                     style={{ left: dragPreview.slot.start * pxPerSec, width: Math.max(8, dragPreview.slot.duration * pxPerSec) }}
                   />
                 )}
-                {/* "New Clip" ghost — at the playhead on the selected track, only
-                    when there's a free slot. Click it (or the toolbar button) to
-                    drop the clip. */}
-                {track.id === ghostTargetTrackId && !dragPreview && (() => {
+                {/* "New Clip" ghost — at the playhead on EVERY row of the
+                    selected object (not just one), so a clip can be added to any
+                    track. Only shows where there's a free slot at the playhead. */}
+                {track.layerId === selectedLayerId && !dragPreview && (() => {
                   const slot = ghostSlotForTrack(track);
                   if (!slot) return null;
                   return (
@@ -1543,14 +1564,36 @@ export function TimelinePanel({
                 className="scene-timeline-lane scene-timeline-lane--ghost layer-selected"
                 style={{ height: ROW_H, width: totalW }}
               >
-                <button
-                  className="scene-btn scene-btn--sm scene-timeline-ghost-add"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); addTrackForLayer(ghostLayer.id); }}
-                  title="Add a track for this object so you can animate it"
-                >
-                  ＋ add track for “{ghostLayer.name}”
-                </button>
+                {/* New-Clip ghost at the playhead — one click creates the track
+                    AND a clip on it (the common case), instead of an empty track
+                    you then have to populate. Falls back to a centered button
+                    when the playhead has no free slot. */}
+                {(() => {
+                  const slot = ghostSlotForTrack({ id: '__ghost__', layerId: ghostLayer.id, clips: [] });
+                  if (!slot) {
+                    return (
+                      <button
+                        className="scene-btn scene-btn--sm scene-timeline-ghost-add"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); addTrackForLayer(ghostLayer.id); }}
+                        title="Add a track for this object so you can animate it"
+                      >
+                        ＋ add track for “{ghostLayer.name}”
+                      </button>
+                    );
+                  }
+                  return (
+                    <button
+                      className="scene-clip-ghost"
+                      style={{ left: slot.start * pxPerSec, width: Math.max(8, slot.duration * pxPerSec) }}
+                      title={`New Clip · ${fmtSec(slot.start)}–${fmtSec(slot.start + slot.duration)} — click to add a track + clip`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); createTrackForLayer(ghostLayer.id, flowState.time); }}
+                    >
+                      ＋ New Clip
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           )}
@@ -1796,44 +1839,70 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
       )}
       <div className="scene-clip-edge scene-clip-edge--left" />
       <div className="scene-clip-body">
-        {isSpinner ? (
-          <select
-            className="scene-clip-spine-select"
-            value={clip.action || ''}
-            title="Spinner action"
-            onPointerDown={(e) => e.stopPropagation()}
-            onChange={(e) => { e.stopPropagation(); onPatch?.({ action: e.target.value || null }); }}
-          >
-            <option value="">— action —</option>
-            {SPINNER_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        ) : isSpine && spineAnimations.length > 0 ? (
-          <select
-            className="scene-clip-spine-select"
-            value={clip.anim || ''}
-            title="Animation"
-            onPointerDown={(e) => e.stopPropagation()}
-            onChange={(e) => { e.stopPropagation(); onPatch?.({ anim: e.target.value || null }); }}
-          >
-            <option value="">(setup pose)</option>
-            {spineAnimations.map((a) => <option key={a} value={a}>{a}</option>)}
-          </select>
-        ) : isWinSeq && winseqFlows.length > 0 ? (
-          <select
-            className="scene-clip-spine-select"
-            value={clip.winseq?.sequenceId || ''}
-            title="Win sequence"
-            onPointerDown={(e) => e.stopPropagation()}
-            onChange={(e) => {
-              e.stopPropagation();
-              onPatch?.({ winseq: { sequenceId: e.target.value || null, hangOnLastIdle: clip.winseq?.hangOnLastIdle === true } });
-            }}
-          >
-            {winseqFlows.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
-          </select>
-        ) : (
-          <span className="scene-clip-label" title={label}>{label}</span>
-        )}
+        <div className="scene-clip-body-line">
+          {/* Per-clip Spine AnimationState track — shown to the LEFT, in front of
+              the name. Higher number draws on top; clips on different tracks mix.
+              Decoupled from the timeline row. */}
+          {isSpine && (
+            <label
+              className="scene-clip-track"
+              title="Spine track — higher number draws on top. Clips on different tracks play together (mix)."
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="scene-clip-track-tag">T</span>
+              <input
+                type="number"
+                min={0}
+                max={64}
+                step={1}
+                value={Number.isFinite(Number(clip.track)) ? Math.floor(Number(clip.track)) : 0}
+                onChange={(e) => {
+                  const n = Math.max(0, Math.min(64, Math.floor(Number(e.target.value) || 0)));
+                  onPatch?.({ track: n });
+                }}
+              />
+            </label>
+          )}
+          {isSpinner ? (
+            <select
+              className="scene-clip-spine-select"
+              value={clip.action || ''}
+              title="Spinner action"
+              onPointerDown={(e) => e.stopPropagation()}
+              onChange={(e) => { e.stopPropagation(); onPatch?.({ action: e.target.value || null }); }}
+            >
+              <option value="">— action —</option>
+              {SPINNER_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          ) : isSpine && spineAnimations.length > 0 ? (
+            <select
+              className="scene-clip-spine-select"
+              value={clip.anim || ''}
+              title="Animation"
+              onPointerDown={(e) => e.stopPropagation()}
+              onChange={(e) => { e.stopPropagation(); onPatch?.({ anim: e.target.value || null }); }}
+            >
+              <option value="">(setup pose)</option>
+              {spineAnimations.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          ) : isWinSeq && winseqFlows.length > 0 ? (
+            <select
+              className="scene-clip-spine-select"
+              value={clip.winseq?.sequenceId || ''}
+              title="Win sequence"
+              onPointerDown={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                e.stopPropagation();
+                onPatch?.({ winseq: { sequenceId: e.target.value || null, hangOnLastIdle: clip.winseq?.hangOnLastIdle === true } });
+              }}
+            >
+              {winseqFlows.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+          ) : (
+            <span className="scene-clip-label" title={label}>{label}</span>
+          )}
+        </div>
         {/* channel abbreviations are rendered inside ClipKeyframeDots at the Y level of each channel's first keyframe */}
       </div>
       <ClipKeyframeDots

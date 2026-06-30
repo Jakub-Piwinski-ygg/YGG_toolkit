@@ -975,6 +975,18 @@ export function normalizeClip(c) {
       ? null
       : (Number.isFinite(mixDuration) && mixDuration >= 0 ? mixDuration : 0),
     /**
+     * Spine AnimationState track index this clip plays on. Default 0.
+     * Decoupled from the timeline row — clips on different indices MIX
+     * simultaneously, and a higher index draws on top of (overrides) lower
+     * ones for shared bones, mirroring Spine's native track semantics. Only
+     * meaningful for spine clips; ignored for png/spinner/winseq. Soft-capped
+     * at 64 so a fat-fingered value can't allocate a huge sparse track array.
+     */
+    track: (() => {
+      const n = Number(c.track);
+      return Number.isFinite(n) && n >= 0 ? Math.min(64, Math.floor(n)) : 0;
+    })(),
+    /**
      * Spine clip parity with Spine Animation State (Timeline) clips:
      * - holdPrevious: don't reset the mix — blend on top of whatever is playing.
      * - useBlendDuration: clip's mix follows the Timeline blend, not mixDuration.

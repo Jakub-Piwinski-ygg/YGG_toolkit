@@ -1,5 +1,42 @@
 # Scene Studio — status po sesji (2026-06-02, sesja 2)
 
+## Spine: tracki per-klip + miksowanie animacji — UKOŃCZONE ✅ (2026-06-30)
+
+Spine'owy obiekt może grać kilka animacji naraz na osobnych trackach Spine
+(AnimationState). Dotąd timeline mapował **wiersz → indeks tracka po pozycji w
+tablicy**, więc miks był ukryty, priorytet odwrotny do intuicji (górny wiersz =
+indeks 0 = najniższy priorytet), a eksport Unity po cichu gubił multi-track.
+
+- **`clip.track`** (nowe pole, indeks AnimationState, domyślnie 0, cap 64) —
+  ustawiany per-klip, **odsprzężony od wiersza timeline**. Klipy na różnych
+  numerach **miksują się**; wyższy numer rysuje się na wierzchu (natywna
+  semantyka Spine, bez inwersji w UI).
+- **`applySpineMultiTrack`** przepisane na *gather-then-apply* kluczowane indeksem:
+  aktywny klip per indeks (kolizja → wygrywa **niżej** położony wiersz), potem
+  „hold last frame" per indeks (aktywny bije hold), czyszczenie slotów 0s snap
+  (deterministyczny scrub) vs 0.1s fade (slot bez klipu). Zachowane mix/alpha/
+  ease/clipIn/trackTime/hold.
+- **Eksport Unity naprawiony** — `spineCuesForLayer` ustawia `trackIndex: clip.track`
+  (wcześniej każdy cue szedł na 0 mimo wsparcia w YAML/C#).
+- **UI**: badge „T#" na klipie (po lewej, przed nazwą) + pole „track" w inspektorze
+  (pod dropdownem animacji); „New Clip" ghost na **każdym** wierszu zaznaczonego
+  obiektu (fix: dało się dodać klip tylko do najwyższego); ghost pustego tracka
+  pokazuje od razu „＋ New Clip" (tworzy track + klip naraz); przyciski **▲/▼**
+  do przesuwania tracków nad/pod inne (`moveTrack`); „Match anim time" zjechało
+  na dół inspektora (duration auto-fituje się teraz samo). **Bez migracji** —
+  stare sceny z 2+ wierszami na jednym Spine collapsują na track 0.
+
+Notatka sesji (EN): `brain/50-Sessions/Session 2026-06-30 Scene Studio Spine Tracks.md`.
+
+| Warstwa | Plik |
+|---|---|
+| Pole `clip.track` (walidacja, cap 64) | `engine/sceneModel.js` |
+| Dispatch per-indeks (gather-then-apply) | `engine/pixiApp.js` (`applySpineMultiTrack`, `spineTrackIndex`) |
+| `trackIndex` w cue eksportu | `unity/bake.js` (`spineCuesForLayer`) |
+| Badge T#, ghost per-wiersz, ghost-track New Clip, ▲/▼ | `components/TimelinePanel.jsx` |
+| Pole „track" + przeniesione „match anim time" | `components/InspectorPanel.jsx` |
+| Style badge/stepper + linia ciała klipu | `styles/scene-studio.css` |
+
 ## Win Sequences — Faza 1 (web + timeline) — UKOŃCZONA ✅ (2026-06-26)
 
 Drugi obiekt budowany kreatorem w Scene Studio (po Spinnerze). **Faza 1 = autoring

@@ -4,8 +4,8 @@ tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
 priority: P0
-updated: 2026-06-29
-tags: [scene-studio, pixi, animation, unity]
+updated: 2026-06-30
+tags: [scene-studio, pixi, animation, unity, spine, tracks]
 ---
 
 # Scene Studio
@@ -54,6 +54,15 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
   source active-edge exclusivity, transition/entry inspector. P1–P4 shipped; Unity
   `YggScenarioPlayer.cs` export is P5. Full design: [[Scene Studio Direct Mode]].
 
+- **Spine per-clip tracks SHIPPED 2026-06-30**: a Spine clip names the Spine
+  AnimationState track it plays on via **`clip.track`** (default 0), decoupled
+  from the timeline row — clips on different numbers **mix**, higher number on top.
+  `applySpineMultiTrack` is gather-then-apply keyed by index (lower row wins a
+  collision); the Unity export now carries `trackIndex` (was silently 0). Plus a
+  "T#" clip badge, an inspector `track` field, a "New Clip" ghost on every row
+  (was top-row only), one-click ghost-track New Clip, and ▲/▼ row reordering. Full
+  log: [[Session 2026-06-30 Scene Studio Spine Tracks]].
+
 - **Remote Workspace SHIPPED 2026-06-29**: the "load workspace" gate can now open a
   **GitHub / GitLab repo folder as the workspace** (white "🌐 Open REMOTE workspace"
   button) next to the local pick. A read-only repo-backed `FileSystemDirectoryHandle`
@@ -77,6 +86,7 @@ and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
 - [[Win Sequences Design]] — chained win-tier Spine sequences (Phase 1).
 - Full design: [[Scene Studio Design]] · [[Scene Studio Direct Mode]] (scenario graph).
 - Sessions: [[Scene Studio Phase Status]], [[Next Phase Scene Tool]],
+  [[Session 2026-06-30 Scene Studio Spine Tracks]],
   [[Session 2026-06-29 Scene Studio Remote Workspace]],
   [[Win Sequences Phase 1]],
   [[Session 2026-06-16 Scene Studio Direct Scenario Mode]],

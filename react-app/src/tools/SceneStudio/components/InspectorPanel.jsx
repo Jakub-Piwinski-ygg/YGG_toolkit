@@ -696,6 +696,16 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
         </label>
       )}
 
+      {isSpine && (
+        <label className="scene-field">
+          <span>track</span>
+          <input type="number" step={1} min={0} max={64}
+            value={Number.isFinite(Number(clip.track)) ? Math.floor(Number(clip.track)) : 0}
+            title="Spine AnimationState track index. Higher number draws on top of (overrides) lower ones; clips on different tracks play together (mix). Decoupled from the timeline row."
+            onChange={(e) => { const n = Number(e.target.value); patchClip({ track: Number.isFinite(n) && n >= 0 ? Math.min(64, Math.floor(n)) : 0 }); }} />
+        </label>
+      )}
+
       {isWinSeq && (
         <>
           <label className="scene-field">
@@ -725,16 +735,6 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
             </div>
           )}
         </>
-      )}
-
-      {durationAction && (
-        <button
-          className="scene-btn scene-clip-duration-action"
-          title={durationAction.title}
-          onClick={() => patchClip({ duration: Math.max(0.05, durationAction.duration), autoFitDuration: false })}
-        >
-          {durationAction.label}
-        </button>
       )}
 
       {isSpine && (
@@ -920,6 +920,18 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
 
       {isSpinner && (
         <SpinnerClipSection config={spinnerConfig} clip={clip} patchClip={patchClip} />
+      )}
+
+      {/* Manual duration-match sits at the bottom — duration now auto-fits when
+          the animation / sequence / action changes, so this is just an override. */}
+      {durationAction && (
+        <button
+          className="scene-btn scene-clip-duration-action"
+          title={durationAction.title}
+          onClick={() => patchClip({ duration: Math.max(0.05, durationAction.duration), autoFitDuration: false })}
+        >
+          {durationAction.label}
+        </button>
       )}
     </div>
   );

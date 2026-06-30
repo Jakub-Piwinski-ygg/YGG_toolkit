@@ -1506,6 +1506,47 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   outline: none;
 }
 .scene-clip-spine-select:hover { color: var(--accent, #4f9eff); }
+/* First line of the clip body: track badge (left) + name/picker. */
+.scene-clip-body-line {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+.scene-clip-body-line .scene-clip-spine-select,
+.scene-clip-body-line .scene-clip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Per-clip Spine track badge — a compact "T#" stepper in front of the name. */
+.scene-clip-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  flex: 0 0 auto;
+  font-size: 9px;
+  line-height: 12px;
+  color: var(--text-1, #a8afc0);
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: default;
+}
+.scene-clip-track-tag { font-weight: 700; opacity: 0.8; }
+.scene-clip-track input {
+  width: 22px;
+  font-size: 9px;
+  line-height: 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-0, #e8eaf0);
+  padding: 0;
+  outline: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.scene-clip-track input::-webkit-outer-spin-button,
+.scene-clip-track input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .scene-clip-remove {
   align-self: flex-start;
   margin-top: 1px;

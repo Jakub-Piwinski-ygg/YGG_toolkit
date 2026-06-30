@@ -1299,6 +1299,21 @@ Multi-track per layer: the same property animated on two tracks is
 last-write-wins in `flow.tracks` array order — same rule as
 `applyPngTweens` today.
 
+**Spine track dispatch (as-built, 2026-06-30).** A Spine clip names the
+Spine `AnimationState` track it plays on via `clip.track` (integer ≥ 0,
+default 0), **decoupled from the timeline row** — timeline rows are
+organizational, and a clip plays on whatever index its `track` says. Clips
+on different indices MIX simultaneously; a higher index draws on top
+(native Spine semantics, no UI inversion). `applySpineMultiTrack`
+(`engine/pixiApp.js`) is gather-then-apply, keyed by spine index: active
+clip per index (`clipAt` across all rows; a **later row wins** a same-index
+collision), then held "last frame" per index (`lastClipAt`; active beats
+held). The Unity export carries it through `spineCuesForLayer` →
+`cue.trackIndex`. (Before this change the index came from the row's array
+position and the export silently dropped it to 0.) **No migration**: a
+pre-existing scene with 2+ rows on one Spine object now reads every clip as
+`track:0` until the artist re-assigns track numbers.
+
 For Spine layers: nothing changes. `clip.channels` is allowed on
 Spine clips too in the schema (a future "transform override" on top
 of the Spine animation) but the interpreter ignores it in MVP.

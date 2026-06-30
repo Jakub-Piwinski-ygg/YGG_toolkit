@@ -211,6 +211,13 @@ export function spineCuesForLayer(scene, layer) {
         speed: clip.speed ?? 1,
         loop: clip.loop !== false,
         mixDuration: clip.mixDuration,
+        // Spine AnimationState track index this clip plays on (default 0). Same
+        // clamp as engine/sceneModel.js normalizeClip. Consumed by prefab.js +
+        // csharp.js — without this every cue silently exported as track 0.
+        trackIndex: (() => {
+          const n = Number(clip.track);
+          return Number.isFinite(n) && n >= 0 ? Math.min(64, Math.floor(n)) : 0;
+        })(),
         // Spine Animation State clip parity (Unity export round 2, item #4).
         holdPrevious: clip.holdPrevious === true,
         useBlendDuration: clip.useBlendDuration === true,

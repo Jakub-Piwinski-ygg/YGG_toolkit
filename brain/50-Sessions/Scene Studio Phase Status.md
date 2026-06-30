@@ -3,10 +3,10 @@ type: session
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-06-26
+updated: 2026-06-30
 lang: en
 source: react-app/SCENE_STUDIO_PHASE_STATUS.md
-tags: [session, scene-studio, changelog, spinner, win-sequences, unity]
+tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, tracks]
 ---
 
 # Scene Studio — Phase Status (changelog)
@@ -14,6 +14,41 @@ tags: [session, scene-studio, changelog, spinner, win-sequences, unity]
 > [!info] Translated from Polish
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
+
+## Spine: per-clip tracks + animation mixing — COMPLETE ✅ (2026-06-30)
+
+A Spine object can play several animations at once on separate Spine
+AnimationState tracks. The timeline used to map **row → track index by array
+position**, so mixing was implicit, priority inverted (top row = index 0 =
+lowest), and the Unity export silently dropped multi-track.
+
+- **`clip.track`** (new field, AnimationState index, default 0, cap 64) — set
+  per clip, **decoupled from the timeline row**. Clips on different numbers
+  **mix**; higher number draws on top (native Spine semantics, no UI inversion).
+- **`applySpineMultiTrack`** rewritten to *gather-then-apply* keyed by index:
+  active clip per index (collision → **lower row wins**), then "hold last frame"
+  per index (active beats hold), slot clearing 0s snap (deterministic scrub) vs
+  0.1s fade (no clip). mix/alpha/ease/clipIn/trackTime/hold preserved.
+- **Unity export fixed** — `spineCuesForLayer` sets `trackIndex: clip.track`
+  (previously every cue exported as 0 despite YAML/C# support).
+- **UI**: "T#" badge on the clip (left, in front of the name) + "track" field in
+  the inspector (below the animation dropdown); "New Clip" ghost on **every** row
+  of the selected object (fix: clips could only be added to the top row); empty
+  track ghost shows "＋ New Clip" directly (creates track + clip at once); **▲/▼**
+  buttons to move tracks above/below others (`moveTrack`); "Match anim time" moved
+  to the bottom of the inspector (duration now auto-fits). **No migration** — old
+  2+-row spine scenes collapse to track 0.
+
+Full write-up: [[Session 2026-06-30 Scene Studio Spine Tracks]].
+
+| Layer | File |
+|---|---|
+| `clip.track` field (validate, cap 64) | `engine/sceneModel.js` |
+| Per-index dispatch (gather-then-apply) | `engine/pixiApp.js` (`applySpineMultiTrack`, `spineTrackIndex`) |
+| `trackIndex` on export cues | `unity/bake.js` (`spineCuesForLayer`) |
+| T# badge, per-row ghost, ghost-track New Clip, ▲/▼ | `components/TimelinePanel.jsx` |
+| "track" field + relocated "match anim time" | `components/InspectorPanel.jsx` |
+| Badge/stepper + clip body-line styles | `styles/scene-studio.css` |
 
 ## Win Sequences — Phase 1 (web + timeline) — COMPLETE ✅ (2026-06-26)
 

@@ -1108,10 +1108,30 @@ export function resetAnimationState(handles, scene) {
 }
 
 /**
- * Walk every track on a Spine layer and reflect it onto the Spine
- * AnimationState. Track index = position in the per-layer subset, so a
- * layer with 3 tracks fills slots 0, 1, 2. Tracks without an active clip
- * clear their slot with a short empty-animation crossfade.
+ * The Spine AnimationState track index a clip plays on. Comes from the explicit
+ * per-clip `clip.track` (default 0), NOT the timeline row's array position —
+ * clips on different indices MIX simultaneously and a higher index draws on top.
+ * Read defensively (a clip created since the last load may not have been through
+ * `normalizeClip`); same clamp as the model so runtime and persistence agree.
+ */
+function spineTrackIndex(clip) {
+  const n = Number(clip?.track);
+  return Number.isFinite(n) && n >= 0 ? Math.min(64, Math.floor(n)) : 0;
+}
+
+/**
+ * Reflect a Spine layer's clips onto the Spine AnimationState. Each clip is
+ * dispatched to the Spine track index named by `clip.track` (see
+ * spineTrackIndex), decoupled from which timeline row it lives on — so two
+ * clips on different indices play together (mix), a higher index drawing on top.
+ *
+ * Resolution is gather-then-apply, keyed by spine index:
+ *   A. active clip per index (clipAt across all rows; later row wins a collision)
+ *   B. held "last frame" per index (lastClipAt; active beats held; later start wins)
+ *   C. apply each resolved slot (animation, mix, alpha envelope, trackTime)
+ *   D. clear slots with no clip this frame — 0s for an intended-but-empty index
+ *      (deterministic scrub), 0.1s for a slot no clip targets anymore (edit-time)
+ *   E. one paused-scrub pose flush
  */
 function applySpineMultiTrack(obj, layer, tracks, t) {
   obj.__flow = obj.__flow || { perTrack: new Map() };
@@ -1128,67 +1148,14 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     if (obj.state?.data) obj.state.data.defaultMix = Number.isFinite(dm) && dm >= 0 ? dm : 0;
   } catch { /* ignore */ }
 
-  tracks.forEach((track, idx) => {
-    seen.add(idx);
-    const clip = clipAt(track, t);
-    const cache = perTrack.get(idx) || {};
-    if (!clip) {
-      // No clip active here. Unity Timeline holds the LAST clip's final pose
-      // until the next clip / end of timeline, so that's the default: keep the
-      // last animation set and freeze it on its final frame. A clip can opt
-      // back into the old "snap to setup pose" behaviour via `clearAfterEnd`
-      // (exposed per-clip in the inspector). Before the first clip on a track
-      // (no `held`) we still fall back to the setup pose.
-      const held = lastClipAt(track, t);
-      const heldAnim = held ? (held.anim ?? layer.spine?.defaultAnimation ?? null) : null;
-      // Hold the last clip's final pose unless it opted to clear. `dontEnd`
-      // ("don't end with clip", Unity parity) forces the hold even when
-      // clearAfterEnd would otherwise snap back to the setup pose.
-      const shouldHold = !!held && (held.dontEnd === true || held.clearAfterEnd !== true) && !!heldAnim;
-      if (!shouldHold) {
-        // Use a 0-second empty animation so it snaps deterministically even
-        // while scrubbing (a non-zero mix freezes mid-blend when paused).
-        if (cache.activeClipId !== null) {
-          try { obj.state.setEmptyAnimation(idx, 0); }
-          catch { /* ignore */ }
-          perTrack.set(idx, { activeClipId: null, anim: null, loop: null, mixDuration: 0 });
-        }
-        return;
-      }
-      const loop = held.loop !== false;
-      const heldAnimDuration = getSpineAnimationDuration(obj, heldAnim);
-      const heldClipIn = Number(held.clipIn) > 0 ? Number(held.clipIn) : 0;
-      // Freeze at the clip's very last frame (non-loop clamps to the anim end;
-      // a looping clip holds whatever phase it ended on).
-      const heldT = held.start + held.duration - 1e-4;
-      // Carry the clip's ease-out weight into the held pose so a faded-out clip
-      // stays faded instead of snapping back to full alpha at the boundary.
-      const baseHeldAlpha = Number.isFinite(Number(held.alpha)) ? Math.min(1, Math.max(0, Number(held.alpha))) : 1;
-      const heldAlpha = baseHeldAlpha * clipWeightEnvelope(held, heldT);
-      if (cache.activeClipId !== held.id || cache.anim !== heldAnim || cache.loop !== loop || cache.held !== true) {
-        try {
-          const e = obj.state.setAnimation(idx, heldAnim, !!loop);
-          if (e) { e.mixDuration = 0; e.alpha = heldAlpha; }
-        } catch { /* anim missing — ignore */ }
-        perTrack.set(idx, { activeClipId: held.id, anim: heldAnim, loop, mixDuration: 0, held: true });
-      }
-      try {
-        const tr = obj.state?.tracks?.[idx];
-        if (tr) {
-          tr.trackTime = remapClipTime(held, heldT, heldAnimDuration) + heldClipIn;
-          tr.alpha = heldAlpha;
-          tr.timeScale = 0; // hold — don't advance during continued playback
-        }
-      } catch { /* ignore */ }
-      // Still flush the pose now (paused scrub) at the bottom of this fn.
-      return;
-    }
+  // Spine-Timeline clip parity (see SCENE_STUDIO.md): clip-in offset, entry
+  // alpha, hold-previous blending, ease-in/out envelope, track-entry thresholds.
+  const applyActiveClipToIndex = (si, clip, track) => {
+    const cache = perTrack.get(si) || {};
     const anim = clip.anim ?? layer.spine?.defaultAnimation ?? null;
     const animDuration = getSpineAnimationDuration(obj, anim);
     const loop = clip.loop !== false;
     const mixDuration = resolveMixDuration(obj, layer, track, clip);
-    // Spine-Timeline clip parity (see SCENE_STUDIO.md): clip-in offset into the
-    // source animation, entry alpha, and hold-previous blending.
     const clipIn = Number(clip.clipIn) > 0 ? Number(clip.clipIn) : 0;
     const baseAlpha = Number.isFinite(Number(clip.alpha)) ? Math.min(1, Math.max(0, Number(clip.alpha))) : 1;
     // Timeline clip blend (ease in/out, clip-end mix-out) fades the entry alpha
@@ -1199,7 +1166,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     if (cache.activeClipId !== clip.id || cache.anim !== anim || cache.loop !== loop || cache.held) {
       try {
         if (anim) {
-          const e = obj.state.setAnimation(idx, anim, !!loop);
+          const e = obj.state.setAnimation(si, anim, !!loop);
           if (e) {
             e.mixDuration = mixDuration;
             e.alpha = clipAlpha;
@@ -1216,13 +1183,13 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
             }
           }
         } else {
-          obj.state.setEmptyAnimation(idx, mixDuration);
+          obj.state.setEmptyAnimation(si, mixDuration);
         }
       } catch { /* anim missing — ignore */ }
-      perTrack.set(idx, { activeClipId: clip.id, anim, loop, mixDuration, held: false });
+      perTrack.set(si, { activeClipId: clip.id, anim, loop, mixDuration, held: false });
     }
     try {
-      const tr = obj.state?.tracks?.[idx];
+      const tr = obj.state?.tracks?.[si];
       if (tr) {
         tr.trackTime = remapClipTime(clip, t, animDuration) + clipIn;
         tr.alpha = clipAlpha; // re-applied every frame so the ease envelope animates
@@ -1233,19 +1200,113 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
         }
       }
     } catch { /* ignore */ }
-  });
+  };
 
-  // Slots that no longer have a corresponding track entry get cleared so
-  // a removed track stops bleeding through.
-  for (const [idx] of perTrack) {
-    if (seen.has(idx)) continue;
-    try { obj.state.setEmptyAnimation(idx, 0.1); }
-    catch { /* ignore */ }
-    perTrack.delete(idx);
+  // Unity Timeline holds the LAST clip's final pose until the next clip / end of
+  // timeline, so that's the default: keep the last animation set and freeze it
+  // on its final frame. A clip can opt back into "snap to setup pose" via
+  // `clearAfterEnd`; `dontEnd` forces the hold even then.
+  const applyHeldClipToIndex = (si, held) => {
+    const cache = perTrack.get(si) || {};
+    const heldAnim = held.anim ?? layer.spine?.defaultAnimation ?? null;
+    const shouldHold = (held.dontEnd === true || held.clearAfterEnd !== true) && !!heldAnim;
+    if (!shouldHold) {
+      // Use a 0-second empty animation so it snaps deterministically even
+      // while scrubbing (a non-zero mix freezes mid-blend when paused).
+      if (cache.activeClipId !== null) {
+        try { obj.state.setEmptyAnimation(si, 0); }
+        catch { /* ignore */ }
+        perTrack.set(si, { activeClipId: null, anim: null, loop: null, mixDuration: 0 });
+      }
+      return;
+    }
+    const loop = held.loop !== false;
+    const heldAnimDuration = getSpineAnimationDuration(obj, heldAnim);
+    const heldClipIn = Number(held.clipIn) > 0 ? Number(held.clipIn) : 0;
+    // Freeze at the clip's very last frame (non-loop clamps to the anim end;
+    // a looping clip holds whatever phase it ended on).
+    const heldT = held.start + held.duration - 1e-4;
+    // Carry the clip's ease-out weight into the held pose so a faded-out clip
+    // stays faded instead of snapping back to full alpha at the boundary.
+    const baseHeldAlpha = Number.isFinite(Number(held.alpha)) ? Math.min(1, Math.max(0, Number(held.alpha))) : 1;
+    const heldAlpha = baseHeldAlpha * clipWeightEnvelope(held, heldT);
+    if (cache.activeClipId !== held.id || cache.anim !== heldAnim || cache.loop !== loop || cache.held !== true) {
+      try {
+        const e = obj.state.setAnimation(si, heldAnim, !!loop);
+        if (e) { e.mixDuration = 0; e.alpha = heldAlpha; }
+      } catch { /* anim missing — ignore */ }
+      perTrack.set(si, { activeClipId: held.id, anim: heldAnim, loop, mixDuration: 0, held: true });
+    }
+    try {
+      const tr = obj.state?.tracks?.[si];
+      if (tr) {
+        tr.trackTime = remapClipTime(held, heldT, heldAnimDuration) + heldClipIn;
+        tr.alpha = heldAlpha;
+        tr.timeScale = 0; // hold — don't advance during continued playback
+      }
+    } catch { /* ignore */ }
+  };
+
+  // Phase A — active clip per spine index. A later row in the array wins a
+  // same-index collision (rows are stacked in UI/array order; this preserves
+  // the spirit of the old row-order priority and is deterministic).
+  const activeByIndex = new Map(); // si -> { clip, track }
+  // Every spine index any clip targets, regardless of time — so we can clear an
+  // "intended but currently empty" slot with a 0s snap rather than a 0.1s fade.
+  const referencedIndices = new Set();
+  for (const track of tracks) {
+    for (const c of track.clips || []) referencedIndices.add(spineTrackIndex(c));
+    const clip = clipAt(track, t);
+    if (clip) activeByIndex.set(spineTrackIndex(clip), { clip, track });
   }
 
-  // IMPORTANT: in paused/scrub mode we still need a deterministic pose
-  // refresh right now. `obj.update(0)` applies the current track state
+  // Phase B — held "last frame" per spine index, bucketed by the held clip's
+  // OWN index. Active beats held; on tie keep the later-starting clip (and a
+  // later row breaks a start tie since it overwrites).
+  const heldByIndex = new Map(); // si -> clip
+  for (const track of tracks) {
+    const held = lastClipAt(track, t);
+    if (!held) continue;
+    const si = spineTrackIndex(held);
+    if (activeByIndex.has(si)) continue; // active suppresses a hold on this slot
+    const cur = heldByIndex.get(si);
+    if (!cur || held.start >= cur.start) heldByIndex.set(si, held);
+  }
+
+  // Phase C — apply each resolved slot.
+  for (const [si, { clip, track }] of activeByIndex) {
+    seen.add(si);
+    applyActiveClipToIndex(si, clip, track);
+  }
+  for (const [si, held] of heldByIndex) {
+    seen.add(si);
+    applyHeldClipToIndex(si, held);
+  }
+
+  // Phase D — clear slots with no clip this frame.
+  //  - An index a clip targets but which resolved to neither active nor held
+  //    (e.g. before its first clip) snaps clear with a 0s empty animation so
+  //    paused scrubbing is deterministic.
+  for (const si of referencedIndices) {
+    if (seen.has(si)) continue;
+    const cache = perTrack.get(si);
+    if (cache && cache.activeClipId !== null) {
+      try { obj.state.setEmptyAnimation(si, 0); } catch { /* ignore */ }
+      perTrack.set(si, { activeClipId: null, anim: null, loop: null, mixDuration: 0 });
+    }
+    seen.add(si);
+  }
+  //  - A cached slot no clip targets anymore (clip moved index / row removed)
+  //    fades out so it stops bleeding through.
+  for (const [si] of perTrack) {
+    if (seen.has(si)) continue;
+    try { obj.state.setEmptyAnimation(si, 0.1); }
+    catch { /* ignore */ }
+    perTrack.delete(si);
+  }
+
+  // Phase E — IMPORTANT: in paused/scrub mode we still need a deterministic
+  // pose refresh right now. `obj.update(0)` applies the current track state
   // without advancing time, so seeking the timeline updates instantly.
   if (typeof obj.update === 'function') {
     try {
