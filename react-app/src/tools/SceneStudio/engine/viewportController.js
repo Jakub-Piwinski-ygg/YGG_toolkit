@@ -25,7 +25,9 @@ const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
 const ZOOM_STEP = 1.1;
 const HANDLE_HIT_PX = 12; // screen-pixel radius for handle hit-test
+const ROTATE_HIT_PX = 22; // screen-pixel ring just outside a corner = rotate zone
 const SNAP_PX = 7;
+const ROTATE_SNAP = Math.PI / 12; // 15° increments when Shift is held
 
 const HANDLE_CURSORS = {
   nw: 'nwse-resize', se: 'nwse-resize',
@@ -33,6 +35,10 @@ const HANDLE_CURSORS = {
   n: 'ns-resize', s: 'ns-resize',
   e: 'ew-resize', w: 'ew-resize'
 };
+
+// Custom curved-arrow cursor for the rotate zone (falls back to grab). The SVG
+// is a white arc + arrowhead with a dark outline so it reads on any backdrop.
+const ROTATE_CURSOR = 'url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgdmlld0JveD0iMCAwIDI4IDI4Ij48ZyBmaWxsPSJub25lIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMC41IDkuNSBBOCA4IDAgMSAwIDIyIDE0IiBzdHJva2U9IiMxYTFkMjQiIHN0cm9rZS13aWR0aD0iNCIvPjxwYXRoIGQ9Ik0yMC41IDQuNSBMMjAuNSA5LjUgTDE1LjUgOS41IiBzdHJva2U9IiMxYTFkMjQiIHN0cm9rZS13aWR0aD0iNCIvPjxwYXRoIGQ9Ik0yMC41IDkuNSBBOCA4IDAgMSAwIDIyIDE0IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPjxwYXRoIGQ9Ik0yMC41IDQuNSBMMjAuNSA5LjUgTDE1LjUgOS41IiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz48L3N2Zz4K") 14 14, grab';
 
 /**
  * @param {object} opts
@@ -74,6 +80,7 @@ export function attachViewportController(opts) {
   let dragging = false;
   let dragLayerId = null;
   let dragOffset = { x: 0, y: 0 }; // parent-local offset
+  let dragStart = null;            // obj parent-local pos at drag start (Shift axis-lock)
   let dragSnapTargets = null;
 
   let pathDragging = false;
@@ -81,9 +88,18 @@ export function attachViewportController(opts) {
 
   let resizing = false;
   let resizeHandle = null;          // 'nw' | 'n' | ... | 'w'
-  let resizeAnchorWorld = null;     // the world point that stays fixed
+  let resizeAnchorOpposite = null;  // world point of opposite handle (default pin)
+  let resizeAnchorCenter = null;    // world point of bbox center (Alt = from center)
   let resizeStart = null;           // snapshot of sprite at mousedown
   let resizeLayerId = null;
+
+  let rotating = false;
+  let rotateLayerId = null;
+  let rotatePivot = null;           // bbox center in world space (stays fixed)
+  let rotateStartAngle = 0;         // pointer→pivot angle at mousedown
+  let rotateStartRotation = 0;      // obj.rotation at mousedown
+  let rotateCenterLocal = null;     // bbox center in obj-local (unscaled) coords
+
   let rafId = 0;
 
   const screenToWorld = (sx, sy) => {
@@ -128,6 +144,27 @@ export function attachViewportController(opts) {
       }
     }
     return null;
+  };
+
+  // Rotate zone: a ring just outside a corner, where the pointer is NOT inside
+  // the object body and NOT on a resize handle. Returns the corner name or null.
+  const hitTestRotate = (world) => {
+    const id = getSelectedLayerId();
+    if (!id) return null;
+    const obj = getHandles().get(id);
+    const h = getHandlePositions(obj, content);
+    if (!h) return null;
+    if (pointInsideObject(obj, world.x, world.y, content)) return null;
+    if (hitTestHandle(world)) return null;
+    const r = ROTATE_HIT_PX * worldDistPerScreenPx();
+    let best = null;
+    let bestD = Infinity;
+    for (const name of ['nw', 'ne', 'se', 'sw']) {
+      const p = h[name];
+      const d = Math.hypot(world.x - p.x, world.y - p.y);
+      if (d <= r && d < bestD) { best = name; bestD = d; }
+    }
+    return best;
   };
 
   const asGuideX = (x, y1 = -1e6, y2 = 1e6) => ({ x1: x, y1, x2: x, y2 });
@@ -229,7 +266,9 @@ export function attachViewportController(opts) {
   };
 
   const cursorForHover = (world) => {
-    if (hitTestHandle(world)) return HANDLE_CURSORS[hitTestHandle(world)];
+    const handle = hitTestHandle(world);
+    if (handle) return HANDLE_CURSORS[handle];
+    if (hitTestRotate(world)) return ROTATE_CURSOR;
     if (hitTestSprite(world)) return 'move';
     return 'default';
   };
@@ -237,7 +276,7 @@ export function attachViewportController(opts) {
   const startRaf = () => {
     if (rafId) return;
     const tick = () => {
-      if (!(panning || dragging || resizing || pathDragging)) {
+      if (!(panning || dragging || resizing || rotating || pathDragging)) {
         rafId = 0;
         return;
       }
@@ -276,17 +315,47 @@ export function attachViewportController(opts) {
       const positions = getHandlePositions(obj, content);
       if (!m || !positions) return;
       const opposite = oppositeHandle(handleName);
+      // Unscaled local rect → geometric center (Alt = scale from center).
+      const left0 = -m.baseW * m.ax;
+      const top0 = -m.baseH * m.ay;
+      const cx = left0 + m.baseW / 2;
+      const cy = top0 + m.baseH / 2;
       resizing = true;
       resizeHandle = handleName;
       resizeLayerId = id;
-      resizeAnchorWorld = { ...positions[opposite] };
+      resizeAnchorOpposite = { ...positions[opposite] };
+      resizeAnchorCenter = localToContent(obj, cx, cy, content);
       resizeStart = {
         baseW: m.baseW,
         baseH: m.baseH,
         ax: m.ax,
-        ay: m.ay
+        ay: m.ay,
+        startScaleX: obj.scale.x,
+        startScaleY: obj.scale.y
       };
       canvas.style.cursor = HANDLE_CURSORS[handleName];
+      startRaf();
+      return;
+    }
+
+    // Rotate zone — just outside a corner of the selected object.
+    const rotCorner = hitTestRotate(world);
+    if (rotCorner) {
+      const id = getSelectedLayerId();
+      const obj = getHandles().get(id);
+      const m = getObjectMetrics(obj);
+      if (!obj || !m) return;
+      const left0 = -m.baseW * m.ax;
+      const top0 = -m.baseH * m.ay;
+      const cx = left0 + m.baseW / 2;
+      const cy = top0 + m.baseH / 2;
+      rotateCenterLocal = { x: cx, y: cy };
+      rotatePivot = localToContent(obj, cx, cy, content);
+      rotateStartAngle = Math.atan2(world.y - rotatePivot.y, world.x - rotatePivot.x);
+      rotateStartRotation = obj.rotation || 0;
+      rotating = true;
+      rotateLayerId = id;
+      canvas.style.cursor = ROTATE_CURSOR;
       startRaf();
       return;
     }
@@ -322,9 +391,19 @@ export function attachViewportController(opts) {
       }
     }
 
-    // Otherwise hit-test the sprite body for select / drag
-    const hit = hitTestSprite(world);
-    onSelect(hit);
+    // Otherwise hit-test the sprite body for select / drag.
+    // Sticky selection: if a layer is already selected and the click lands
+    // inside its rect, drag THAT layer — don't re-pick an object stacked on
+    // top. Only clicks outside the selected rect re-select / deselect.
+    const selectedId = getSelectedLayerId();
+    const selectedObj = selectedId ? getHandles().get(selectedId) : null;
+    let hit;
+    if (selectedObj && selectedObj.visible && pointInsideObject(selectedObj, world.x, world.y, content)) {
+      hit = selectedId;
+    } else {
+      hit = hitTestSprite(world);
+      onSelect(hit);
+    }
     if (hit) {
       dragging = true;
       dragLayerId = hit;
@@ -333,6 +412,7 @@ export function attachViewportController(opts) {
       const parent = obj?.parent || content;
       const p = contentToParentLocal(parent, world.x, world.y, content);
       dragOffset = { x: (obj?.x ?? 0) - p.x, y: (obj?.y ?? 0) - p.y };
+      dragStart = { x: obj?.x ?? 0, y: obj?.y ?? 0 };
       canvas.style.cursor = 'move';
       startRaf();
     }
@@ -359,11 +439,27 @@ export function attachViewportController(opts) {
       onPathEdit?.({ kind: pathDrag.kind, index: pathDrag.index, x: local.x, y: local.y, alt: e.altKey });
       return;
     }
+    if (rotating && rotateLayerId) {
+      const world = screenToWorld(e.clientX, e.clientY);
+      const obj = getHandles().get(rotateLayerId);
+      if (!obj) return;
+      const cur = Math.atan2(world.y - rotatePivot.y, world.x - rotatePivot.x);
+      let next = rotateStartRotation + (cur - rotateStartAngle);
+      if (e.shiftKey) next = Math.round(next / ROTATE_SNAP) * ROTATE_SNAP;
+      applyRotation(obj, next, rotatePivot, rotateCenterLocal, content);
+      setInteractionGuides?.([]);
+      return;
+    }
     if (resizing && resizeLayerId) {
       const world = screenToWorld(e.clientX, e.clientY);
       const obj = getHandles().get(resizeLayerId);
       if (!obj) return;
-      applyResize(obj, resizeHandle, resizeAnchorWorld, world, resizeStart, content);
+      applyResize(obj, resizeHandle, world, resizeStart, content, {
+        keepAspect: !e.shiftKey,
+        fromCenter: e.altKey,
+        anchorOpposite: resizeAnchorOpposite,
+        anchorCenter: resizeAnchorCenter
+      });
       setInteractionGuides?.([]);
       return;
     }
@@ -373,14 +469,26 @@ export function attachViewportController(opts) {
       if (obj) {
         const parent = obj.parent || content;
         const p = contentToParentLocal(parent, world.x, world.y, content);
-        obj.x = p.x + dragOffset.x;
-        obj.y = p.y + dragOffset.y;
+        let nx = p.x + dragOffset.x;
+        let ny = p.y + dragOffset.y;
+        // Shift = constrain to the dominant axis from the drag origin, like
+        // Photoshop. The axis with the larger displacement wins; the other is
+        // pinned to its start value (re-pinned after snapping so it holds).
+        let lockAxis = null;
+        if (e.shiftKey && dragStart) {
+          if (Math.abs(nx - dragStart.x) >= Math.abs(ny - dragStart.y)) { ny = dragStart.y; lockAxis = 'x'; }
+          else { nx = dragStart.x; lockAxis = 'y'; }
+        }
+        obj.x = nx;
+        obj.y = ny;
         const snap = computeSnap(obj, dragSnapTargets, e.altKey);
         if (snap.dxWorld || snap.dyWorld) {
           const dLocal = worldDeltaToParentDelta(obj, snap.dxWorld, snap.dyWorld);
           obj.x += dLocal.dx;
           obj.y += dLocal.dy;
         }
+        if (lockAxis === 'x') obj.y = dragStart.y;
+        else if (lockAxis === 'y') obj.x = dragStart.x;
         setInteractionGuides?.(snap.guides);
       }
       return;
@@ -403,6 +511,19 @@ export function attachViewportController(opts) {
       canvas.style.cursor = '';
       stopRaf();
     }
+    if (rotating && e.button === 0) {
+      const obj = getHandles().get(rotateLayerId);
+      if (obj && onTransformLayer) {
+        onTransformLayer(rotateLayerId, { rotation: obj.rotation, x: obj.x, y: obj.y });
+      }
+      rotating = false;
+      rotateLayerId = null;
+      rotatePivot = null;
+      rotateCenterLocal = null;
+      setInteractionGuides?.([]);
+      canvas.style.cursor = '';
+      stopRaf();
+    }
     if (resizing && e.button === 0) {
       const obj = getHandles().get(resizeLayerId);
       if (obj && onTransformLayer) {
@@ -414,7 +535,8 @@ export function attachViewportController(opts) {
       resizing = false;
       resizeHandle = null;
       resizeLayerId = null;
-      resizeAnchorWorld = null;
+      resizeAnchorOpposite = null;
+      resizeAnchorCenter = null;
       resizeStart = null;
       setInteractionGuides?.([]);
       canvas.style.cursor = '';
@@ -425,6 +547,7 @@ export function attachViewportController(opts) {
       if (obj && onTransformLayer) onTransformLayer(dragLayerId, { x: obj.x, y: obj.y });
       dragging = false;
       dragLayerId = null;
+      dragStart = null;
       dragSnapTargets = null;
       setInteractionGuides?.([]);
       canvas.style.cursor = '';
@@ -481,21 +604,29 @@ function oppositeHandle(name) {
 }
 
 /**
- * Resize an object by moving one handle while keeping the opposite handle
- * pinned in world space. Works for rotated and nested objects.
+ * Resize an object by moving one handle while keeping a fixed anchor pinned in
+ * world space. Works for rotated and nested objects.
+ *
+ *   opts.fromCenter  — pin the bbox CENTER (Alt) instead of the opposite handle.
+ *   opts.keepAspect  — constrain to the START aspect ratio (default; Shift frees).
+ *   opts.anchorOpposite / opts.anchorCenter — world points captured at mousedown.
  */
-function applyResize(obj, handle, anchorWorld, mouseWorld, startInfo, contentRoot) {
-  const { baseW, baseH, ax, ay } = startInfo;
+function applyResize(obj, handle, mouseWorld, startInfo, contentRoot, opts = {}) {
+  const { baseW, baseH, ax, ay, startScaleX, startScaleY } = startInfo;
+  const { keepAspect = true, fromCenter = false, anchorOpposite, anchorCenter } = opts;
   const left0 = -baseW * ax;
   const right0 = left0 + baseW;
   const top0 = -baseH * ay;
   const bottom0 = top0 + baseH;
 
-  // Unscaled local-frame positions of the dragged handle and the pinned
-  // (opposite) handle. These never change during the drag.
+  // Unscaled local-frame positions of the dragged handle and the pinned anchor
+  // (opposite handle, or the rect center for Alt). These never change mid-drag.
   const opposite = oppositeHandle(handle);
-  const anchorLocal = handleLocalPoint(opposite, left0, right0, top0, bottom0);
   const dragLocal = handleLocalPoint(handle, left0, right0, top0, bottom0);
+  const anchorLocal = fromCenter
+    ? { x: (left0 + right0) / 2, y: (top0 + bottom0) / 2 }
+    : handleLocalPoint(opposite, left0, right0, top0, bottom0);
+  const anchorWorld = fromCenter ? anchorCenter : anchorOpposite;
 
   // Work entirely in the object's PARENT-local space and against the pinned
   // anchor. Crucially we never reverse-map through obj's own (live, mid-drag)
@@ -516,25 +647,64 @@ function applyResize(obj, handle, anchorWorld, mouseWorld, startInfo, contentRoo
 
   // Derive each axis scale directly: scale = projected pointer offset / base
   // span. The perpendicular axis of an edge handle (zero span) keeps its
-  // current scale, so edge drags no longer reset the other dimension.
+  // current scale, so free-mode edge drags don't reset the other dimension.
   const spanX = dragLocal.x - anchorLocal.x;
   const spanY = dragLocal.y - anchorLocal.y;
   const minScale = 1e-3;
   let scaleX = obj.scale.x;
   let scaleY = obj.scale.y;
-  if (Math.abs(spanX) > 1e-6) scaleX = dx / spanX;
-  if (Math.abs(spanY) > 1e-6) scaleY = dy / spanY;
+  const hasX = Math.abs(spanX) > 1e-6;
+  const hasY = Math.abs(spanY) > 1e-6;
+  if (hasX) scaleX = dx / spanX;
+  if (hasY) scaleY = dy / spanY;
+
+  if (keepAspect) {
+    // Collapse to a single signed factor that preserves the START aspect ratio.
+    // The dominant axis (largest |ratio|) drives both, so a corner follows the
+    // cursor and an edge handle (one live span) scales the whole object.
+    const sSX = startScaleX || scaleX || 1;
+    const sSY = startScaleY || scaleY || 1;
+    const ratioX = hasX ? scaleX / sSX : null;
+    const ratioY = hasY ? scaleY / sSY : null;
+    let k = ratioX != null && ratioY != null
+      ? (Math.abs(ratioX) >= Math.abs(ratioY) ? ratioX : ratioY)
+      : (ratioX != null ? ratioX : ratioY);
+    if (k == null || !isFinite(k)) k = 1;
+    scaleX = sSX * k;
+    scaleY = sSY * k;
+  }
+
   if (Math.abs(scaleX) < minScale) scaleX = Math.sign(scaleX || 1) * minScale;
   if (Math.abs(scaleY) < minScale) scaleY = Math.sign(scaleY || 1) * minScale;
   obj.scale.set(scaleX, scaleY);
 
-  // Re-pin the opposite anchor exactly where it was in world space.
+  // Re-pin the anchor exactly where it was in world space.
   const sxAx = anchorLocal.x * scaleX;
   const syAy = anchorLocal.y * scaleY;
   const rx = sxAx * c - syAy * s;
   const ry = sxAx * s + syAy * c;
   obj.x = parentAnchor.x - rx;
   obj.y = parentAnchor.y - ry;
+}
+
+/**
+ * Rotate an object to `rotation` (radians) while keeping its bounding-box
+ * center pinned at `pivotWorld`. Pixi rotates about the object origin (anchor),
+ * so we re-derive obj.x/obj.y so the center offset lands back on the pivot.
+ * Honours scale and nested parents.
+ */
+function applyRotation(obj, rotation, pivotWorld, centerLocal, contentRoot) {
+  const parent = obj.parent || contentRoot;
+  const parentPivot = contentToParentLocal(parent, pivotWorld.x, pivotWorld.y, contentRoot);
+  obj.rotation = rotation;
+  const c = Math.cos(rotation);
+  const s = Math.sin(rotation);
+  const lx = centerLocal.x * (obj.scale?.x ?? 1);
+  const ly = centerLocal.y * (obj.scale?.y ?? 1);
+  const rx = lx * c - ly * s;
+  const ry = lx * s + ly * c;
+  obj.x = parentPivot.x - rx;
+  obj.y = parentPivot.y - ry;
 }
 
 function handleLocalPoint(name, left, right, top, bottom) {
