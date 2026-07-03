@@ -43,6 +43,35 @@ w kolejności z §3 planu.
   Pliki: `engine/scenarioModel.js`, `engine/scenarioModel.test.mjs`,
   `engine/scenarioTimeline.test.mjs`.
 
+- **T4 (część 1/2) — deterministyczna pętla domyślnej animacji spine na
+  scrubie — UKOŃCZONE ✅.** Spine'owe obiekty renderują się z `autoUpdate =
+  false` (`spine.autoUpdate = false` w kilku miejscach `pixiApp.js`) — jedyny
+  sposób na ruch to jawne `obj.update(dt)`. Podczas PLAY robi to
+  `PixiViewport`'owy `drive()` (realny `dtSec` co klatkę, niezależnie od
+  `applyFlowAtTime`), więc domyślna/idle animacja (indeks tracka 0, nigdy nie
+  celowany przez żaden klip) leci w czasie rzeczywistym. Na PAUSE/scrub
+  `applySpineMultiTrack` woła `obj.update(0)` (Faza E) — dt=0 nigdy nie rusza
+  tracka 0, więc idle zamrażał się na pozie z momentu pauzy, inny za każdym
+  razem. Nowa **Faza C.5**: gdy `layer.spine.defaultAnimation` jest ustawione
+  i żaden klip nigdy nie celuje w indeks 0, trzymamy go jawnie —
+  `tr.trackTime = t % duration` (pętla od startu flow, 1×) — deterministyczne
+  dla dowolnego seeku. Brak harnessu testowego dla Pixi/Spine runtime
+  (`pixiApp.js` nie ma plików `.test.*`) — zweryfikowane przez
+  `npm run build` (przechodzi bez błędów) + przegląd kolejności faz
+  (nowa faza dopisuje `seen.add(0)` PRZED czyszczącą Fazą D, żeby nie
+  zgasić się samą sobie). Wizualna weryfikacja w przeglądarce z prawdziwym
+  assetem Spine — TODO, nie wykonana w tej sesji.
+  Plik: `engine/pixiApp.js` (`applySpineMultiTrack`).
+- **T4 (część 2/2) — kontrakt widoczności "setup pose" — WSTRZYMANE,
+  potrzebna decyzja użytkownika.** Patrz notatka w
+  `SCENE_STUDIO_QOL_PLAN.md` §1 poz. 5 / §2 T4: proponowana reguła
+  ("obiekt bez aktywnego klipu w animate = niewidoczny, chyba że coś go
+  klucza") wprost odwraca udokumentowaną regułę z `SCENE_STUDIO.md` §19.2
+  ("Visibility is layer.visible only — outside any clip the layer renders at
+  its base pose"). Zmiana defaultowej widoczności dla KAŻDEJO niekluczowanego
+  layera w animate mode ma zbyt duży blast radius, żeby zgadywać bez
+  potwierdzenia — patrz pytanie zadane w sesji.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).

@@ -1376,6 +1376,39 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     applyHeldClipToIndex(si, held);
   }
 
+  // Phase C.5 — deterministic idle/default animation on index 0 (T1/T4 fix).
+  // A layer whose spine tracks never target index 0 at all (a pure "idle"
+  // spine object, or one that only puts gesture clips on index 1+) has no
+  // clip to drive its pose. Previously index 0 only advanced through
+  // PixiViewport's live-preview real-time ticker during PLAY (`obj.update
+  // (dtSec)` there, independent of this function) — while paused/scrubbing,
+  // `obj.update(0)` in Phase E never moves it, so it froze at whatever pose
+  // the ticker happened to leave it in, non-deterministic across seeks.
+  // Loop it here from t=0 (the flow's own start) at 1×, same rule as any
+  // other clip's "started at clip-start, looping at its speed".
+  const defaultAnim = layer.spine?.defaultAnimation ?? null;
+  if (defaultAnim && !referencedIndices.has(0)) {
+    const cache = perTrack.get(0) || {};
+    const loop = layer.spine?.loop ?? true;
+    const duration = getSpineAnimationDuration(obj, defaultAnim);
+    if (cache.activeClipId !== '__default__' || cache.anim !== defaultAnim || cache.loop !== loop) {
+      try {
+        const e = obj.state.setAnimation(0, defaultAnim, !!loop);
+        if (e) { e.mixDuration = 0; e.alpha = 1; }
+      } catch { /* anim missing — ignore */ }
+      perTrack.set(0, { activeClipId: '__default__', anim: defaultAnim, loop, mixDuration: 0 });
+    }
+    try {
+      const tr = obj.state?.tracks?.[0];
+      if (tr) {
+        tr.trackTime = loop && duration > 0 ? (t % duration) : Math.min(Math.max(0, t), duration || t);
+        tr.alpha = 1;
+        tr.timeScale = 1;
+      }
+    } catch { /* ignore */ }
+    seen.add(0);
+  }
+
   // Phase D — clear slots with no clip this frame.
   //  - An index a clip targets but which resolved to neither active nor held
   //    (e.g. before its first clip) snaps clear with a 0s empty animation so
