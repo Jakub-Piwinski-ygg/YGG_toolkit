@@ -209,11 +209,15 @@ function selKeyWithKid(clip, sel) {
 const PANEL_SIZES = {
   left:     { key: 'ss.leftW',     def: 260, min: 260, max: 560 },  // hierarchy/workspace — grow rightward
   right:    { key: 'ss.rightW',    def: 300, min: 300, max: 640 },  // inspector — grow leftward
-  timeline: { key: 'ss.timelineH', def: 220, min: 120, max: 600 }
+  timeline: { key: 'ss.timelineH', def: 220, min: 120, max: 600 },
+  // Wizard side panel (full-focus): a vertical right column, wider than the
+  // inspector so every setup field fits comfortably. T8: user-resizable like
+  // every other panel — was a hardcoded WIZARD_PANEL_W=460 constant with no
+  // resize handle or persistence, the one panel in the app that diverged
+  // from the shared left/right/timeline resize mechanism. Default ~33% of a
+  // common 1440px viewport (close to the old fixed value).
+  wizard:   { key: 'ss.wizardW',   def: 460, min: 320, max: 760 }
 };
-// Wizard side panel (full-focus): a vertical right column, wider than the
-// inspector so every setup field fits comfortably.
-const WIZARD_PANEL_W = 460;
 function readStoredSize(spec) {
   try {
     const v = Number(localStorage.getItem(spec.key));
@@ -421,10 +425,12 @@ export default function SceneStudioInner() {
   const [leftW, setLeftW] = useState(() => readStoredSize(PANEL_SIZES.left));
   const [rightW, setRightW] = useState(() => readStoredSize(PANEL_SIZES.right));
   const [timelineH, setTimelineH] = useState(() => readStoredSize(PANEL_SIZES.timeline));
+  const [wizardW, setWizardW] = useState(() => readStoredSize(PANEL_SIZES.wizard));
   const centerStackRef = useRef(null);
   useEffect(() => { try { localStorage.setItem(PANEL_SIZES.left.key, String(Math.round(leftW))); } catch { /* ignore */ } }, [leftW]);
   useEffect(() => { try { localStorage.setItem(PANEL_SIZES.right.key, String(Math.round(rightW))); } catch { /* ignore */ } }, [rightW]);
   useEffect(() => { try { localStorage.setItem(PANEL_SIZES.timeline.key, String(Math.round(timelineH))); } catch { /* ignore */ } }, [timelineH]);
+  useEffect(() => { try { localStorage.setItem(PANEL_SIZES.wizard.key, String(Math.round(wizardW))); } catch { /* ignore */ } }, [wizardW]);
 
   /**
    * Start a panel-resize drag. Uses window listeners (not pointer capture) so
@@ -3636,8 +3642,20 @@ export default function SceneStudioInner() {
 
       <div
         className={'scene-studio-body' + (!rootHandle ? ' scene-studio-body--locked' : '')}
-        style={{ gridTemplateColumns: wizardActive ? `1fr ${WIZARD_PANEL_W}px` : `${leftW}px 1fr ${rightW}px` }}
+        style={{ gridTemplateColumns: wizardActive ? `1fr ${wizardW}px` : `${leftW}px 1fr ${rightW}px` }}
       >
+        {/* T8: the wizard panel resizes like every other panel — was the one
+            fixed-width exception (WIZARD_PANEL_W) with no drag handle. */}
+        {wizardActive && (
+          <div
+            className="scene-resize-handle scene-resize-handle--col"
+            style={{ right: wizardW, marginRight: -4 }}
+            title="Drag to resize the wizard panel"
+            onPointerDown={(e) => beginPanelResize(e, {
+              axis: 'x', base: wizardW, min: PANEL_SIZES.wizard.min, max: PANEL_SIZES.wizard.max, sign: -1, set: setWizardW
+            })}
+          />
+        )}
         {/* Side-panel resize handles — hidden in full-focus wizard mode. */}
         {!wizardActive && (
           <div

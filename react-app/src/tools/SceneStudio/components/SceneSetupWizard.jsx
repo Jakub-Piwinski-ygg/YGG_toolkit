@@ -191,7 +191,7 @@ export function SceneSetupWizard({ scene, assetItems = [], onClose, onCreate, em
   const emptyWorkspace = !pngPool.length && !spinePool.length;
 
   return (
-    <div className="spinner-wizard scene-setup-wizard">
+    <div className={'spinner-wizard scene-setup-wizard' + (embedded ? ' spinner-wizard--embedded' : '')}>
       <div className="spinner-wizard-head">
         <strong>🎬 Scene Setup</strong>
         <button type="button" className="scene-btn scene-btn--ghost" onClick={onClose}>✕</button>

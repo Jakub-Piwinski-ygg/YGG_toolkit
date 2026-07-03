@@ -302,6 +302,26 @@ w kolejności z §3 planu.
   (patrz też T8 poniżej — ta sama kategoria ryzyka).
   Pliki: `engine/spinner/symbolMatch.js` (+ test), `components/SpinnerWizard.jsx`.
 
+- **T8 (część 2/2, dająca się wykonać teraz) — ujednolicenie powłoki
+  kreatorów — UKOŃCZONE ✅.** Panel kreatora był JEDYNYM panelem w apce z
+  twardo zakodowaną szerokością (`WIZARD_PANEL_W = 460`, stała, bez uchwytu
+  resize, bez persystencji) — złamanie tego samego mechanizmu, który już
+  obsługuje `leftW`/`rightW`/`timelineH`. Naprawione: `PANEL_SIZES.wizard`
+  (`def:460, min:320, max:760`, klucz localStorage), stan `wizardW` +
+  uchwyt resize identyczny jak dla panelu inspektora (ten sam
+  `beginPanelResize`). **Złapany przy okazji, dokładnie „scena wizard
+  currently diverges" z opisu T8**: `SceneSetupWizard.jsx` przyjmował prop
+  `embedded` (używany do innej logiki — podłączenia podglądu), ale NIGDY nie
+  dokładał klasy `spinner-wizard--embedded` do korzenia — więc renderował się
+  z bazowej klasy `.spinner-wizard` (`width: 520px` na sztywno + border/
+  shadow/radius w stylu modala) zamiast rozciągać się na 100% szerokości/
+  wysokości doku jak Spinner/WinSequence wizard. Jeden dopisek klasy,
+  identyczny wzorzec jak w pozostałych dwóch kreatorach.
+  **Nie zrobione**: „spinner animation-setup step expands to fill the panel"
+  — ten krok to część NIEZBUDOWANEGO jeszcze pipeline'u animations-only z
+  T7 (3/4); nie ma czego naprawiać, dopóki ten krok nie istnieje.
+  Pliki: `SceneStudioInner.jsx`, `components/SceneSetupWizard.jsx`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).
