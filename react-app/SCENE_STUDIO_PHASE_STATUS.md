@@ -141,6 +141,35 @@ w kolejności z §3 planu.
   `engine/pixiApp.js` (`applyFlowAtTime`, `syncTransforms`, `rebuildScene`),
   `unity/exportUnityPackage.js`, `SCENE_STUDIO.md` §20.12 (nowa sekcja).
 
+- **T3 — przeciąganie klipów na osi czasu: mijanie sąsiada — UKOŃCZONE ✅.**
+  Stary `neighbourBounds` blokował ruch klipu na sztywnej ścianie zakotwiczonej
+  w POZYCJI STARTOWEJ przeciągania — sąsiad nigdy nie dawał się minąć. Nowy
+  pipeline **intent → resolved placement → commit**: podczas przeciągania
+  (`onPointerMove`, tryb `move`) klip leci swobodnie za kursorem (jedyne
+  ograniczenie to granice sceny `[0, duration]`), tymczasowo nakładając się
+  na sąsiadów — to celowe, inwariant braku nakładania egzekwowany jest
+  wyłącznie **raz, przy puszczeniu** (`onPointerUp`). Resize (`resizeStart`/
+  `resizeEnd`) NIE dostał tej zmiany — nadal blokuje się na sąsiedzie (mijanie
+  przez resize to inna, nieproszona semantyka). Czysta logika wydzielona do
+  nowego `engine/timelineDragResolve.js` (`neighbourBounds` — nazwana,
+  reużywalna wersja starej funkcji; `resolveClipDrop` — nowy iteracyjny
+  „de-penetration" resolver: pcha klip poza NAJBARDZIEJ nakładającego się
+  sąsiada, kierunek po porównaniu środków, z detekcją cyklu jako
+  deterministycznym fallbackiem dla dosłownie niemożliwego do rozwiązania
+  „ściśnięcia" między dwoma sąsiadami bliższymi sobie niż własna długość
+  przeciąganego klipu). **Pierwsza wersja algorytmu (`neighbourBounds`
+  zakotwiczony w POZYCJI UPUSZCZENIA) była błędna — cichy no-op, bo ta
+  funkcja z założenia ignoruje sąsiadów faktycznie nakładających się na okno
+  kotwicy — złapane przez 3 padające testy przed wysyłką, nie w produkcji.**
+  8 testów w nowym `engine/timelineDragResolve.test.mjs` (w tym test
+  determinizmu dla przypadku ściśnięcia). Brak harnessu dla samego pointer-
+  event wiring w `TimelinePanel.jsx` (żaden istniejący plik testowy) —
+  zweryfikowane `npm run build` + pełny zestaw silnika (127 testów). Jak
+  poprzednie tematy: **wizualna weryfikacja przeciągania w przeglądarce
+  (manual interaction checklist, jak zaleca sam plan) — TODO**, to
+  najbardziej ryzykowny temat całego planu (dense pointer logic).
+  Pliki: `engine/timelineDragResolve.js` (+ test), `components/TimelinePanel.jsx`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).

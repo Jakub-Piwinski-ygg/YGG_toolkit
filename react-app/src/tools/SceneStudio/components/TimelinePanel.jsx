@@ -3,6 +3,7 @@ import { CURVE_PRESETS, TWEEN_PROPS, uid } from '../engine/sceneModel.js';
 import { channelKeyDots, CHANNEL_NAMES, evalChannel, isPathChannel, maxChannelKeyTime } from '../engine/animation/keyframes.js';
 import { SPINNER_ACTIONS, normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 import { normalizeWinSeqConfig, findWinSeqFlow, winSeqFlowDuration } from '../engine/winseq/winseqModel.js';
+import { neighbourBounds as resolveNeighbourBounds, resolveClipDrop } from '../engine/timelineDragResolve.js';
 import { spinnerClipDurationAction } from './SpinnerInspectorSections.jsx';
 import { NumberField } from '../../../components/NumberField.jsx';
 import { elementZoom, rootZoom } from '../../../utils/domZoom.js';
@@ -1698,22 +1699,10 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
   const canAddLeft = leftGap >= ADJACENT_ADD_MIN_GAP;
   const canAddRight = rightGap >= ADJACENT_ADD_MIN_GAP;
 
-  /**
-   * Compute the tightest [minStart, maxEnd] window the clip is allowed
-   * to occupy without overlapping a sibling on the same track. Anchored
-   * to the clip's ORIGINAL position so a slow drag past a sibling
-   * doesn't tunnel through it — the sibling becomes a hard wall.
-   */
-  const neighbourBounds = (origStart, origEnd) => {
-    let minStart = 0;
-    let maxEnd = duration;
-    for (const s of siblings) {
-      const sEnd = s.start + s.duration;
-      if (sEnd <= origStart) minStart = Math.max(minStart, sEnd);
-      else if (s.start >= origEnd) maxEnd = Math.min(maxEnd, s.start);
-    }
-    return { minStart, maxEnd };
-  };
+  // Resize handles still wall off at the nearest sibling (anchored to the
+  // drag's ORIGIN — see engine/timelineDragResolve.js); only a whole-clip
+  // MOVE (below) drags past neighbors freely and resolves at drop (T3).
+  const neighbourBounds = (origStart, origEnd) => resolveNeighbourBounds(siblings, duration, origStart, origEnd);
 
   const onPointerDown = useCallback((e) => {
     if (e.button !== 0) return;
@@ -1763,8 +1752,14 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
     let shiftKeys = 0; // clip-local seconds to add to every key (left-resize only)
 
     if (st.mode === 'move') {
-      const lo = minStart;
-      const hi = Math.max(lo, maxEnd - st.origDuration);
+      // T3: a whole-clip MOVE is no longer walled off at the nearest sibling
+      // (that's the "can't drag past a neighbor" bug) — it tracks the pointer
+      // freely across the whole stage, transiently overlapping siblings while
+      // dragging. `onPointerUp` below resolves the final drop against
+      // whichever neighbor(s) it landed on top of, so the non-overlap
+      // invariant is only enforced once, at commit — not every frame.
+      const lo = 0;
+      const hi = Math.max(lo, duration - st.origDuration);
       nextStart = clamp(st.origStart + deltaT, lo, hi);
       nextStart = clamp(snapTime(nextStart, altDisableSnap), lo, hi);
     } else if (st.mode === 'resizeStart') {
@@ -1789,6 +1784,10 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
     if (st.mode === 'resizeStart' && st.origChannels) {
       patch.channels = shiftClipChannels(st.origChannels, shiftKeys, nextDuration);
     }
+    // Remember the live tentative placement so onPointerUp can resolve a
+    // move's final overlap against wherever it actually landed (T3).
+    st.lastStart = nextStart;
+    st.lastDuration = nextDuration;
     onPatch?.(patch);
   }, [duration, onPatch, snapTime, siblings, pxPerSec, onGroupMoveUpdate]);
 
@@ -1800,9 +1799,15 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
       onGroupMoveEnd?.();
       // No drag happened → collapse the multi-selection to this clip.
       if (!st.moved && st.deferredSelect) onSelect?.({ ctrlKey: false, metaKey: false, shiftKey: false });
+    } else if (st.mode === 'move' && st.moved && Number.isFinite(st.lastStart)) {
+      // T3 commit step (see engine/timelineDragResolve.js): a free move-drag
+      // may have landed on top of one or more siblings — resolve it ONCE
+      // here instead of blocking the drag itself.
+      const resolvedStart = resolveClipDrop(siblings, duration, st.lastStart, st.lastDuration ?? st.origDuration);
+      if (Math.abs(resolvedStart - st.lastStart) > 1e-6) onPatch?.({ start: resolvedStart });
     }
     dragRef.current = null;
-  }, [onGroupMoveEnd, onSelect]);
+  }, [onGroupMoveEnd, onSelect, onPatch, siblings, duration]);
 
   // Cursor changes by hover zone so users see the resize affordance
   const onPointerMoveHover = useCallback((e) => {
