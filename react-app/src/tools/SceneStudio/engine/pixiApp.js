@@ -1183,7 +1183,14 @@ export function applyFlowAtTime(handles, scene, t) {
       // Colour (alpha + tint) can be keyframed on the number layer's clips —
       // composed on top of the bone follow inside applyWinNumberAtTime.
       const colorOverride = evalWinNumberColor(tracks, t);
-      applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation, scene.stage), sampleOverride, liveNum, colorOverride);
+      // T10: win-timeline inspector's preview-only wager override. Scoped to
+      // the win sequence it was set for (forAssetId) so previewing one
+      // win-sequence's wager doesn't silently bleed into every other
+      // win-number in the scene.
+      const wagerPreview = scene.winNumberPreview;
+      const wagerOverride = (typeof wagerPreview?.wager === 'number' && wagerPreview.forAssetId === parentAsset?.id)
+        ? wagerPreview.wager : null;
+      applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation, scene.stage), sampleOverride, liveNum, colorOverride, wagerOverride);
       gateEyeAlpha();
       continue;
     }

@@ -139,6 +139,8 @@ export function InspectorPanel({
   onEditSceneSetup,
   onGenerateWinSeqTimelines,
   onGenerateSpinnerTimeline,
+  wagerPreview = null,
+  onSetWagerPreview,
   studioMode = 'animate'
 }) {
   const layer = scene.layers.find((l) => l.id === selectedLayerId);
@@ -448,6 +450,9 @@ export function InspectorPanel({
           defaultTangentMode={defaultTangentMode}
           spinnerConfig={asset?.type === 'spinner' ? normalizeSpinnerConfig(asset.spinner) : null}
           winseqConfig={asset?.type === 'winseq' ? normalizeWinSeqConfig(asset.winseq) : null}
+          onPatchAsset={onPatchAsset}
+          wagerPreview={wagerPreview}
+          onSetWagerPreview={onSetWagerPreview}
         />
       )}
     </div>
@@ -592,7 +597,7 @@ function VideoSection({ layer, onPatchLayer }) {
  * All mutations go through `onPatchFlow(newFlow)` because clips live on
  * `scene.flow.tracks[].clips[]`.
  */
-function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction, defaultTangentMode = 'auto', spinnerConfig = null, winseqConfig = null }) {
+function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, selectedKey, onSelectKey, descriptor, onPatchFlow, onFlowAction, defaultTangentMode = 'auto', spinnerConfig = null, winseqConfig = null, onPatchAsset, wagerPreview = null, onSetWagerPreview }) {
   const patchClip = (patch) => {
     const nextTracks = (scene.flow?.tracks || []).map((tr) =>
       tr.id === track.id
@@ -757,6 +762,49 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
               </span>
             </div>
           )}
+          {winseqConfig?.number && (() => {
+            // wagerPreview is scoped to a single winseq asset (T10) — only
+            // treat it as active when it was set FOR this asset, so a preview
+            // left over from a different win-sequence doesn't show here.
+            const previewForThis = wagerPreview?.forAssetId === asset.id ? wagerPreview.wager : null;
+            return (
+              <>
+                <div className="ss-insp-sep" />
+                <label className="scene-field">
+                  <span title="Preview-only — the count-up number re-evaluates at this wager without touching the authored value">
+                    preview wager
+                  </span>
+                  <DragNumberField
+                    value={previewForThis ?? winseqConfig.number.wager}
+                    step={0.1} min={0}
+                    onChange={(v) => onSetWagerPreview?.({ wager: v, forAssetId: asset.id })}
+                  />
+                </label>
+                {previewForThis != null && previewForThis !== winseqConfig.number.wager && (
+                  <div className="ss-insp-actions">
+                    <button
+                      type="button"
+                      className="scene-btn scene-btn--sm"
+                      title="Write this wager into the win sequence's authored number config"
+                      onClick={() => {
+                        onPatchAsset?.(asset.id, { winseq: { ...asset.winseq, number: { ...asset.winseq?.number, wager: previewForThis } } });
+                        onSetWagerPreview?.(null);
+                      }}
+                    >
+                      Apply as authored wager
+                    </button>
+                    <button
+                      type="button"
+                      className="scene-btn scene-btn--sm scene-btn--ghost"
+                      onClick={() => onSetWagerPreview?.(null)}
+                    >
+                      Revert preview
+                    </button>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </>
       )}
 

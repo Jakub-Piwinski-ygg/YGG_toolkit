@@ -2484,6 +2484,14 @@ export default function SceneStudioInner() {
     log('Scene Studio: drop a FOLDER (not files) to link project root.', 'info');
   }, [linkProjectRoot, log]);
 
+  // T10: preview-only wager override for the win-timeline inspector — never
+  // written to the scene/asset until the artist clicks "Apply as authored
+  // wager" (InspectorPanel's ClipSection). Reset whenever the selection
+  // changes so a leftover override from one win-sequence clip doesn't bleed
+  // into the next one silently.
+  const [wagerPreview, setWagerPreview] = useState(null);
+  useEffect(() => { setWagerPreview(null); }, [selectedLayerId, selectedClipId]);
+
   const sceneWithRuntime = useMemo(() => ({
     ...scene,
     flow: {
@@ -2493,8 +2501,11 @@ export default function SceneStudioInner() {
         playing: flowState.playing,
         hold: flowState.hold
       }
-    }
-  }), [scene, flowState.time, flowState.playing, flowState.hold]);
+    },
+    ...(wagerPreview != null
+      ? { winNumberPreview: { ...(scene.winNumberPreview || null), wager: wagerPreview.wager, forAssetId: wagerPreview.forAssetId } }
+      : {})
+  }), [scene, flowState.time, flowState.playing, flowState.hold, wagerPreview]);
 
   // ── Direct-mode derived state ──────────────────────────────────────────
   const activeScenario = useMemo(() => getActiveScenario(project), [project]);
@@ -3961,6 +3972,8 @@ export default function SceneStudioInner() {
             onEditSceneSetup={handleEditSceneSetup}
             onGenerateWinSeqTimelines={handleGenerateWinSeqTimelines}
             onGenerateSpinnerTimeline={handleGenerateSpinnerTimeline}
+            wagerPreview={wagerPreview}
+            onSetWagerPreview={setWagerPreview}
             studioMode={studioMode}
           />
         )}

@@ -35,8 +35,11 @@ function sameGlyphSet(a, b) {
  * @param {{alpha?:number, tint?:{r:number,g:number,b:number}}|null} colorOverride
  *        keyframed colour from the number layer's clips (alpha multiplies the
  *        layer's static alpha; tint is applied straight). null = no animation.
+ * @param {number|null} wagerOverride  T10 preview-only wager (win-timeline
+ *        inspector) — substitutes the authored `num.wager` for the live
+ *        count-up ONLY; never written back to the config.
  */
-export function applyWinNumberAtTime(numObj, parentObj, layer, ut, sampleOverride = null, liveNum = null, colorOverride = null) {
+export function applyWinNumberAtTime(numObj, parentObj, layer, ut, sampleOverride = null, liveNum = null, colorOverride = null, wagerOverride = null) {
   const built = numObj?.__winnumber?.num;
   if (!built) return;
   if (!parentObj?.skeleton) { numObj.visible = false; return; }
@@ -61,7 +64,7 @@ export function applyWinNumberAtTime(numObj, parentObj, layer, ut, sampleOverrid
     v = sampleOverride;
   } else if (active) {
     v = winNumberValueAt(active.flow, active.durations, active.localT, {
-      wager: num.wager,
+      wager: wagerOverride != null ? wagerOverride : num.wager,
       hangOnLastIdle: active.hangOnLastIdle,
     });
   } else {

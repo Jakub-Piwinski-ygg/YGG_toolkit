@@ -209,6 +209,31 @@ w kolejności z §3 planu.
   `components/SpinnerInspectorSections.jsx`, `components/SpinnerWizard.jsx`,
   `engine/spinner/spinnerEval.test.js`, `engine/scenarioModel.test.mjs`.
 
+- **T10 — selektor wager w inspektorze win-timeline — UKOŃCZONE ✅.**
+  Dotąd wager istniał tylko wewnątrz kreatora (krok Sequences) i był
+  ZAWSZE trwały (`winseqConfig.number.wager`) — nie dało się szybko
+  podejrzeć „jak wygląda ta sekwencja przy wagerze 100" bez wejścia w
+  kreator i trwałej zmiany configu. Nowy **preview-only override**:
+  `ClipSection` (`components/InspectorPanel.jsx`) pokazuje pole „preview
+  wager" przy zaznaczonym klipie winseq — DragNumberField + przyciski
+  „Apply as authored wager" / „Revert preview" pojawiają się tylko gdy
+  wartość różni się od autorowanej. Stan efemeryczny w
+  `SceneStudioInner.jsx` (`wagerPreview`, resetowany przy zmianie
+  zaznaczenia), wpięty do `sceneWithRuntime` jako `scene.winNumberPreview.
+  {wager, forAssetId}` — **zakotwiczony do konkretnego assetu winseq**, żeby
+  podgląd jednej sekwencji nie przeciekał do innych win-numberów w scenie.
+  `winNumberRuntime.applyWinNumberAtTime` dostał nowy param `wagerOverride`
+  (podmienia `num.wager` wyłącznie w wywołaniu `winNumberValueAt` — nigdy nie
+  dotyka configu), `pixiApp.js` czyta go z `scene.winNumberPreview` z tym
+  samym scope-guardem co strona wagi. Reużywa dokładnie ten sam
+  `winNumberValueAt` co kreator (SPINNER.md-analogiczna zasada „jedna
+  implementacja"). **Złapany i naprawiony w trakcie: zagnieżdżenie
+  fragmentów JSX** — pierwsza wersja edycji zostawiła podwójne
+  zamknięcie `</></> )}` po wydzieleniu bloku do IIFE, `npm run build`
+  złapał to jako błąd parsera esbuild przed testami, nie po.
+  Pliki: `components/InspectorPanel.jsx`, `SceneStudioInner.jsx`,
+  `engine/winseq/winNumberRuntime.js`, `engine/pixiApp.js`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).
