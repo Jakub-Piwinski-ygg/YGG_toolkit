@@ -14,6 +14,7 @@ import {
   generateOutcomeBoard,
   classifySymbols,
   spinnerPresentWinDuration,
+  buildSpinnerTestClips,
   mulberry32
 } from './spinnerModel.js';
 import {
@@ -622,4 +623,59 @@ test('outcome overrides beat an authored targetBoard and change the resolve key'
     resolveSpinnerTrack(cfg, track, null, 'bigWin').stops[0].target,
     overridden.stops[0].target
   );
+});
+
+// ── T12: reusable spin result randomization (re-roll) ───────────────────
+
+test('T12: a clip\'s own authored outcome produces an outcome board with no Direct-mode override', () => {
+  const cfg = namedConfig();
+  const track = standardTrack({ stop: { outcome: 'bigWin', targetBoard: ['ignored'] } });
+  const resolved = resolveSpinnerTrack(cfg, track); // no outcome override passed
+  assert.ok(evalWaysWins(resolved.stops[0].target, 'wd').length >= 2, 'clip-authored outcome wins even with no Direct override');
+});
+
+test('T12: a Direct-mode override still beats the clip\'s own authored outcome', () => {
+  const cfg = namedConfig();
+  const track = standardTrack({ stop: { outcome: 'bigWin' } });
+  const overridden = resolveSpinnerTrack(cfg, track, null, 'noWin');
+  const wins = evalWaysWins(overridden.stops[0].target, 'wd');
+  assert.equal(wins.length, 0, 'Direct override (noWin) wins over the clip\'s own bigWin');
+});
+
+test('T12: re-rolling the clip\'s OWN rerollSeed changes the board (no Direct override active)', () => {
+  const cfg = namedConfig();
+  const first = resolveSpinnerTrack(cfg, standardTrack({ stop: { outcome: 'bigWin' } })).stops[0].target;
+  // With no Direct-mode override, resolveSpinnerTrack's own `outcomeReroll`
+  // param is irrelevant — the clip's own rerollSeed field is what drives it.
+  const rerolledViaClip = resolveSpinnerTrack(cfg, standardTrack({ stop: { outcome: 'bigWin', rerollSeed: 1 } })).stops[0].target;
+  assert.notDeepEqual(rerolledViaClip, first, 'bumping the clip\'s own rerollSeed changes the board');
+  assert.ok(evalWaysWins(rerolledViaClip, 'wd').length >= 2, 'still a valid bigWin board after reroll');
+});
+
+test('T12: re-rolling a Direct-mode override changes the board and the resolve key, same threshold', () => {
+  const cfg = namedConfig();
+  const track = standardTrack();
+  const a = resolveSpinnerTrack(cfg, track, null, 'bigWin', 0).stops[0].target;
+  const b = resolveSpinnerTrack(cfg, track, null, 'bigWin', 1).stops[0].target;
+  assert.notDeepEqual(a, b, 're-roll 1 differs from re-roll 0');
+  assert.ok(evalWaysWins(b, 'wd').length >= 2, 'still a valid bigWin board');
+  assert.notEqual(
+    spinnerResolveKey(cfg, track, null, 'bigWin', 0),
+    spinnerResolveKey(cfg, track, null, 'bigWin', 1),
+    'resolve key changes with the reroll counter so the memoized resolve actually re-runs'
+  );
+  // determinism: same outcome + same reroll → same board
+  assert.deepEqual(resolveSpinnerTrack(cfg, track, null, 'bigWin', 1).stops[0].target, b);
+});
+
+test('T12: buildSpinnerTestClips carries outcome/rerollSeed into the stopSpin clip payload (wizard preview surface)', () => {
+  const cfg = namedConfig();
+  const { clips: defaultClips } = buildSpinnerTestClips(cfg);
+  const stopDefault = defaultClips.find((c) => c.action === 'stopSpin');
+  assert.ok(Array.isArray(stopDefault.spinner.targetBoard), 'default (no outcome) still lands a fixed seeded winning board');
+  const { clips: outcomeClips } = buildSpinnerTestClips(cfg, 'noWin', 3);
+  const stopOutcome = outcomeClips.find((c) => c.action === 'stopSpin');
+  assert.equal(stopOutcome.spinner.outcome, 'noWin');
+  assert.equal(stopOutcome.spinner.rerollSeed, 3);
+  assert.equal(stopOutcome.spinner.targetBoard, undefined, 'outcome mode does not also carry a fixed targetBoard');
 });

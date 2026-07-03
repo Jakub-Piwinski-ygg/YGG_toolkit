@@ -170,6 +170,45 @@ w kolejności z §3 planu.
   najbardziej ryzykowny temat całego planu (dense pointer logic).
   Pliki: `engine/timelineDragResolve.js` (+ test), `components/TimelinePanel.jsx`.
 
+- **T12 — reużywalna randomizacja wyniku spinu (re-roll) — UKOŃCZONE ✅.**
+  `targetBoardForClip` (`engine/spinner/spinnerModel.js`) liczył seed planszy
+  outcome jako czystą funkcję `(clip.id, outcome)` — bez sposobu na
+  wylosowanie INNEJ planszy w tej samej kategorii progu. Dodany
+  `rerollSeed`/`outcomeOverrideReroll` wchodzi do hasha
+  (`clip.id::outcome::reroll`), więc „re-roll" to po prostu bump licznika.
+  **Priorytet**: override Direct-mode (per-węzeł) > własny `spinner.outcome`
+  klipu (NOWA zdolność — dotąd klip timeline'u nie miał progu wyniku wcale,
+  tylko `randomResult`/`targetBoard`) > jawnie autorowana plansza > seedowana
+  nie-wygrywająca. Trzy powierzchnie, jedna implementacja:
+  - **Węzeł reżysera** (`ScenarioInspectorSections.jsx`) — przycisk „🎲
+    Re-roll" przy selektorze „Result", bumpuje `entry.spinOutcomeReroll`
+    (nowe pole w `entryDefaults()`/`normalizeEntry()`).
+  - **Klip spinnera na osi czasu** (`SpinnerInspectorSections.jsx`) — nowy
+    selektor „outcome" + „🎲 Re-roll" na `clip.spinner.outcome`/`rerollSeed`
+    (checkbox „random result" i target-board grid wyłączone, gdy outcome
+    aktywny — jawnie skomunikowane w UI).
+  - **Podgląd kreatora** (`SpinnerWizard.jsx`) — selektor + re-roll nad
+    „test spin", `buildSpinnerTestClips(config, outcome, rerollSeed)`.
+  Przepięte przez cały łańcuch: `resolveSpinnerTrack`/`spinnerResolveKey`
+  (nowy param `outcomeReroll` w kluczu memo — inaczej re-roll nie
+  wymusiłby ponownego resolve'u), `scenarioTimeline.js`
+  (`seg.spinOutcomeReroll`), `SceneStudioInner.jsx`
+  (`scene.__spinnerOutcomeReroll`, oba miejsca: `directPreview` i eksport
+  wideo), `pixiApp.js`/`spinnerRuntime.js` (`applySpinnerAtTime`).
+  8 nowych testów w `spinnerEval.test.js` (w tym: klip-autorowany outcome bez
+  override'u Direct, override nadal wygrywa nad klipem, re-roll klipu
+  własnym polem, re-roll override'u zmienia planszę I resolve key,
+  `buildSpinnerTestClips` niesie payload poprawnie). **Złapana i naprawiona
+  po drodze regresja**: dodanie `spinOutcomeReroll` do `entryDefaults()`
+  wywaliło istniejący `deepEqual` test w `scenarioModel.test.mjs` — zauważone
+  przez pełny przebieg zestawu przed commitem, nie po.
+  Pliki: `engine/spinner/spinnerModel.js`, `engine/spinner/spinnerEval.js`,
+  `engine/spinner/spinnerRuntime.js`, `engine/scenarioModel.js`,
+  `engine/scenarioTimeline.js`, `SceneStudioInner.jsx`,
+  `components/ScenarioInspectorSections.jsx`,
+  `components/SpinnerInspectorSections.jsx`, `components/SpinnerWizard.jsx`,
+  `engine/spinner/spinnerEval.test.js`, `engine/scenarioModel.test.mjs`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).

@@ -2569,7 +2569,8 @@ export default function SceneStudioInner() {
         ? bakeCarriedPoses(cur.layers, poses, cur.stage?.activeOrientation || 'landscape')
         : cur.layers;
       const outcome = s.segment?.spinOutcome && s.segment.spinOutcome !== 'default' ? s.segment.spinOutcome : null;
-      return { scene: { ...cur, layers, flow, __spinnerCarry: carry, __spinnerOutcome: outcome }, flowTime: segLocalTime };
+      const outcomeReroll = s.segment?.spinOutcomeReroll || 0;
+      return { scene: { ...cur, layers, flow, __spinnerCarry: carry, __spinnerOutcome: outcome, __spinnerOutcomeReroll: outcomeReroll }, flowTime: segLocalTime };
     };
   }, [project, log]);
 
@@ -2639,6 +2640,7 @@ export default function SceneStudioInner() {
     const poses = poseCarry.get(scenarioSample.segment?.nodeId) || null;
     const segOutcome = scenarioSample.segment?.spinOutcome;
     const spinOutcome = segOutcome && segOutcome !== 'default' ? segOutcome : null;
+    const spinOutcomeReroll = scenarioSample.segment?.spinOutcomeReroll || 0;
     if (scenarioSample.kind === 'blend') {
       const outTl = tls.find((t) => t.id === scenarioSample.out.timelineId);
       const inTl = tls.find((t) => t.id === scenarioSample.in.timelineId);
@@ -2651,7 +2653,7 @@ export default function SceneStudioInner() {
         poses
       );
       if (carry) scene.__spinnerCarry = carry;
-      if (spinOutcome) scene.__spinnerOutcome = spinOutcome;
+      if (spinOutcome) { scene.__spinnerOutcome = spinOutcome; scene.__spinnerOutcomeReroll = spinOutcomeReroll; }
       return { scene, flowTime: 0 };
     }
     const tl = tls.find((t) => t.id === scenarioSample.timelineId);
@@ -2665,6 +2667,7 @@ export default function SceneStudioInner() {
       ...(poses ? { layers: bakeCarriedPoses(entry.data.layers, poses, orientation) } : {}),
       __spinnerCarry: carry,
       __spinnerOutcome: spinOutcome,
+      __spinnerOutcomeReroll: spinOutcomeReroll,
       flow: {
         ...deriveFlowGraph({ tracks: tl.tracks, markers: tl.markers, nodes: [], edges: [] }),
         runtime: { time: scenarioSample.localTime, playing: scenarioPlayhead.playing, hold: null }

@@ -191,6 +191,16 @@ function NodeSection({ node, project, onSetNodeLabel, onSetNodeEntry, onAddOutpu
                 </option>
               ))}
             </select>
+            {entry.spinOutcome !== 'default' && (
+              <button
+                type="button"
+                className="scene-btn scene-btn--sm scene-btn--ghost"
+                title="Re-seed within the same threshold (T12) — same category, different board"
+                onClick={() => onSetNodeEntry?.(node.id, { spinOutcomeReroll: (entry.spinOutcomeReroll || 0) + 1 })}
+              >
+                🎲 Re-roll
+              </button>
+            )}
           </label>
           <div className="ss-insp-note">
             Overrides the boards this node's stop clips land — the next nodes hold the result.

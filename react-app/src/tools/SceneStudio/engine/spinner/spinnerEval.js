@@ -152,7 +152,7 @@ function stopEntrySlope(easePos) {
  * key so a spinner re-resolves when a preceding scenario segment hands off a
  * different landed board.
  */
-export function spinnerResolveKey(config, track, startBoard = null, outcome = null) {
+export function spinnerResolveKey(config, track, startBoard = null, outcome = null, outcomeReroll = 0) {
   return JSON.stringify([
     config.rev, config.seed, config.grid, config.timing, config.bounce,
     config.blur, config.events, config.perReel, config.direction,
@@ -160,7 +160,7 @@ export function spinnerResolveKey(config, track, startBoard = null, outcome = nu
     startBoard,
     // Direct-mode outcome override + the name-derived wild id (symbol names
     // aren't otherwise in the key, but they decide wild substitution).
-    outcome,
+    outcome, outcomeReroll || 0,
     classifySymbols(config).wildId
   ]);
 }
@@ -199,8 +199,10 @@ function isValidBoard(config, board) {
  * `outcome` (optional): a Direct-mode per-node result override ('noWin' /
  * 'smallWin' / 'bigWin' / 'wildWin') — every stopSpin clip then lands a board
  * generated for that outcome instead of its authored/seeded one.
+ * `outcomeReroll` (optional, T12): bumped by the director node's "re-roll
+ * result" action — see targetBoardForClip.
  */
-export function resolveSpinnerTrack(config, track, startBoard = null, outcome = null) {
+export function resolveSpinnerTrack(config, track, startBoard = null, outcome = null, outcomeReroll = 0) {
   const { reels: R, rows } = config.grid;
   const wildId = classifySymbols(config).wildId;
   const segments = Array.from({ length: R }, () => []);
@@ -229,7 +231,7 @@ export function resolveSpinnerTrack(config, track, startBoard = null, outcome = 
     const meta = { clipId: clip.id, action: clip.action, perReel: [] };
 
     let target = null;
-    if (clip.action === 'stopSpin') target = targetBoardForClip(config, clip, outcome);
+    if (clip.action === 'stopSpin') target = targetBoardForClip(config, clip, outcome, outcomeReroll);
     const landAt = new Array(R).fill(null);
 
     for (let r = 0; r < R; r++) {

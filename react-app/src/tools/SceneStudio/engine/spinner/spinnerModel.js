@@ -333,24 +333,35 @@ export function spinnerPresentWinDuration(config, reelWinStagger = 0, perReelWin
 
 /**
  * One-shot "test spin" clip chain: startSpin → spin (minSpinTime) → stopSpin
- * → presentWin, exactly the cycle the scene timeline plays. Lands a seeded
- * WINNING board so the present-win phase has something to show. Used by the
- * wizard's test-spin preview. Returns { clips, total } with raw (un-normalized)
- * clips — the caller runs them through normalizeTrack before the resolver.
+ * → presentWin, exactly the cycle the scene timeline plays. Used by the
+ * wizard's test-spin preview.
+ *
+ * `outcome`/`rerollSeed` (T12): when the wizard's own "Result" selector picks
+ * a threshold, the stopSpin clip carries `spinner.outcome`/`rerollSeed`
+ * instead of a fixed `targetBoard` — it resolves through the exact same
+ * `targetBoardForClip` path as the director node and timeline clip surfaces,
+ * so "re-roll" behaves identically everywhere. `outcome` omitted/'default'
+ * keeps the original behavior: a seeded WINNING board so present-win has
+ * something to show.
+ *
+ * Returns { clips, total } with raw (un-normalized) clips — the caller runs
+ * them through normalizeTrack before the resolver.
  */
-export function buildSpinnerTestClips(config) {
+export function buildSpinnerTestClips(config, outcome = null, rerollSeed = 0) {
   if (!config) return { clips: [], total: 1 };
   const t = config.timing || {};
   const start = spinnerStartSpinDuration(config);
   const spin = Math.max(0.05, Number(t.minSpinTime) > 0 ? Number(t.minSpinTime) : 1);
   const stop = spinnerStopSpinDuration(config);
   const present = spinnerPresentWinDuration(config);
-  const ids = config.symbols.map((s) => s.id);
-  const board = generateWinningBoard(ids, config.grid.reels, config.grid.rows, (config.seed ^ 0x7e57) >>> 0);
+  const useOutcome = outcome && outcome !== 'default' && SPIN_OUTCOMES.includes(outcome);
+  const stopPayload = useOutcome
+    ? { outcome, rerollSeed }
+    : { targetBoard: generateWinningBoard(config.symbols.map((s) => s.id), config.grid.reels, config.grid.rows, (config.seed ^ 0x7e57) >>> 0) };
   const clips = [
     { id: 'ts_start', action: 'startSpin', start: 0, duration: start, spinner: {} },
     { id: 'ts_spin', action: 'spin', start: start, duration: spin, spinner: {} },
-    { id: 'ts_stop', action: 'stopSpin', start: start + spin, duration: stop, spinner: { targetBoard: board } },
+    { id: 'ts_stop', action: 'stopSpin', start: start + spin, duration: stop, spinner: stopPayload },
     { id: 'ts_present', action: 'presentWin', start: start + spin + stop, duration: present, spinner: {} }
   ];
   return { clips, total: start + spin + stop + present };
@@ -713,17 +724,33 @@ export function generateOutcomeBoard(config, outcome, seed) {
 }
 
 /**
- * The target board a stopSpin clip lands. A Direct-mode `outcome` override
- * wins over everything; then an explicit authored board; otherwise a seeded
- * non-winning board derived from the clip (stable across sessions).
+ * The target board a stopSpin clip lands. A Direct-mode `outcomeOverride`
+ * (per-node, e.g. the director graph's "Spin outcome" selector) wins over
+ * everything; else the clip's OWN authored `spinner.outcome` (the timeline
+ * clip's own threshold selector — T12); else an explicit authored board;
+ * otherwise a seeded non-winning board derived from the clip (stable across
+ * sessions).
+ *
+ * `outcomeOverrideReroll` / the clip's own `spinner.rerollSeed` (T12): a
+ * "re-roll result" click bumps this counter, which folds into the outcome
+ * board's seed so the SAME threshold produces a DIFFERENT board on demand —
+ * the seed is otherwise a pure function of (clip id, outcome), so it would
+ * never change on its own. One re-roll implementation serves all three
+ * surfaces (director node, timeline clip inspector, wizard preview) because
+ * they all resolve through this one function.
  */
-export function targetBoardForClip(config, clip, outcome = null) {
+export function targetBoardForClip(config, clip, outcomeOverride = null, outcomeOverrideReroll = 0) {
   const payload = clip?.spinner || {};
   const { reels, rows } = config.grid;
   const ids = config.symbols.map((s) => s.id);
-  if (outcome && outcome !== 'default' && SPIN_OUTCOMES.includes(outcome)) {
-    const seed = (config.seed ^ hash32(`${clip?.id || 'stop'}::${outcome}`)) >>> 0;
-    const board = generateOutcomeBoard(config, outcome, seed);
+  const useOverride = outcomeOverride && outcomeOverride !== 'default' && SPIN_OUTCOMES.includes(outcomeOverride);
+  const clipOutcome = payload.outcome && payload.outcome !== 'default' && SPIN_OUTCOMES.includes(payload.outcome)
+    ? payload.outcome : null;
+  const effectiveOutcome = useOverride ? outcomeOverride : clipOutcome;
+  if (effectiveOutcome) {
+    const reroll = (useOverride ? outcomeOverrideReroll : payload.rerollSeed) || 0;
+    const seed = (config.seed ^ hash32(`${clip?.id || 'stop'}::${effectiveOutcome}::${reroll}`)) >>> 0;
+    const board = generateOutcomeBoard(config, effectiveOutcome, seed);
     if (board) return board;
   }
   // randomResult=true: always derive a seeded non-winning board, ignore any saved targetBoard.

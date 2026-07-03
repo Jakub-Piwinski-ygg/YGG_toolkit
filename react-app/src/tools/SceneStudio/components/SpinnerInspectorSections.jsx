@@ -12,6 +12,7 @@ import {
   generateNonWinningBoard,
   generateWinningBoard,
   evalWaysWins,
+  classifySymbols,
   defaultSpinnerBounce,
   spinnerStartSpinDuration,
   spinnerStopSpinDuration,
@@ -24,6 +25,17 @@ const BOUNCE_CURVES = [
   { value: 'easeOut',   label: 'easeOut (smooth)' },
   { value: 'backOut',   label: 'backOut (overshoot)' },
   { value: 'overshoot', label: 'overshoot (sharp)' },
+];
+
+// T12: same threshold set as the Direct-mode director node inspector
+// (ScenarioInspectorSections.jsx) — kept as a small local duplicate rather
+// than a cross-inspector import for five label strings.
+const SPIN_OUTCOME_LABELS = [
+  { value: 'default', label: 'default (as authored)' },
+  { value: 'noWin', label: 'no win' },
+  { value: 'smallWin', label: 'small win' },
+  { value: 'bigWin', label: 'big win' },
+  { value: 'wildWin', label: 'wild win' }
 ];
 
 /**
@@ -170,17 +182,48 @@ export function SpinnerClipSection({ config, clip, patchClip }) {
 
   if (action === 'stopSpin') {
     const randomResult = sp.randomResult === true;
+    const outcome = sp.outcome || 'default';
+    const hasWild = !!(config && classifySymbols(config).wildId);
     return (
       <div className="scene-field-group">
         <div className="scene-field-group-head">stop spin · target board</div>
+        <label className="scene-field">
+          <span>outcome</span>
+          <select
+            value={outcome}
+            onChange={(e) => patchSp({ outcome: e.target.value })}
+          >
+            {SPIN_OUTCOME_LABELS.map((o) => (
+              <option key={o.value} value={o.value} disabled={o.value === 'wildWin' && !hasWild}>
+                {o.label}{o.value === 'wildWin' && !hasWild ? ' — name a symbol “wild”' : ''}
+              </option>
+            ))}
+          </select>
+          {outcome !== 'default' && (
+            <button
+              type="button"
+              className="scene-btn scene-btn--sm scene-btn--ghost"
+              title="Re-seed within the same threshold (T12) — same category, different board"
+              onClick={() => patchSp({ rerollSeed: (sp.rerollSeed || 0) + 1 })}
+            >
+              🎲 Re-roll
+            </button>
+          )}
+        </label>
+        {outcome !== 'default' && (
+          <div className="scene-spinner-meta">
+            Board is generated for this outcome (seeded from config seed + clip id + re-roll count) —
+            the "random result" / target-board options below are ignored while an outcome is set.
+          </div>
+        )}
         <label className="scene-field scene-field--check">
-          <input type="checkbox" checked={randomResult}
+          <input type="checkbox" checked={randomResult} disabled={outcome !== 'default'}
             onChange={(e) => patchSp({ randomResult: e.target.checked })} />
           <span title="Generate a seeded non-winning board each playthrough instead of a fixed one">
             random result (auto non-win)
           </span>
         </label>
-        {randomResult ? (
+        {outcome !== 'default' ? null : randomResult ? (
           <div className="scene-spinner-meta">
             Board is generated automatically (non-winning, seeded from config seed + clip id).
           </div>

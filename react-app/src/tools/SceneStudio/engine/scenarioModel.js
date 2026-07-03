@@ -50,7 +50,10 @@ function allChannels(v) {
 
 /** Default per-node entry options. */
 export function entryDefaults() {
-  return { speed: 1, startOffset: 0, waitForClick: false, spinOutcome: 'default' };
+  // spinOutcomeReroll (T12): bumped by the node inspector's "re-roll result"
+  // action — folds into the outcome board's seed so re-rolling within the
+  // same threshold produces a different board (spinnerModel.targetBoardForClip).
+  return { speed: 1, startOffset: 0, waitForClick: false, spinOutcome: 'default', spinOutcomeReroll: 0 };
 }
 
 /** Normalize a transition payload (or null → defaults-on-read). */
@@ -74,11 +77,13 @@ export function normalizeEntry(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const sp = Number(raw.speed);
   const so = Number(raw.startOffset);
+  const rr = Number(raw.spinOutcomeReroll);
   return {
     speed: Number.isFinite(sp) && sp > 0 ? sp : 1,
     startOffset: Number.isFinite(so) && so >= 0 ? so : 0,
     waitForClick: raw.waitForClick === true,
-    spinOutcome: SPIN_OUTCOMES.includes(raw.spinOutcome) ? raw.spinOutcome : 'default'
+    spinOutcome: SPIN_OUTCOMES.includes(raw.spinOutcome) ? raw.spinOutcome : 'default',
+    spinOutcomeReroll: Number.isFinite(rr) && rr >= 0 ? rr : 0
   };
 }
 

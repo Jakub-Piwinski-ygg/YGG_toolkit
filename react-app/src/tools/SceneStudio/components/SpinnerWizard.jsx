@@ -47,12 +47,23 @@ import {
   mulberry32,
   hash32,
   buildSpinnerTestClips,
+  classifySymbols,
   SPINNER_DEFAULT_STRIP_LEN,
   defaultSpinnerTiming,
   defaultSpinnerBounce,
   defaultSpinnerBlur,
   defaultSpinnerEvents,
 } from '../engine/spinner/spinnerModel.js';
+
+// T12: same threshold set as the director node / timeline clip inspectors —
+// kept as a small local duplicate rather than a cross-component import.
+const SPIN_OUTCOME_LABELS = [
+  { value: 'default', label: 'default (seeded win)' },
+  { value: 'noWin', label: 'no win' },
+  { value: 'smallWin', label: 'small win' },
+  { value: 'bigWin', label: 'big win' },
+  { value: 'wildWin', label: 'wild win' }
+];
 
 /** Build the synthetic spinner preview scene shown in the viewport while the
  * wizard is open: the referenced symbol assets + a centered spinner layer,
@@ -689,6 +700,10 @@ export function SpinnerWizard({
   // timing into its Pixi object at build time).
   //
   const [testRun, setTestRun] = useState(null); // { clips, total } | null
+  // T12: the wizard's own re-roll surface — same seeded-outcome path as the
+  // director node and timeline clip inspectors (spinnerModel.buildSpinnerTestClips).
+  const [testOutcome, setTestOutcome] = useState('default');
+  const [testReroll, setTestReroll] = useState(0);
   const testTimeRef = useRef(0);
   const testRafRef = useRef(0);
   const testLastRef = useRef(0);
@@ -777,7 +792,7 @@ export function SpinnerWizard({
     // clock). The spinner is already baked with current timing (debounced
     // rebuild), so no flash — it spins from the current board exactly like the
     // scene timeline.
-    setTestRun(buildSpinnerTestClips(previewSpinnerConfig));
+    setTestRun(buildSpinnerTestClips(previewSpinnerConfig, testOutcome, testReroll));
   };
   const resetPreview = () => setTestRun(null);
 
@@ -1220,6 +1235,33 @@ export function SpinnerWizard({
                     <button type="button" className="scene-btn scene-btn--ghost" onClick={resetPreview} disabled={!testRun}>
                       ↺ reset
                     </button>
+                  </div>
+                  <div className="spinner-wizard-auto-row">
+                    <select
+                      value={testOutcome}
+                      onChange={(e) => setTestOutcome(e.target.value)}
+                      title="Result threshold for the next test spin (T12) — same seeded-outcome path as the director node / timeline clip"
+                    >
+                      {SPIN_OUTCOME_LABELS.map((o) => (
+                        <option
+                          key={o.value}
+                          value={o.value}
+                          disabled={o.value === 'wildWin' && !(previewSpinnerConfig && classifySymbols(previewSpinnerConfig).wildId)}
+                        >
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    {testOutcome !== 'default' && (
+                      <button
+                        type="button"
+                        className="scene-btn scene-btn--sm scene-btn--ghost"
+                        title="Re-seed within the same threshold — same category, different board"
+                        onClick={() => setTestReroll((n) => n + 1)}
+                      >
+                        🎲 Re-roll
+                      </button>
+                    )}
                   </div>
                 </>
               )}

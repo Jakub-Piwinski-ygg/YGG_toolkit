@@ -1144,7 +1144,7 @@ export function applyFlowAtTime(handles, scene, t) {
       // authored initial board. Null in single-timeline mode → initial board.
       const carryBoard = scene.__spinnerCarry ? (scene.__spinnerCarry[layer.id] || null) : null;
       // Per-node spin outcome override (Direct mode) — null → authored result.
-      applySpinnerAtTime(obj, layer, tracks, t, carryBoard, scene.__spinnerOutcome || null);
+      applySpinnerAtTime(obj, layer, tracks, t, carryBoard, scene.__spinnerOutcome || null, scene.__spinnerOutcomeReroll || 0);
       applyPngChannels(obj, layer, tracks, t, orientation);
       // T4 visibility contract (scoped to spinner/winseq/mode-groups, see
       // SCENE_STUDIO_QOL_PLAN.md §2 T4): a spinner nobody ever authored a

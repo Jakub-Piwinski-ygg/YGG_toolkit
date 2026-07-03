@@ -443,7 +443,7 @@ test('setNodeEntry merges + normalizes per-node entry options', () => {
   sc = addTimelineNode(sc, 'S1', 'TL_a', 200, 100);
   const a = sc.nodes.find((n) => n.type === 'timeline');
   // defaults on read
-  assert.deepEqual(nodeEntry(a), { speed: 1, startOffset: 0, waitForClick: false, spinOutcome: 'default' });
+  assert.deepEqual(nodeEntry(a), { speed: 1, startOffset: 0, waitForClick: false, spinOutcome: 'default', spinOutcomeReroll: 0 });
   sc = setNodeEntry(sc, a.id, { speed: 2, waitForClick: true });
   const a2 = sc.nodes.find((n) => n.id === a.id);
   assert.equal(nodeEntry(a2).speed, 2);

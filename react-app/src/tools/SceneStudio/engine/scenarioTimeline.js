@@ -75,7 +75,8 @@ export function buildScenarioTimeline(scenario, project) {
       mixDuration: trans.mixDuration,
       channels: trans.channels,
       overlapIn,
-      spinOutcome: entry.spinOutcome || 'default'
+      spinOutcome: entry.spinOutcome || 'default',
+      spinOutcomeReroll: entry.spinOutcomeReroll || 0
     };
     segments.push(seg);
     prev = seg;
@@ -249,7 +250,7 @@ export function spinnerCarryByNode(flat, project) {
       const tracks = (tl?.tracks || []).filter((tr) => tr.layerId === layer.id);
       const track = pickSpinnerActionTrack(tracks);
       const outcome = seg.spinOutcome !== 'default' ? seg.spinOutcome : null;
-      const resolved = resolveSpinnerTrack(config, track, entryBoard, outcome);
+      const resolved = resolveSpinnerTrack(config, track, entryBoard, outcome, seg.spinOutcomeReroll || 0);
       // Board visible at the end of this segment's played window (settled) —
       // an outcome override lands here too, so downstream nodes HOLD it.
       carry.set(ckey, spinnerVisibleBoard(config, resolved, seg.refDur));

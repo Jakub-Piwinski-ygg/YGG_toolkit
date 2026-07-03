@@ -203,17 +203,18 @@ export async function buildSpinnerObject(asset, layer, deps) {
  *
  * `outcome` (optional): direct-mode per-node result override — see
  * resolveSpinnerTrack. Null in animate mode → authored behavior.
+ * `outcomeReroll` (optional, T12): the director node's re-roll counter.
  */
-export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, outcome = null) {
+export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, outcome = null, outcomeReroll = 0) {
   const sp = obj.__spinner;
   if (!sp) return;
   const { config, textures, reelViews, pitchY, symbolMap, spinePool, W, H } = sp;
   const { rows, cellW, cellH, spacingX } = config.grid;
 
   const track = pickSpinnerActionTrack(tracks || []);
-  const key = spinnerResolveKey(config, track, startBoard, outcome);
+  const key = spinnerResolveKey(config, track, startBoard, outcome, outcomeReroll);
   if (sp.resolveKey !== key) {
-    sp.resolved = resolveSpinnerTrack(config, track, startBoard, outcome);
+    sp.resolved = resolveSpinnerTrack(config, track, startBoard, outcome, outcomeReroll);
     sp.resolveKey = key;
   }
 
