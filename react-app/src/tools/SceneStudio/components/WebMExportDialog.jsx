@@ -41,6 +41,25 @@ const panelStyle = {
   background: 'var(--bg2, #15191f)', border: '1px solid var(--line, #2a313b)',
   borderRadius: 8, padding: '18px 20px', boxShadow: '0 18px 60px rgba(0,0,0,0.5)'
 };
+// T11 "watch the render" mode: exportVideo() drives the SAME live canvas the
+// editor shows (PixiViewport.exportVideo resizes/renders onto app.canvas
+// in place — see its "enter export mode" block) — the render was never
+// actually hidden, only BURIED behind this dialog's full-screen opaque
+// overlay. While watching, shrink the dialog to a small non-blocking HUD
+// pinned in a corner instead of a fullscreen scrim, so the scene view (and
+// its live capture) is unobstructed. Settings stay locked during export
+// either way — only the overlay's shape/position changes.
+const watchOverlayStyle = {
+  position: 'fixed', top: 16, right: 16, zIndex: 1000,
+  background: 'transparent', pointerEvents: 'none',
+  display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end'
+};
+const watchPanelStyle = {
+  width: 280, maxWidth: '80vw',
+  background: 'var(--bg2, #15191f)', border: '1px solid var(--line, #2a313b)',
+  borderRadius: 8, padding: '10px 14px', boxShadow: '0 8px 30px rgba(0,0,0,0.5)',
+  pointerEvents: 'auto'
+};
 const rowStyle = { display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0' };
 const labelStyle = { width: 150, fontSize: 12, color: 'var(--muted, #8a93a3)', flexShrink: 0 };
 
@@ -84,6 +103,10 @@ export function WebMExportDialog({ scene, viewportRef, sources, makeFrameProvide
   const [quality, setQuality] = useState(saved.quality || 'high');
   const [scale, setScale] = useState(saved.scale || 1);
   const [bg, setBg] = useState(saved.bg || '#000000');
+  // T11: default ON — exportVideo() already renders onto the live viewport
+  // canvas in place, so "watching" just means not burying it behind this
+  // dialog's full-screen overlay while it plays.
+  const [watchRender, setWatchRender] = useState(saved.watchRender !== false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null); // { frame, total, phase? }
   const [result, setResult] = useState(null);
@@ -96,8 +119,8 @@ export function WebMExportDialog({ scene, viewportRef, sources, makeFrameProvide
   const supported = format === 'webm' ? webmSupported : true; // mp4 always has the ffmpeg fallback
 
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ sourceKey, format, fps, quality, scale, bg })); } catch { /* quota */ }
-  }, [sourceKey, format, fps, quality, scale, bg]);
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ sourceKey, format, fps, quality, scale, bg, watchRender })); } catch { /* quota */ }
+  }, [sourceKey, format, fps, quality, scale, bg, watchRender]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape' && !busy) closeRef.current?.(); };
@@ -162,6 +185,31 @@ export function WebMExportDialog({ scene, viewportRef, sources, makeFrameProvide
   const cancel = () => { if (abortRef.current) abortRef.current.aborted = true; };
   const pct = progress && progress.total ? Math.round((progress.frame / progress.total) * 100) : 0;
 
+  // T11: while exporting with "watch the render" on, don't bury the live
+  // canvas behind the full settings dialog — show a small non-blocking HUD
+  // with the same progress readout instead. Settings are locked during
+  // export regardless, so nothing here needs to differ except the shell.
+  if (busy && watchRender) {
+    return (
+      <div style={watchOverlayStyle}>
+        <div style={watchPanelStyle}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+            <strong style={{ fontSize: 12 }}>Rendering {source?.name || 'video'}…</strong>
+          </div>
+          <div style={{ height: 6, background: 'var(--line, #2a313b)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent, #4f9eff)', transition: 'width .1s' }} />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted, #8a93a3)', marginTop: 4 }}>
+            {progress?.phase ? `${progress.phase} — ` : ''}frame {progress?.frame ?? 0} / {progress?.total ?? totalFrames} ({pct}%)
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button className="scene-btn scene-btn--sm" onClick={cancel}>cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={overlayStyle} onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose?.(); }}>
       <div style={panelStyle}>
@@ -221,6 +269,13 @@ export function WebMExportDialog({ scene, viewportRef, sources, makeFrameProvide
 
         <Row label="Background" title="Output is opaque — choose the fill behind transparent areas">
           <ColorPicker value={bg} onChange={setBg} disabled={busy} title="Background fill" />
+        </Row>
+
+        <Row label="Watch the render" title="Exporting drives the same live scene view you already see — this just stops the export dialog from covering it while it plays">
+          <label className="scene-field scene-field--check" style={{ margin: 0 }}>
+            <input type="checkbox" checked={watchRender} onChange={(e) => setWatchRender(e.target.checked)} disabled={busy} />
+            <span>show the scene view while exporting</span>
+          </label>
         </Row>
 
         <div style={{ fontSize: 11, color: 'var(--muted, #8a93a3)', margin: '10px 0' }}>

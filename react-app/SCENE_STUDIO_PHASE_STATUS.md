@@ -234,6 +234,28 @@ w kolejności z §3 planu.
   Pliki: `components/InspectorPanel.jsx`, `SceneStudioInner.jsx`,
   `engine/winseq/winNumberRuntime.js`, `engine/pixiApp.js`.
 
+- **T11 — eksport WebM: tryb „watch the render" — UKOŃCZONE ✅.**
+  Okazało się, że problem #11 nie był brakiem mechanizmu, tylko tym, że
+  ISTNIEJĄCY mechanizm był zasłonięty: `PixiViewport.exportVideo()` (już
+  wcześniej) rysuje eksport bezpośrednio na TYM SAMYM, żywym `app.canvas` co
+  edytor (`app.renderer.resize(outW, outH, 1)` + rendering w miejscu, patrz
+  „enter export mode" w `exportVideo`) — sceny NIGDY nie renderowało się
+  „w tle" osobno. Jedyny problem: `WebMExportDialog.jsx` renderował się jako
+  pełnoekranowy, nieprzezroczysty overlay (`position:fixed; inset:0`)
+  zasłaniający cały viewport przez cały czas eksportu, więc live-render był
+  fizycznie zakryty własnym oknem dialogowym. Naprawa: nowy toggle „show the
+  scene view while exporting" (domyślnie ON, `watchRender`, persystowany w
+  localStorage jak reszta ustawień) — kiedy aktywny eksport (`busy`) I
+  `watchRender` jest włączony, dialog renderuje się jako mały, nieblokujący
+  HUD przypięty w rogu (progress bar + „frame X/Y" + cancel) zamiast
+  pełnoekranowego scrim, więc scena (i jej żywy capture) jest w pełni
+  widoczna pod spodem. Ustawienia i tak są zablokowane podczas eksportu
+  niezależnie od trybu — zmienia się wyłącznie kształt/pozycja overlaya.
+  Cancel/retry bez zmian (ten sam handler w obu wariantach). `PixiViewport.jsx`
+  **nie wymagał zmian** wbrew wskazaniu w planie — mechanizm „na żywym
+  canvasie" już tam był, brakowało tylko nie-zasłaniania go.
+  Plik: `components/WebMExportDialog.jsx`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).
