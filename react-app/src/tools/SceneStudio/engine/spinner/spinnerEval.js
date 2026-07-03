@@ -148,13 +148,32 @@ function stopEntrySlope(easePos) {
 /**
  * Cheap stable key for memoizing a resolve. Recompute the resolve whenever
  * this changes (clip edits, config edits) — no event wiring needed.
+ * `startBoard` (direct-mode carry-in — see resolveSpinnerTrack) is part of the
+ * key so a spinner re-resolves when a preceding scenario segment hands off a
+ * different landed board.
  */
-export function spinnerResolveKey(config, track) {
+export function spinnerResolveKey(config, track, startBoard = null) {
   return JSON.stringify([
     config.rev, config.seed, config.grid, config.timing, config.bounce,
     config.blur, config.events, config.perReel, config.direction,
-    (track?.clips || []).map((c) => [c.id, c.start, c.duration, c.action, c.spinner])
+    (track?.clips || []).map((c) => [c.id, c.start, c.duration, c.action, c.spinner]),
+    startBoard
   ]);
+}
+
+/** The action track = the first track carrying any spinner-action clip. */
+export function pickSpinnerActionTrack(tracks) {
+  for (const tr of tracks || []) {
+    if ((tr.clips || []).some((c) => SPINNER_ACTIONS.includes(c.action))) return tr;
+  }
+  return (tracks && tracks[0]) || null;
+}
+
+/** True when `board` is a valid symbolId[reels][rows] matrix for this grid. */
+function isValidBoard(config, board) {
+  const { reels, rows } = config.grid;
+  return Array.isArray(board) && board.length === reels
+    && board.every((col) => Array.isArray(col) && col.length === rows);
 }
 
 /**
@@ -166,8 +185,14 @@ export function spinnerResolveKey(config, track) {
  * an explicit freeze is authored with `holdResult`. After the last clip the
  * final dynamics continue forever (landed reels stay landed, an unstopped
  * spin keeps spinning).
+ *
+ * `startBoard` (optional): the pre-spin board the reels show before the first
+ * clip, replacing `config.initialBoard`. Direct-mode scenario playback threads
+ * the board a spinner landed on in a preceding timeline segment through here so
+ * the reels HOLD their result across a timeline hand-off instead of snapping
+ * back to the authored initial board.
  */
-export function resolveSpinnerTrack(config, track) {
+export function resolveSpinnerTrack(config, track, startBoard = null) {
   const { reels: R, rows } = config.grid;
   const segments = Array.from({ length: R }, () => []);
   const overlayAbs = Array.from({ length: R }, () => new Map());
@@ -178,8 +203,9 @@ export function resolveSpinnerTrack(config, track) {
   // Visual row j ↔ strip-window offset (mirrored for downward scroll).
   const rowOffset = (j) => (config.direction === 1 ? rows - 1 - j : j);
 
+  const seedBoard = isValidBoard(config, startBoard) ? startBoard : config.initialBoard;
   for (let r = 0; r < R; r++) {
-    for (let j = 0; j < rows; j++) overlayAbs[r].set(rowOffset(j), config.initialBoard[r][j]);
+    for (let j = 0; j < rows; j++) overlayAbs[r].set(rowOffset(j), seedBoard[r][j]);
   }
 
   const clips = (track?.clips || [])
@@ -430,4 +456,24 @@ export function evaluateSpinner(config, resolved, t) {
     out.reels.push({ scroll: s, baseIndex, frac, speed, blurMix, bounceOffset, cells });
   }
   return out;
+}
+
+/**
+ * The board CURRENTLY VISIBLE (rows × reels of symbolIds) at time `t`. Used by
+ * direct-mode scenario playback to snapshot the board a spinner ends a timeline
+ * segment on, so the next segment can seed from it (see resolveSpinnerTrack's
+ * `startBoard`). Sampled at a settled time it returns the landed board.
+ *
+ * @returns {Array<Array<string|null>>} board[reel][row]
+ */
+export function spinnerVisibleBoard(config, resolved, t) {
+  const { reels: R, rows } = config.grid;
+  const res = evaluateSpinner(config, resolved, t);
+  const board = Array.from({ length: R }, () => new Array(rows).fill(null));
+  for (let r = 0; r < R; r++) {
+    for (const cell of res.reels[r].cells) {
+      if (cell.gridRow >= 0 && cell.gridRow < rows) board[r][cell.gridRow] = cell.symbolId;
+    }
+  }
+  return board;
 }

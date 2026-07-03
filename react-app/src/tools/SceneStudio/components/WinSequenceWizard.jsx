@@ -503,6 +503,22 @@ export function WinSequenceWizard({
   }, [flows, previewFlowId]);
   const previewFlow = flows.find((f) => f.id === previewFlowId) || flows[flows.length - 1] || null;
 
+  // Default setup pose (the frame shown while positioning the object in setup
+  // mode — see winseqRuntime.applyWinSeqSetupPose). Captured from the live
+  // preview transport below (previewTimeRef tracks the scrubbed clip-local time).
+  const previewTimeRef = useRef(0);
+  const [setupPose, setSetupPose] = useState(() => ({
+    sequenceId: existingConfig?.setupPose?.sequenceId || null,
+    t: Number.isFinite(Number(existingConfig?.setupPose?.t)) ? Number(existingConfig.setupPose.t) : null,
+  }));
+  const captureSetupPose = useCallback(() => {
+    setSetupPose({ sequenceId: previewFlowId, t: Math.max(0, previewTimeRef.current || 0) });
+  }, [previewFlowId]);
+  const handlePreviewTime = useCallback((t) => {
+    previewTimeRef.current = t;
+    if (embedded && onPreviewTime) onPreviewTime(t);
+  }, [embedded, onPreviewTime]);
+
   // Number step: which tier's IDLE to pose the preview on (begin frames often
   // hide the bone). Defaults to the BIGGEST enabled tier (e.g. mega) — its idle
   // is the most likely to show the number bone clearly.
@@ -583,11 +599,12 @@ export function WinSequenceWizard({
     const winseqConfig = {
       rev: (existingConfig?.rev || 0) + 1,
       tiers: tiers.map((t) => ({ key: t.key, begin: t.begin, idle: t.idle, end: t.end, enabled: t.enabled })),
+      setupPose: { sequenceId: setupPose.sequenceId, t: setupPose.t },
       number: numberConfig,
     };
     const skeleton = { src: selectedEntry.src, atlas: selectedEntry.atlas, texture: selectedEntry.texture };
     onCreate?.({ name: name.trim() || 'Win Sequences', winseqConfig, skeleton });
-  }, [flows.length, selectedEntry, existingConfig, tiers, name, numberConfig, onCreate]);
+  }, [flows.length, selectedEntry, existingConfig, tiers, name, numberConfig, setupPose, onCreate]);
 
   const stepIdx = STEPS.indexOf(step);
   const canNext = step === 'skeleton' ? (!loading && !loadError && matchedCount > 0) : true;
@@ -922,9 +939,35 @@ export function WinSequenceWizard({
                     Preview · {previewFlow.label}
                     <span className="scene-pill">plays in the scene view ↑</span>
                   </div>
-                  <WinSeqPreview flow={previewFlow} durations={durations} onTime={embedded ? onPreviewTime : undefined} />
+                  <WinSeqPreview flow={previewFlow} durations={durations} onTime={handlePreviewTime} />
                 </>
               )}
+
+              {/* Default setup pose — the frame shown while positioning the
+                  object in setup mode (in animate mode it's invisible unless a
+                  control clip drives it). */}
+              <div className="scene-field-group-head" style={{ marginTop: 12 }}>Default pose (setup positioning)</div>
+              <div className="scene-spinner-meta" style={{ marginBottom: 6 }}>
+                In animate mode a win sequence is invisible until a control-track
+                clip plays it. This pose is what you see while placing / scaling it
+                in setup mode. Scrub the preview above to a good frame, then capture it.
+              </div>
+              <div className="scene-field-row" style={{ alignItems: 'flex-end' }}>
+                <div className="scene-field">
+                  <span>current</span>
+                  <div style={{ fontWeight: 700, color: 'var(--accent,#ffd45a)' }}>
+                    {setupPose.sequenceId
+                      ? `${flows.find((f) => f.id === setupPose.sequenceId)?.label || setupPose.sequenceId} · ${(setupPose.t ?? 0).toFixed(2)}s`
+                      : `auto · ${(flows[flows.length - 1]?.label || '—')} idle`}
+                  </div>
+                </div>
+                <button type="button" className="scene-btn scene-btn--ghost" disabled={!previewFlow} onClick={captureSetupPose}>
+                  ◉ use current preview frame
+                </button>
+                <button type="button" className="scene-btn scene-btn--ghost" onClick={() => setSetupPose({ sequenceId: null, t: null })}>
+                  ⟲ reset
+                </button>
+              </div>
 
               <div className="scene-field-group-head" style={{ marginTop: 12 }}>Summary</div>
               <div className="scene-spinner-meta">

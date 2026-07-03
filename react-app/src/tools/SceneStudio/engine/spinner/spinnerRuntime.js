@@ -21,8 +21,8 @@
 //     fx Container            ← land/win overlays — OUTSIDE the mask (overflow)
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
-import { normalizeSpinnerConfig, SPINNER_ACTIONS } from './spinnerModel.js';
-import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey } from './spinnerEval.js';
+import { normalizeSpinnerConfig } from './spinnerModel.js';
+import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey, pickSpinnerActionTrack } from './spinnerEval.js';
 
 // §B: symbols render at native 1:1 (a 220px symbol stays 220px, overflowing
 // its cell). No fit-shrink — keep scale 1; the single machine mask clips the
@@ -193,27 +193,24 @@ export async function buildSpinnerObject(asset, layer, deps) {
   return root;
 }
 
-/** The action track is the first track carrying any spinner-action clip. */
-function actionTrackOf(tracks) {
-  for (const tr of tracks) {
-    if ((tr.clips || []).some((c) => SPINNER_ACTIONS.includes(c.action))) return tr;
-  }
-  return tracks[0] || null;
-}
-
 /**
  * Per-frame application — strictly t-driven, scrub-safe in both directions.
+ *
+ * `startBoard` (optional): direct-mode carry-in board (the result a preceding
+ * scenario segment landed on) — threaded into the resolve so the reels HOLD
+ * that board instead of snapping to `config.initialBoard` when this timeline
+ * has no spin clips. Null in single-timeline (animate) mode → initial board.
  */
-export function applySpinnerAtTime(obj, layer, tracks, t) {
+export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null) {
   const sp = obj.__spinner;
   if (!sp) return;
   const { config, textures, reelViews, pitchY, symbolMap, spinePool, W, H } = sp;
   const { rows, cellW, cellH, spacingX } = config.grid;
 
-  const track = actionTrackOf(tracks || []);
-  const key = spinnerResolveKey(config, track);
+  const track = pickSpinnerActionTrack(tracks || []);
+  const key = spinnerResolveKey(config, track, startBoard);
   if (sp.resolveKey !== key) {
-    sp.resolved = resolveSpinnerTrack(config, track);
+    sp.resolved = resolveSpinnerTrack(config, track, startBoard);
     sp.resolveKey = key;
   }
 

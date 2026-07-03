@@ -234,6 +234,24 @@ function normalizeTier(t) {
 }
 
 /**
+ * Normalize the setup-mode default pose — the frame a win-sequence object holds
+ * (visible) while it is being POSITIONED in setup mode. `sequenceId` picks which
+ * flow to pose on (defaults to the biggest/last flow, whose idle reads best);
+ * `t` is the clip-local time in seconds (null → the runtime uses the flow's
+ * mid-idle, computed from the live skeleton durations). In ANIMATE mode this is
+ * irrelevant: the object is invisible unless an active control clip drives it.
+ */
+export function normalizeWinSeqSetupPose(raw, sequences) {
+  const flows = sequences || [];
+  const fallbackId = flows.length ? flows[flows.length - 1].id : null;
+  const p = raw && typeof raw === 'object' ? raw : {};
+  const wantedId = typeof p.sequenceId === 'string' && p.sequenceId ? p.sequenceId : null;
+  const sequenceId = (wantedId && flows.some((f) => f.id === wantedId)) ? wantedId : fallbackId;
+  const t = Number.isFinite(Number(p.t)) && Number(p.t) >= 0 ? Number(p.t) : null;
+  return { sequenceId, t };
+}
+
+/**
  * Normalize a win-sequence config. `sequences` are ALWAYS derived from
  * `tiers` (single source of truth), so a hand-authored / older config with
  * stale sequences self-heals. Returns null when no flow can be produced.
@@ -247,6 +265,7 @@ export function normalizeWinSeqConfig(raw) {
     rev: Math.max(1, Math.round(Number(raw.rev) || 1)),
     tiers,
     sequences,
+    setupPose: normalizeWinSeqSetupPose(raw.setupPose, sequences),
     number: normalizeWinNumber(raw.number),
   };
 }
@@ -370,4 +389,41 @@ export function evaluateWinSeqFlow(flow, durations, t, { hangOnLastIdle = false 
   // Unreachable (isLast covers the tail), but keep a definite return.
   const last = steps[steps.length - 1];
   return { anim: last.anim, animTime: stepDuration(last, durations), loop: false, role: last.role };
+}
+
+/**
+ * Clip-local time (s) landing in the MIDDLE of a flow's final idle step. The
+ * begin frame often scales the win art / TEXT bone to nothing, so the idle is
+ * the most representative "full" pose — used as the default setup pose and by
+ * the wizard's Number-step preview. Uses the same per-step durations as the
+ * evaluator so it stays in sync with the playhead.
+ */
+export function winSeqMidIdleTime(flow, durations) {
+  if (!flow?.steps?.length) return 0;
+  let lastIdle = -1;
+  for (let i = flow.steps.length - 1; i >= 0; i--) {
+    if (flow.steps[i].role === 'idle') { lastIdle = i; break; }
+  }
+  if (lastIdle < 0) return 0;
+  let t = 0;
+  for (let i = 0; i < lastIdle; i++) t += winSeqStepDuration(flow.steps[i].anim, durations);
+  return t + winSeqStepDuration(flow.steps[lastIdle].anim, durations) * 0.5;
+}
+
+/**
+ * Resolve the setup-mode default pose to a concrete { anim, animTime } for the
+ * runtime. Returns null when no flow exists. Honors config.setupPose
+ * (sequenceId + optional explicit `t`); with no explicit `t`, poses on the
+ * chosen flow's mid-idle computed from the live skeleton `durations`.
+ *
+ * @returns {{ anim:string, animTime:number, loop:boolean, role:string }|null}
+ */
+export function evaluateWinSeqSetupPose(config, durations) {
+  const flows = config?.sequences || [];
+  if (!flows.length) return null;
+  const pose = config.setupPose || {};
+  const flow = flows.find((f) => f.id === pose.sequenceId) || flows[flows.length - 1];
+  if (!flow) return null;
+  const t = pose.t != null ? pose.t : winSeqMidIdleTime(flow, durations);
+  return evaluateWinSeqFlow(flow, durations, t, { hangOnLastIdle: false });
 }

@@ -17,6 +17,8 @@ import {
   nodeEntry,
   edgeTransition
 } from './scenarioModel.js';
+import { normalizeSpinnerConfig } from './spinner/spinnerModel.js';
+import { resolveSpinnerTrack, spinnerVisibleBoard, pickSpinnerActionTrack } from './spinner/spinnerEval.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -142,4 +144,58 @@ export function sampleScenario(tl, T) {
 export function segmentAt(tl, T) {
   const s = sampleScenario(tl, T);
   return s ? s.segment : null;
+}
+
+/**
+ * Per-node spinner carry-in boards for a flattened scenario. A spinner object
+ * is stateless — its board is a pure function of one timeline's spin clips — so
+ * across a direct-mode timeline hand-off it would snap back to config.initialBoard.
+ * To make the reels HOLD the symbols they landed on, we fold across the walk:
+ * for each segment we record the board each spinner layer ENTERS on (the board
+ * the previous segment ended on), then compute the board it LANDS on at that
+ * segment's end and carry it to the next segment.
+ *
+ * @returns {Map<string, Object<string, board>>} nodeId → { [layerId]: board }
+ *          (board = symbolId[reels][rows]; a null entry means "use initialBoard")
+ */
+export function spinnerCarryByNode(flat, project) {
+  const byNode = new Map();
+  if (!flat?.segments?.length || !project) return byNode;
+  const scenesById = new Map((project.scenes || []).map((s) => [s.id, s]));
+  const assetsById = new Map((project.assets || []).map((a) => [a.id, a]));
+  const configCache = new Map(); // assetId → normalized spinner config | null
+  const configFor = (assetId) => {
+    if (configCache.has(assetId)) return configCache.get(assetId);
+    const c = normalizeSpinnerConfig(assetsById.get(assetId)?.spinner);
+    configCache.set(assetId, c);
+    return c;
+  };
+  // Running landed board, keyed `${sceneId}::${layerId}`.
+  const carry = new Map();
+
+  for (const seg of flat.segments) {
+    const data = scenesById.get(seg.sceneId)?.data;
+    if (!data) continue;
+    const spinnerLayers = (data.layers || []).filter(
+      (l) => assetsById.get(l.assetId)?.type === 'spinner'
+    );
+    if (!spinnerLayers.length) continue;
+
+    const tl = (data.timelines || []).find((t) => t.id === seg.timelineId);
+    const nodeCarry = {};
+    for (const layer of spinnerLayers) {
+      const config = configFor(layer.assetId);
+      if (!config) continue;
+      const ckey = `${seg.sceneId}::${layer.id}`;
+      const entryBoard = carry.get(ckey) || null;
+      nodeCarry[layer.id] = entryBoard; // null → resolves to config.initialBoard
+      const tracks = (tl?.tracks || []).filter((tr) => tr.layerId === layer.id);
+      const track = pickSpinnerActionTrack(tracks);
+      const resolved = resolveSpinnerTrack(config, track, entryBoard);
+      // Board visible at the end of this segment's played window (settled).
+      carry.set(ckey, spinnerVisibleBoard(config, resolved, seg.refDur));
+    }
+    if (Object.keys(nodeCarry).length) byNode.set(seg.nodeId, nodeCarry);
+  }
+  return byNode;
 }

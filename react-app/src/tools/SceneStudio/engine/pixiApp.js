@@ -22,7 +22,7 @@ import { resolvePointHandles } from './animation/pathSpline.js';
 import { Spine } from '@esotericsoftware/spine-pixi-v8';
 import { buildSpineFromUrls, loadSkeletonData, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
 import { buildSpinnerObject, applySpinnerAtTime } from './spinner/spinnerRuntime.js';
-import { applyWinSeqAtTime, resetWinSeqState, winSeqDurationsFromSpine } from './winseq/winseqRuntime.js';
+import { applyWinSeqAtTime, resetWinSeqState, applyWinSeqSetupPose, winSeqDurationsFromSpine } from './winseq/winseqRuntime.js';
 import { normalizeWinSeqConfig } from './winseq/winseqModel.js';
 import { normalizeWinNumber, isTemplateFont, templateFontUrl } from './winseq/winNumberModel.js';
 import { buildWinNumberContainer } from './winseq/winNumberView.js';
@@ -439,6 +439,9 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
       spine.__winseq = { config, durations: winSeqDurationsFromSpine(spine) };
       spine.__wsCache = { anim: null, loop: null };
+      // Show the setup default pose so a freshly-built object is visible for
+      // positioning in setup mode; animate mode's applyWinSeqAtTime overrides.
+      applyWinSeqSetupPose(spine);
       return spine;
     }
     if (asset.type === 'winnumber') {
@@ -1107,7 +1110,12 @@ export function applyFlowAtTime(handles, scene, t) {
     }
 
     if (asset.type === 'spinner' && obj.__spinner) {
-      applySpinnerAtTime(obj, layer, tracks, t);
+      // Direct-mode scenario playback threads a carry-in board per spinner layer
+      // (the result the previous timeline segment landed on) so the reels HOLD
+      // that board across a timeline hand-off instead of resetting to the
+      // authored initial board. Null in single-timeline mode → initial board.
+      const carryBoard = scene.__spinnerCarry ? (scene.__spinnerCarry[layer.id] || null) : null;
+      applySpinnerAtTime(obj, layer, tracks, t, carryBoard);
       applyPngChannels(obj, layer, tracks, t, orientation);
       continue;
     }

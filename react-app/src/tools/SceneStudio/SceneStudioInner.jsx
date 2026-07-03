@@ -76,7 +76,7 @@ import {
   setView as scSetView,
   listProjectTimelines
 } from './engine/scenarioModel.js';
-import { buildScenarioTimeline, sampleScenario } from './engine/scenarioTimeline.js';
+import { buildScenarioTimeline, sampleScenario, spinnerCarryByNode } from './engine/scenarioTimeline.js';
 import { buildBlendedScene } from './engine/scenarioBlend.js';
 import { clearSession, loadSession, saveSession } from './engine/sessionStore.js';
 import {
@@ -2490,6 +2490,7 @@ export default function SceneStudioInner() {
     const sc = (project.scenarios || []).find((s) => s.id === source.id);
     if (!sc) return null;
     const flat = buildScenarioTimeline(sc, project);
+    const carryByNode = spinnerCarryByNode(flat, project);
     // The live handles belong to the active scene only; segments from other
     // scenes can't render without a graph rebuild, so we skip them. (Compare
     // against the PROJECT scene id — the working scene's own id differs.)
@@ -2513,7 +2514,8 @@ export default function SceneStudioInner() {
       const tracks = isActive ? (cur.flow?.tracks || []) : (tl?.tracks || []);
       const markers = isActive ? (cur.flow?.markers || []) : (tl?.markers || []);
       const flow = deriveFlowGraph({ tracks, markers, nodes: [], edges: [] });
-      return { scene: { ...cur, flow }, flowTime: segLocalTime };
+      const carry = carryByNode.get(s.segment?.nodeId) || null;
+      return { scene: { ...cur, flow, __spinnerCarry: carry }, flowTime: segLocalTime };
     };
   }, [project, log]);
 
@@ -2524,6 +2526,15 @@ export default function SceneStudioInner() {
     [activeScenario, project]
   );
   scenarioTimelineRef.current = scenarioTimeline;
+
+  // Per-node spinner carry-in boards: makes a spinner HOLD the board it landed
+  // on across a direct-mode timeline hand-off instead of resetting to its
+  // authored initial board. Pure fold over the scenario walk — recomputed only
+  // when the scenario/project changes (not per playhead frame).
+  const spinnerCarry = useMemo(
+    () => spinnerCarryByNode(scenarioTimeline, project),
+    [scenarioTimeline, project]
+  );
 
   // Sample the timeline at the playhead → which segment/node is current (fx).
   const scenarioSample = useMemo(
@@ -2540,6 +2551,7 @@ export default function SceneStudioInner() {
     const entry = (project.scenes || []).find((s) => s.id === scenarioSample.sceneId);
     if (!entry?.data) return null;
     const tls = entry.data.timelines || [];
+    const carry = spinnerCarry.get(scenarioSample.segment?.nodeId) || null;
     if (scenarioSample.kind === 'blend') {
       const outTl = tls.find((t) => t.id === scenarioSample.out.timelineId);
       const inTl = tls.find((t) => t.id === scenarioSample.in.timelineId);
@@ -2550,6 +2562,7 @@ export default function SceneStudioInner() {
         inTl.tracks, scenarioSample.in.localTime,
         scenarioSample.f, scenarioSample.channels
       );
+      if (carry) scene.__spinnerCarry = carry;
       return { scene, flowTime: 0 };
     }
     const tl = tls.find((t) => t.id === scenarioSample.timelineId);
@@ -2557,13 +2570,14 @@ export default function SceneStudioInner() {
     const scene = {
       ...entry.data,
       assets: project.assets || [],
+      __spinnerCarry: carry,
       flow: {
         ...deriveFlowGraph({ tracks: tl.tracks, markers: tl.markers, nodes: [], edges: [] }),
         runtime: { time: scenarioSample.localTime, playing: scenarioPlayhead.playing, hold: null }
       }
     };
     return { scene, flowTime: scenarioSample.localTime };
-  }, [studioMode, scenarioSample, scenarioPlayhead.playing, project]);
+  }, [studioMode, scenarioSample, scenarioPlayhead.playing, project, spinnerCarry]);
 
   // ── Wizard preview (in-viewport, full-focus) ───────────────────────────
   // A wizard takes over the scene view with a synthetic preview scene + its
