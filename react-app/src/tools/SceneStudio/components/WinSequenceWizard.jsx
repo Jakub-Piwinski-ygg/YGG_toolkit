@@ -44,6 +44,10 @@ import {
   templateFontUrl,
   formatWinNumber,
   winNumberValueAt,
+  FONT_ATLAS_CELL,
+  FONT_ATLAS_COLS,
+  FONT_ATLAS_WIDTH,
+  isFontAtlasWidth,
 } from '../engine/winseq/winNumberModel.js';
 import { hash32 } from '../engine/spinner/spinnerModel.js';
 
@@ -106,6 +110,21 @@ const isDirectUrl = (src) => /^(blob:|data:|https?:)/.test(String(src || ''));
 /** Heuristic for an auto-detectable win-number font png (mirrors looksLikeWinSeq). */
 function looksLikeFont(s) {
   return /(^|[_\-\s])(win|font|number|num)([_\-\s]|$)/i.test(String(s || ''));
+}
+
+/** Load a PNG's natural pixel size. Resolves null on any failure (missing
+ *  file, unreachable rootHandle, decode error) — callers treat null as
+ *  "couldn't verify", not as a hard rejection. */
+async function probeImageDims(src, rootHandle) {
+  const url = isTemplateFont(src) ? templateFontUrl() : await resolveOne(src, rootHandle);
+  if (!url) return null;
+  return new Promise((resolve) => {
+    const img = new Image();
+    const done = (v) => { if (url.startsWith('blob:')) URL.revokeObjectURL(url); resolve(v); };
+    img.onload = () => done({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => done(null);
+    img.src = url;
+  });
 }
 
 /** A fresh number config (Number step skipped → fontSrc stays null). */
@@ -486,22 +505,58 @@ export function WinSequenceWizard({
     return out;
   }, [scene?.assets, assetItems]);
 
-  // Auto-pick a font: a workspace png named like win/font, else fall back to the
-  // built-in template atlas so the artist can always test. Stops once the user
-  // picks a font explicitly (or in edit mode where one is already saved). Upgrades
-  // template → a real workspace font if one shows up later in the scan.
+  // Auto-pick a font: a workspace png named like win/font AND verified at the
+  // font-atlas width (T9 — a name match alone used to auto-bind the first hit,
+  // even a wrongly-sized same-named PNG), else fall back to the built-in
+  // template atlas so the artist can always test. Stops once the user picks a
+  // font explicitly (or in edit mode where one is already saved). A
+  // name-matched candidate that fails (or never resolves) the width check
+  // doesn't auto-bind — it's surfaced as an "unverified pick" badge instead
+  // (`unverifiedFontPick`), so the artist can look at it rather than the
+  // wizard silently guessing wrong.
   const fontTouchedRef = useRef(!!existingConfig?.number?.fontSrc);
   const skipTouchedRef = useRef(false);
+  const [fontDimsCache, setFontDimsCache] = useState({}); // src -> {w,h} | 'error'
+  const [unverifiedFontPick, setUnverifiedFontPick] = useState(null); // src | null
   useEffect(() => {
     if (fontTouchedRef.current) return;
-    const named = fontPool.find((f) => looksLikeFont(f.label) || looksLikeFont(f.src));
-    const pick = named?.src || TEMPLATE_FONT_ID;
-    setNum((n) => (n.fontSrc === pick ? n : { ...n, fontSrc: pick }));
+    const candidates = fontPool.filter((f) => looksLikeFont(f.label) || looksLikeFont(f.src));
+    if (!candidates.length) {
+      setNum((n) => (n.fontSrc === TEMPLATE_FONT_ID ? n : { ...n, fontSrc: TEMPLATE_FONT_ID }));
+      setUnverifiedFontPick(null);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      for (const c of candidates) {
+        if (cancelled || fontTouchedRef.current) return;
+        let dims = fontDimsCache[c.src];
+        if (dims === undefined) {
+          dims = (await probeImageDims(c.src, rootHandle)) || 'error';
+          if (cancelled) return;
+          setFontDimsCache((m) => ({ ...m, [c.src]: dims }));
+        }
+        if (dims !== 'error' && isFontAtlasWidth(dims?.w)) {
+          if (!fontTouchedRef.current) {
+            setNum((n) => (n.fontSrc === c.src ? n : { ...n, fontSrc: c.src }));
+            setUnverifiedFontPick(null);
+          }
+          return;
+        }
+      }
+      // No candidate verified at the expected width — fall back to the
+      // template and flag the first name match for a manual look.
+      if (!cancelled && !fontTouchedRef.current) {
+        setNum((n) => (n.fontSrc === TEMPLATE_FONT_ID ? n : { ...n, fontSrc: TEMPLATE_FONT_ID }));
+        setUnverifiedFontPick(candidates[0].src);
+      }
+    })();
     // NB: numbers stay SKIPPED by default now — they're only enabled the first
     // time the user actually opens the Number step (effect below). Jumping
     // straight to Sequences keeps them skipped.
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fontPool]);
+  }, [fontPool, rootHandle]);
 
   // First visit to the Number step enables the number (skip → off) for a new
   // win-seq, unless the user already toggled skip manually. Skipping straight
@@ -792,13 +847,26 @@ export function WinSequenceWizard({
                       <option value={TEMPLATE_FONT_ID} style={{ fontStyle: 'italic' }}>
                         Built-in template — font_win
                       </option>
-                      {fontPool.map((f) => (
-                        <option key={f.src} value={f.src}>
-                          {f.label}{looksLikeFont(f.label) || looksLikeFont(f.src) ? ' ◆' : ''}
-                        </option>
-                      ))}
+                      {fontPool.map((f) => {
+                        const named = looksLikeFont(f.label) || looksLikeFont(f.src);
+                        const dims = fontDimsCache[f.src];
+                        const verified = named && dims && dims !== 'error' && isFontAtlasWidth(dims.w);
+                        const unverified = f.src === unverifiedFontPick || (named && !verified);
+                        return (
+                          <option key={f.src} value={f.src}>
+                            {f.label}{verified ? ' ◆' : unverified ? ' ⚠ unverified' : ''}
+                          </option>
+                        );
+                      })}
                     </select>
                   </label>
+                  {unverifiedFontPick && num.fontSrc !== unverifiedFontPick && (
+                    <div className="scene-spinner-meta" style={{ color: 'var(--warn, #e0b34a)' }}>
+                      ⚠ "{fontPool.find((f) => f.src === unverifiedFontPick)?.label}" looks like a font by name but
+                      isn't {FONT_ATLAS_WIDTH}px wide ({FONT_ATLAS_COLS} cols × {FONT_ATLAS_CELL}px) — using the
+                      built-in template instead. Pick it manually above if it's actually your font atlas.
+                    </div>
+                  )}
 
                   <label className="scene-field">
                     <span>follow bone</span>

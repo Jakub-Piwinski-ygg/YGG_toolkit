@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { buildWinSeqFlows } from './winseqModel.js';
 import {
   winNumberValueAt, formatWinNumber, normalizeWinNumber, SMALL_FINAL,
+  isFontAtlasWidth, FONT_ATLAS_WIDTH, FONT_ATLAS_CELL, FONT_ATLAS_COLS,
 } from './winNumberModel.js';
 
 let pass = 0;
@@ -81,6 +82,18 @@ ok('normalizeWinNumber: null without font, validates fields', () => {
   assert.equal(n.decimals, 4);              // clamped
   assert.equal(n.cols, 8);
   assert.equal(normalizeWinNumber({ fontSrc: 'a.png', currencyPosition: 'suffix' }).currencyPosition, 'suffix');
+});
+
+ok('T9: FONT_ATLAS_WIDTH is 8 cols x 256px cells (2048), isFontAtlasWidth gates exactly that', () => {
+  assert.equal(FONT_ATLAS_COLS, 8);
+  assert.equal(FONT_ATLAS_CELL, 256);
+  assert.equal(FONT_ATLAS_WIDTH, 2048);
+  assert.equal(isFontAtlasWidth(2048), true);
+  assert.equal(isFontAtlasWidth('2048'), true, 'coerces string width (real callers read img.naturalWidth, always a number, but stay lenient)');
+  assert.equal(isFontAtlasWidth(1024), false, 'half-width — not a real atlas');
+  assert.equal(isFontAtlasWidth(2049), false, 'off-by-one — not a real atlas');
+  assert.equal(isFontAtlasWidth(null), false);
+  assert.equal(isFontAtlasWidth(undefined), false);
 });
 
 console.log(`\n${pass} win-number model tests passed`);

@@ -23,6 +23,14 @@ export const WIN_CURRENCIES = ['$', '€', '₽', '£', '₺', '₹', 'kr'];
 /** The verified `font_win.png` glyph order (index → glyph), 8 cols row-major. */
 export const DEFAULT_CHAR_LAYOUT = '0123456789,.x$€₽kr£₺₹+-=ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
+// T9: dimension gate for auto-detecting a font atlas by name. A real atlas is
+// a fixed 8-column, 256px-cell grid — width is always this; height varies
+// with row count (fewer/more glyph rows), so only width is checked.
+export const FONT_ATLAS_CELL = 256;
+export const FONT_ATLAS_COLS = 8;
+export const FONT_ATLAS_WIDTH = FONT_ATLAS_CELL * FONT_ATLAS_COLS; // 2048
+export function isFontAtlasWidth(width) { return Number(width) === FONT_ATLAS_WIDTH; }
+
 /** Stable sentinel for the built-in template atlas (public/sceneStudio/font_win.png).
  *  Stored in config so it stays portable; resolved to a URL at load time. */
 export const TEMPLATE_FONT_ID = '@template:font_win';

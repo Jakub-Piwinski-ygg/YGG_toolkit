@@ -256,6 +256,30 @@ w kolejności z §3 planu.
   canvasie" już tam był, brakowało tylko nie-zasłaniania go.
   Plik: `components/WebMExportDialog.jsx`.
 
+- **T9 — zaostrzenie detekcji fontu win-number — UKOŃCZONE ✅.**
+  `looksLikeFont` (regex po nazwie: win/font/number/num) auto-bindował
+  PIERWSZE trafienie po nazwie w `fontPool`, bez żadnej weryfikacji wymiaru —
+  PNG nazwany np. „win_bg.png" (tło, nie atlas fontu) wygrywałby cicho.
+  Nowa reguła (dwuwarunkowa): kandydat musi PRZEJŚĆ nazwę PONAD tym
+  spełniać szerokość **2048px** (8 kolumn × 256px/cell — stała
+  `FONT_ATLAS_WIDTH`/`isFontAtlasWidth`, przeniesiona do
+  `engine/winseq/winNumberModel.js` dla testowalności; wysokość NIE jest
+  sprawdzana — zależy od liczby wierszy glifów). Auto-pick w
+  `WinSequenceWizard.jsx` stał się asynchroniczny: dla każdego kandydata
+  nazwanego jak font ładuje obrazek (`probeImageDims`, cache po `src`) i
+  sprawdza szerokość PRZED związaniem; pierwszy kandydat, który przejdzie
+  OBA warunki, wygrywa. Żaden kandydat nie przechodzi → fallback do
+  wbudowanego szablonu + **odznaka „⚠ unverified"** w dropdownie przy
+  pierwszym kandydacie nazwanym-ale-niezweryfikowanym (plus notka pod
+  selectorem) — artysta widzi, że coś wygląda jak font, ale wymaga ręcznego
+  potwierdzenia, zamiast cichego złego auto-bindu. 1 nowy test w
+  `winNumberModel.test.mjs` (czysty helper `isFontAtlasWidth`) — sam pipeline
+  ładowania obrazków w komponencie wizarda nie ma harnessu (async + DOM
+  `Image()`), zweryfikowane przez `npm run build` + pełny zestaw (159
+  testów, zero regresji).
+  Pliki: `engine/winseq/winNumberModel.js` (+ test),
+  `components/WinSequenceWizard.jsx`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).
