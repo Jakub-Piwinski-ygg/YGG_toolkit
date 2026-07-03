@@ -37,6 +37,7 @@ import {
   nodeEntry,
   edgeTransition,
   normalizeTransition,
+  transitionDefaults,
   normalizeEntry,
   START_PIN,
   END_PIN,
@@ -460,13 +461,26 @@ test('setEdgeTransition merges + normalizes the hand-off', () => {
   const a = sc.nodes.find((n) => n.type === 'timeline');
   sc = connect(sc, { node: start.id, pin: START_PIN }, { node: a.id, pin: TIMELINE_IN_PIN });
   const edge = sc.edges[0];
-  assert.equal(edgeTransition(edge).mode, 'cut', 'default cut');
+  assert.equal(edgeTransition(edge).mode, 'hold', 'freshly-connected edges default to hold (T1)');
   sc = setEdgeTransition(sc, edge.id, { mode: 'crossfade', mixDuration: 0.5, channels: { rotation: false } });
   const t = edgeTransition(sc.edges[0]);
   assert.equal(t.mode, 'crossfade');
   assert.equal(t.mixDuration, 0.5);
   assert.equal(t.channels.rotation, false);
   assert.equal(t.channels.alpha, true, 'other channels stay on');
+});
+
+test('T1: connect() stamps hold on new edges; legacy null-transition edges still read as cut', () => {
+  let sc = createScenario();
+  sc = addTimelineNode(sc, 'S1', 'TL_a', 200, 100);
+  const start = sc.nodes.find((n) => n.type === 'start');
+  const a = sc.nodes.find((n) => n.type === 'timeline');
+  sc = connect(sc, { node: start.id, pin: START_PIN }, { node: a.id, pin: TIMELINE_IN_PIN });
+  assert.equal(sc.edges[0].transition.mode, 'hold', 'connect() writes an explicit hold transition');
+  // A legacy edge (no transition payload — pre-T1 serialized scenario) must
+  // keep behaving as a cut: transitionDefaults() itself is untouched.
+  assert.equal(transitionDefaults().mode, 'cut', 'the read-fallback for edge.transition == null stays cut');
+  assert.equal(edgeTransition({ transition: null }).mode, 'cut', 'a legacy null-transition edge still cuts');
 });
 
 test('normalizeTransition coerces channels:true to all-on and bad mode to cut', () => {

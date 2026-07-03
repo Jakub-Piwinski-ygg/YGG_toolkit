@@ -27,9 +27,20 @@ export const SCENARIO_NODE_TYPES = ['start', 'end', 'timeline'];
 export const TRANSITION_MODES = ['cut', 'crossfade', 'hold'];
 export const TRANSITION_CHANNELS = ['position', 'scale', 'rotation', 'alpha', 'tint'];
 
-/** Default transition = an instant cut, all channels eligible to blend. */
+/**
+ * Fallback transition for an edge with no `transition` payload at all — a
+ * LEGACY read path only (pre-hold-default serialized scenarios). Newly
+ * created edges never rely on this: `connect()` stamps an explicit `hold`
+ * transition at creation time, so old scenes that depended on the historic
+ * cut-by-default behavior keep it, while every new edge starts as a hold.
+ */
 export function transitionDefaults() {
   return { mode: 'cut', mixDuration: 0.3, channels: allChannels(true) };
+}
+
+/** Transition stamped on a freshly-created edge — hold, so pose carry (§ engine/scenarioTimeline.js) applies out of the box. */
+function newEdgeTransition() {
+  return normalizeTransition({ mode: 'hold', mixDuration: 0.3, channels: allChannels(true) });
 }
 function allChannels(v) {
   const o = {};
@@ -456,7 +467,7 @@ export function connect(sc, from, to) {
     from: { node: from.node, pin: from.pin },
     to: { node: to.node, pin: to.pin },
     active: !sourceHasActive,
-    transition: null
+    transition: newEdgeTransition()
   });
   // Keep one free trailing pin so there's always a fresh branch to drag from.
   return ensureTrailingPins({ ...sc, edges });

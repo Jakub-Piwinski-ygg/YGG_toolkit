@@ -23,6 +23,26 @@ w kolejności z §3 planu.
   Pliki: `engine/scenarioBlend.js`, `engine/scenarioTimeline.js` (przekazanie
   `stage`), `engine/scenarioBlend.test.mjs`.
 
+- **T1 — hold jako domyślny tryb nowych krawędzi + audyt carry — UKOŃCZONE ✅.**
+  `connect()` (`engine/scenarioModel.js`) zapisuje teraz na nowej krawędzi
+  jawny `transition: { mode: 'hold', … }` zamiast `null` — dotąd świeżo
+  połączona krawędź czytała się jako `cut` (przez `transitionDefaults()`),
+  więc pose-carry (już zbudowany w sesji 2026-07-03) nigdy się nie
+  uruchamiał, dopóki artysta ręcznie nie zmienił trybu. `transitionDefaults()`
+  **zostaje** przy `cut` — to jest fallback odczytu dla krawędzi bez ładunku
+  transition (stare, zserializowane sceny), więc ich zachowanie się nie
+  zmienia (mitygacja z §5 planu). Audyt `layerPoseCarryByNode` potwierdził
+  poprawną semantykę hold/crossfade/cut (bez zmian w logice — tylko nowe
+  testy). Dodatkowo dopięta integracja z idle timeline'ami trybów
+  (`sceneSetupTimelines.js`): hold wchodzi z przeniesioną alfą grupy,
+  crossfade genuinie ją blenduje (nie skacze) — generyczny mechanizm carry już
+  to obsługiwał, nowe testy tylko domykają kontrakt między obydwoma modułami.
+  2 zaktualizowane testy (domyślny tryb zmieniony z cut→hold wymagał
+  jawnego `cut` tam, gdzie test tego oczekiwał) + 4 nowe w
+  `scenarioModel.test.mjs`/`scenarioTimeline.test.mjs`.
+  Pliki: `engine/scenarioModel.js`, `engine/scenarioModel.test.mjs`,
+  `engine/scenarioTimeline.test.mjs`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).

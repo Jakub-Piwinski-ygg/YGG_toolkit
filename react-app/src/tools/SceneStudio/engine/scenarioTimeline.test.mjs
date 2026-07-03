@@ -14,6 +14,8 @@ import {
   END_PIN
 } from './scenarioModel.js';
 import { buildScenarioTimeline, sampleScenario, layerPoseCarryByNode } from './scenarioTimeline.js';
+import { buildBlendedScene } from './scenarioBlend.js';
+import { buildSceneSetupIdleTimelines } from './sceneSetupTimelines.js';
 
 function fakeProject() {
   return {
@@ -167,10 +169,20 @@ test('hold hand-off carries the outgoing pose to the next node', () => {
 
 test('cut hand-off drops carried poses (snap to authored state)', () => {
   const project = poseProject();
-  const { sc, ids } = chain([{ scene: 'S1', timeline: 'TL_move' }, { scene: 'S1', timeline: 'TL_none' }], project);
-  // default edge transition is a cut
+  let { sc, ids } = chain([{ scene: 'S1', timeline: 'TL_move' }, { scene: 'S1', timeline: 'TL_none' }], project);
+  // newly-connected edges default to hold (T1) — force cut explicitly here.
+  sc = withEdgeMode(sc, ids[1], 'cut');
   const carry = layerPoseCarryByNode(buildScenarioTimeline(sc, project), project);
   assert.equal(carry.get(ids[1]), undefined, 'cut segment enters with no carried poses');
+});
+
+test('a freshly-connected edge defaults to hold (T1) and carries the outgoing pose without any explicit mode set', () => {
+  const project = poseProject();
+  const { sc, ids } = chain([{ scene: 'S1', timeline: 'TL_move' }, { scene: 'S1', timeline: 'TL_none' }], project);
+  const edge = sc.edges.find((e) => e.to.node === ids[1]);
+  assert.equal(edge.transition?.mode, 'hold', 'connect() stamps a hold transition on new edges');
+  const carry = layerPoseCarryByNode(buildScenarioTimeline(sc, project), project);
+  assert.equal(carry.get(ids[1])?.L1.x, 100, 'hold-by-default carries the pose with zero setup');
 });
 
 test('crossfade hand-off also carries the outgoing pose', () => {
@@ -215,12 +227,63 @@ test('a cut mid-chain resets the carry for everything after it', () => {
   const project = poseProject();
   let { sc, ids } = chain([
     { scene: 'S1', timeline: 'TL_move' },
-    { scene: 'S1', timeline: 'TL_none' },   // cut (default) — drops L1 pose
+    { scene: 'S1', timeline: 'TL_none' },   // explicit cut — drops L1 pose
     { scene: 'S1', timeline: 'TL_none' }
   ], project);
+  sc = withEdgeMode(sc, ids[1], 'cut'); // newly-connected edges default to hold (T1); force cut here
   sc = withEdgeMode(sc, ids[2], 'hold');
   const carry = layerPoseCarryByNode(buildScenarioTimeline(sc, project), project);
   assert.equal(carry.get(ids[2]), undefined, 'nothing to carry after the cut reset');
+});
+
+// ── T1: hold/crossfade into a Scene Setup mode-idle timeline ────────────────
+// Idle timelines (engine/sceneSetupTimelines.js) are just alpha-keyed tracks
+// on the mode groups, but the plan explicitly calls out wiring them into pose
+// carry — this pins the two generators together so a refactor of either one
+// that breaks the contract fails a test, not just a manual repro.
+
+function idleProject() {
+  const modes = [
+    { key: 'base', label: 'Base Game', layerId: null },
+    { key: 'freespins', label: 'Free Spins', layerId: 'L_fs' }
+  ];
+  const [baseIdle, fsIdle] = buildSceneSetupIdleTimelines(modes).map((tl, i) => ({ ...tl, id: `TL_idle_${i}` }));
+  return {
+    scenes: [{
+      id: 'S1',
+      name: 'Base',
+      data: {
+        stage: { activeOrientation: 'landscape' },
+        layers: [{ id: 'L_fs', transforms: { landscape: { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, alpha: 0, tint: { r: 1, g: 1, b: 1 } } } }],
+        timelines: [baseIdle, fsIdle]
+      }
+    }],
+    baseIdleId: baseIdle.id,
+    fsIdleId: fsIdle.id
+  };
+}
+
+test('T1: hold into a mode-idle timeline starts the entering group from its carried alpha', () => {
+  const project = idleProject();
+  let { sc, ids } = chain([{ scene: 'S1', timeline: project.baseIdleId }, { scene: 'S1', timeline: project.fsIdleId }], project);
+  sc = withEdgeMode(sc, ids[1], 'hold');
+  const carry = layerPoseCarryByNode(buildScenarioTimeline(sc, project), project);
+  const entering = carry.get(ids[1]);
+  // Base Game Idle keys L_fs → 0 for its whole 2s run, so hold hands the FS
+  // idle segment an entering alpha of 0 for the FS group (not the layer's
+  // authored setup alpha) — the FS idle timeline's own key then drives it to 1.
+  assert.equal(entering.L_fs.alpha, 0, 'FS group enters the FS-idle segment at the carried (base-idle) alpha');
+});
+
+test('T1: crossfade between mode-idle timelines blends the group alpha, not a snap', () => {
+  const project = idleProject();
+  const baseTl = project.scenes[0].data.timelines.find((t) => t.id === project.baseIdleId);
+  const fsTl = project.scenes[0].data.timelines.find((t) => t.id === project.fsIdleId);
+  const sceneData = project.scenes[0].data;
+  // Halfway through a crossfade FROM base-idle (L_fs alpha=0) TO fs-idle (L_fs alpha=1).
+  const scene = buildBlendedScene(sceneData, [], baseTl.tracks, 1, fsTl.tracks, 1, 0.5, { alpha: true });
+  const midAlpha = scene.layers[0].transforms.landscape.alpha;
+  assert.ok(Math.abs(midAlpha - 0.5) < 1e-6, 'mode-idle crossfade genuinely blends alpha (0→1 halfway = 0.5)');
 });
 
 test('empty / unwired scenario has no segments', () => {
