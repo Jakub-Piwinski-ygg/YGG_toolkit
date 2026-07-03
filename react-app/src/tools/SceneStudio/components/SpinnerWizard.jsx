@@ -95,7 +95,10 @@ function buildSpinnerPreviewScene(spinnerConfig, refAssets, testTrack, projectRo
   return base;
 }
 import { makeBlurredSymbol } from '../engine/spinner/spinnerBlur.js';
-import { spineMatchScore, pickAnimName } from '../engine/spinner/symbolMatch.js';
+import {
+  spineMatchScore, pickAnimName,
+  assetBaseName, assetPathSegments, symbolScore, isConfidentSymbolMatch,
+} from '../engine/spinner/symbolMatch.js';
 import { BoardGridEditor } from './SpinnerInspectorSections.jsx';
 
 const STEPS = ['grid', 'symbols', 'timing', 'review'];
@@ -109,58 +112,9 @@ function defaultSymbol(n) {
   return { id: uid('sym'), name: `sym${n + 1}`, assetId: null, blurAssetId: null, landAnim: null, winAnim: null };
 }
 
-/** File stem — strip extension and any leading path. */
-function assetBaseName(asset) {
-  const n = asset?.meta?.originalName || asset?.id || '';
-  return n.replace(/\.[^.]+$/, '').replace(/.*[/\\]/, '');
-}
-
-/**
- * Decode all path segments from asset.src.
- * Returns [] for blob: or data: URLs (no structural path info).
- */
-function assetPathSegments(asset) {
-  const src = String(asset?.src || '');
-  if (!src || src.startsWith('blob:') || src.startsWith('data:')) return [];
-  try {
-    const url = new URL(src);
-    return url.pathname.split('/').map((s) => decodeURIComponent(s)).filter(Boolean);
-  } catch {
-    return src.split(/[/\\]/).filter(Boolean);
-  }
-}
-
-/** Score how likely an asset is a slot symbol (positive = yes, negative = no). */
-function symbolScore(asset) {
-  const base = assetBaseName(asset).toLowerCase();
-  const segs = assetPathSegments(asset).map((s) => s.toLowerCase());
-
-  let score = 0;
-  // Strong negatives: known non-symbol filename prefixes
-  if (/^(bg_|fs_|ui_|btn_|machine_|board_|panel_|frame_|logo_|counter_|game_|banner_|overlay_|popup_|base_)/.test(base))
-    score -= 10;
-  // Positives: "symbol" or "sym" folder in path
-  if (segs.some((s) => s.includes('symbol') || s.includes('_sym') || s === 'sym'))
-    score += 12;
-  // Positives: "static" or "statics" subfolder
-  if (segs.some((s) => /^statics?$/.test(s)))
-    score += 6;
-  // Positives: "blur" subfolder
-  if (segs.some((s) => /^blur(red)?$/.test(s)))
-    score += 4;
-  // Positives: classic slot symbol name patterns (h1–h9, l1–l9, wild, scatter…)
-  if (/^(h|l)\d+(_|$)/.test(base)) score += 10;
-  if (/^(wild|scatter|bonus|freespin|free_spin|multiplier|ace|king|queen|jack|ten|nine|sym_)/.test(base))
-    score += 8;
-  // Negatives: non-symbol folder names in path
-  if (segs.some((s) => /^(background|backgrounds|bg|machine|logo|buttons?|ui|overlays?)$/.test(s)))
-    score -= 8;
-  // Negatives: Animations / Spine folder (not a static sprite)
-  if (segs.some((s) => /^(anim|animation|animations|spine|spines?)$/.test(s)))
-    score -= 6;
-
-  return score;
-}
+// assetBaseName / assetPathSegments / symbolScore / isConfidentSymbolMatch
+// now live in engine/spinner/symbolMatch.js (T7) — moved so the candidate-
+// discovery heuristic is unit tested outside this component.
 
 /** True if this asset looks like a motion-blur variant (should not be a static slot). */
 function isBlurVariant(asset) {
@@ -307,11 +261,30 @@ function buildCandidates(pool, filterText) {
       return words.some((w) => hay.includes(w));
     });
   }
-  // Require a positive score — score 0 (neutral asset, no recognizable signals)
-  // is intentionally excluded so bg/machine/UI assets don't sneak through.
+  // T7: require a CONFIDENT score, not merely positive — score 0 (neutral
+  // asset, no recognizable signals) was already excluded, but a weak
+  // positive (e.g. +4 from sitting in a Blurred folder with no other
+  // signal) isn't strong enough evidence to bulk-create a symbol from
+  // unattended either. See weakSymbolCandidates() below for what this excludes.
   const nonBlur = pool.filter((a) => !isBlurVariant(a));
-  const scored  = nonBlur.filter((a) => symbolScore(a) > 0);
+  const scored  = nonBlur.filter((a) => isConfidentSymbolMatch(symbolScore(a)));
   return scored; // may be empty — caller shows a hint
+}
+
+/**
+ * T7: assets that scored positively but BELOW the confidence threshold — real
+ * signal, not enough of it to auto-create a symbol without a human look.
+ * Surfaced as a warning next to the "fill from assets" button instead of
+ * being silently included in (or silently dropped from) the bulk fill.
+ * Same scope as buildCandidates' no-filter branch: only meaningful when
+ * there's no manual filter text and no detected Symbols folder structure.
+ */
+function weakSymbolCandidates(pool) {
+  const nonBlur = pool.filter((a) => !isBlurVariant(a));
+  return nonBlur.filter((a) => {
+    const s = symbolScore(a);
+    return s > 0 && !isConfidentSymbolMatch(s);
+  });
 }
 
 // ── Preview cells ────────────────────────────────────────────────────────────
@@ -489,6 +462,10 @@ export function SpinnerWizard({
     : buildCandidates(allPngAssets, '');
   // True when no filter text AND nothing was detected (no Symbols folder, score ≤ 0 everywhere)
   const noAutoDetect  = !assetFilter.trim() && candidates.length === 0 && allPngAssets.length > 0;
+  // T7: weak (positive but sub-threshold) matches, only meaningful in the
+  // legacy no-structure/no-filter heuristic path — a detected Symbols folder
+  // or an explicit manual filter are already confident/user-directed.
+  const weakCandidates = (!assetFilter.trim() && !structure) ? weakSymbolCandidates(allPngAssets) : [];
 
   // Blur search order: detected Blurred folder first, then the whole pool.
   const blurSearchPool = structure ? [...structure.blurred, ...allPngAssets] : allPngAssets;
@@ -979,6 +956,15 @@ export function SpinnerWizard({
                   {noAutoDetect && (
                     <div className="scene-spinner-meta" style={{ color: 'var(--text-2)', marginBottom: 6 }}>
                       No <em>Symbols</em> folder detected — type a folder name above (e.g. <em>Symbols</em>, <em>Static</em>) to filter.
+                    </div>
+                  )}
+
+                  {weakCandidates.length > 0 && (
+                    <div className="scene-spinner-meta" style={{ color: 'var(--warn, #e0b34a)', marginBottom: 6 }}>
+                      ⚠ {weakCandidates.length} weak match{weakCandidates.length !== 1 ? 'es' : ''} not included
+                      (some signal, not enough to auto-fill confidently) — add manually if relevant:{' '}
+                      {weakCandidates.slice(0, 6).map((a) => assetBaseName(a)).join(', ')}
+                      {weakCandidates.length > 6 ? `, +${weakCandidates.length - 6} more` : ''}
                     </div>
                   )}
 

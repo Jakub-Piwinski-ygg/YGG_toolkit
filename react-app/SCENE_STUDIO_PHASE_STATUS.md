@@ -280,6 +280,28 @@ w kolejności z §3 planu.
   Pliki: `engine/winseq/winNumberModel.js` (+ test),
   `components/WinSequenceWizard.jsx`.
 
+- **T7 (część 1/4) — zaostrzenie pewności kandydatów symboli —
+  UKOŃCZONE ✅.** Duża część T7 („structured folder preference, stronger
+  UI/bg/machine exclusion") okazała się JUŻ zaimplementowana wcześniej
+  (`detectSymbolsStructure`, `symbolScore` z bogatym systemem +/− sygnałów w
+  `SpinnerWizard.jsx`) — brakującym kawałkiem był wyłącznie **próg pewności**:
+  `buildCandidates` wymagał tylko `symbolScore(a) > 0` (dowolny słaby
+  pozytywny sygnał, np. samo leżenie w folderze „Blurred" bez żadnej innej
+  poszlaki, +4) do cichego dodania do bulk-fill. Nowy
+  `SYMBOL_CONFIDENCE_THRESHOLD = 8` (`engine/spinner/symbolMatch.js` —
+  `symbolScore`/`isConfidentSymbolMatch` przeniesione tam z komponentu dla
+  testowalności) — „fill from assets" bierze tylko pewne trafienia; słabe
+  (>0 ale <próg) trafiają do osobnej listy `weakCandidates` pokazanej jako
+  ostrzeżenie z nazwami zamiast cichego pominięcia LUB cichego dodania.
+  10 nowych testów w `symbolMatch.test.mjs`.
+  **Pozostałe 3/4 T7 (kolejność kroków „asset-selection-first", pipeline
+  animations-only z auto-generacją blura, „hold last pose" po prezentacji
+  wygranej) to projektowanie UX/nowa funkcjonalność, nie bugfix** — nie mają
+  jednoznacznej „poprawnej" odpowiedzi wyczytywalnej z kodu tak jak pozostałe
+  10 tematów w tej sesji; odłożone do sesji z iteracją wizualną w przeglądarce
+  (patrz też T8 poniżej — ta sama kategoria ryzyka).
+  Pliki: `engine/spinner/symbolMatch.js` (+ test), `components/SpinnerWizard.jsx`.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).
