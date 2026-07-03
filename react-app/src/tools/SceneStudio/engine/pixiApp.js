@@ -264,7 +264,12 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
     if (!asset) return;
     const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations, blobUrls);
     if (!obj) return;
-    obj.visible = layer.visible !== false;
+    // T5 (eye visibility model): `visible` stays true — a closed eye is an
+    // alpha-0 gate (applied by the syncTransforms/applyFlowAtTime pass that
+    // runs right after this build), not a hard Pixi hide, so the object's
+    // own runtime state (spine ticking, spinner/winseq tracking) never stops.
+    obj.visible = true;
+    obj.alpha = layer.visible !== false ? 1 : 0;
 
     if ((asset.type === 'spine' || asset.type === 'winseq') && onAssetReady) {
       try { onAssetReady(asset.id, describeSpine(obj)); }
@@ -918,10 +923,17 @@ export function syncTransforms(app, handles, scene) {
   for (const layer of scene.layers) {
     const obj = handles.get(layer.id);
     if (!obj || obj.destroyed) continue;
+    // T5 (eye visibility model): the hierarchy eye toggle composes with the
+    // inspector alpha as effectiveAlpha = min(inspectorAlpha, eyeAlpha)
+    // instead of a hard Pixi `visible=false` — closing the eye never
+    // overwrites the authored inspector alpha, and the object stays fully in
+    // the runtime (alpha 0 already skips Pixi's render pass).
+    obj.visible = true;
+    const eyeOpen = layer.visible !== false;
     // Win-number layers are driven entirely by applyWinNumberAtTime (bone
-    // follow + user offset composed each frame) — don't fight it here.
-    if (assetTypeById.get(layer.assetId) === 'winnumber') { obj.visible = layer.visible !== false; continue; }
-    obj.visible = layer.visible;
+    // follow + user offset composed each frame) — don't fight it here,
+    // just apply the eye gate.
+    if (assetTypeById.get(layer.assetId) === 'winnumber') { if (!eyeOpen) obj.alpha = 0; continue; }
     const t = resolveTransform(layer, orientation, scene.stage);
     obj.x = t.x;
     obj.y = t.y;
@@ -930,7 +942,8 @@ export function syncTransforms(app, handles, scene) {
     if (obj.anchor?.set && t.anchor) obj.anchor.set(t.anchor[0] ?? 0.5, t.anchor[1] ?? 0.5);
     // Alpha + tint (Round 4). Defaults sit in normalizeTransform so older
     // scenes loading without these fields still get sensible values.
-    obj.alpha = typeof t.alpha === 'number' ? Math.max(0, Math.min(1, t.alpha)) : 1;
+    const inspectorAlpha = typeof t.alpha === 'number' ? Math.max(0, Math.min(1, t.alpha)) : 1;
+    obj.alpha = eyeOpen ? inspectorAlpha : 0;
     const tint = t.tint || { r: 1, g: 1, b: 1 };
     const r = Math.max(0, Math.min(255, Math.round((tint.r ?? 1) * 255)));
     const g = Math.max(0, Math.min(255, Math.round((tint.g ?? 1) * 255)));
@@ -1097,8 +1110,18 @@ export function applyFlowAtTime(handles, scene, t) {
   for (const layer of scene.layers) {
     const obj = handles.get(layer.id);
     if (!obj || obj.destroyed) continue;
-    obj.visible = layer.visible !== false;
-    if (!obj.visible) continue;
+    // T5 (eye visibility model): the eye toggle composes with the inspector
+    // alpha as effectiveAlpha = min(inspectorAlpha, eyeAlpha) — it does NOT
+    // hard-hide via Pixi's `visible` anymore. `visible` stays true so this
+    // whole per-type pass still runs (spine keeps ticking, spinner/winseq
+    // keep tracking their own state) while the eye is closed; only the
+    // FINAL composed alpha gates to 0. Previously `obj.visible=false` short-
+    // circuited everything below, so a hidden spine object froze and a
+    // re-opened eye popped back to a stale pose instead of wherever the
+    // timeline actually is now.
+    obj.visible = true;
+    const eyeOpen = layer.visible !== false;
+    const gateEyeAlpha = () => { if (!eyeOpen) obj.alpha = 0; };
 
     const asset = scene.assets.find((a) => a.id === layer.assetId);
     if (!asset) continue;
@@ -1110,6 +1133,7 @@ export function applyFlowAtTime(handles, scene, t) {
       // Spine container too — same hold / setup-until-first-key behaviour as a
       // PNG, on top of the skeletal animation. Parity across object types.
       applyPngChannels(obj, layer, tracks, t, orientation);
+      gateEyeAlpha();
       continue;
     }
 
@@ -1129,6 +1153,7 @@ export function applyFlowAtTime(handles, scene, t) {
       // unrelated timeline. A carried-in board (Direct hold/crossfade) still
       // counts as driven even with no LOCAL clip on this segment's timeline.
       if (!bakedBlend && !carryBoard && !layerHasDrivingClip(tracks, t)) obj.alpha = 0;
+      gateEyeAlpha();
       continue;
     }
 
@@ -1138,6 +1163,7 @@ export function applyFlowAtTime(handles, scene, t) {
       // T4 visibility contract: a win sequence with no flow ever authored
       // shows only its biggest-win idle placeholder — hide it outside setup.
       if (!bakedBlend && !layerHasDrivingClip(tracks, t)) obj.alpha = 0;
+      gateEyeAlpha();
       continue;
     }
 
@@ -1158,12 +1184,14 @@ export function applyFlowAtTime(handles, scene, t) {
       // composed on top of the bone follow inside applyWinNumberAtTime.
       const colorOverride = evalWinNumberColor(tracks, t);
       applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation, scene.stage), sampleOverride, liveNum, colorOverride);
+      gateEyeAlpha();
       continue;
     }
 
     if (asset.type === 'video' && obj.texture?.source?.resource?.source) {
       applyVideoClip(obj, tracks[0], t, runtimePlaying, runtimeHeld);
       applyPngChannels(obj, layer, tracks, t, orientation);
+      gateEyeAlpha();
       continue;
     }
 
@@ -1186,6 +1214,7 @@ export function applyFlowAtTime(handles, scene, t) {
     if (asset.type === 'empty') {
       applyPngChannels(obj, layer, tracks, t, orientation);
     }
+    gateEyeAlpha();
   }
 }
 

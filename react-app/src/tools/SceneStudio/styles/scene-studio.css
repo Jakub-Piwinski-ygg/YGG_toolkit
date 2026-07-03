@@ -766,6 +766,16 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   font-size: 12px;
 }
 .scene-icon-btn:hover { color: var(--red, #ff4f6a); }
+.scene-layer-eye {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.85;
+}
+.scene-layer-eye:hover { opacity: 1; }
 
 /* ── Inspector ───────────────────────────────────────────────────────── */
 .scene-field {

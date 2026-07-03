@@ -431,6 +431,13 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
           : layer.transforms?.landscape;
         const conv = convertTransform(t, { isRoot, stage, ui, ppu: settings.pixelsPerUnit });
+        // T5 (eye visibility model): a closed eye composes as
+        // effectiveAlpha = min(inspectorAlpha, eyeAlpha) at runtime — it never
+        // overwrites the authored inspector alpha. Mirror that here instead of
+        // the GameObject `active` flag (below): the authored `layer.transforms`
+        // alpha is untouched, only the value baked into this node's exported
+        // SpriteRenderer/CanvasGroup/Image alpha component is gated to 0.
+        if (layer.visible === false) conv.alpha = 0;
         if (!ui && (conv.pivot.x !== 0.5 || conv.pivot.y !== 0.5)) {
           warnings.push(`"${name}": non-center anchor approximated in world variant (sprite pivot stays centered).`);
         }
@@ -527,7 +534,11 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
             : info.kind === 'spine' ? 'spine'
             : info.kind === 'spinner' ? 'spinner'
             : 'group',
-          active: layer.visible !== false,
+          // T5: no hard-disable path — a closed eye is an alpha-0 gate
+          // (conv.alpha above), not GameObject.SetActive(false). Keeping the
+          // GameObject active means any Animator/script on it keeps running,
+          // matching the editor runtime's "stays fully in the graph" rule.
+          active: true,
           ...conv,
           size,
           spriteGuid: info.spriteGuid || null,

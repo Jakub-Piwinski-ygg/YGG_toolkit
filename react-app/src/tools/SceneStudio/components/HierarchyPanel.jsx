@@ -186,12 +186,14 @@ function renderNodes(nodes, ctx) {
           >
             {children.length ? (expanded ? '▾' : '▸') : ''}
           </span>
-          <input
-            type="checkbox"
-            checked={layer.visible}
-            onChange={(e) => { e.stopPropagation(); ctx.onToggleVisibility(layer.id, e.target.checked); }}
-            onClick={(e) => e.stopPropagation()}
-          />
+          <button
+            type="button"
+            className="scene-layer-eye"
+            title={layer.visible !== false ? 'Eye open — visible (click to hide)' : 'Eye closed — hidden (click to show)'}
+            onClick={(e) => { e.stopPropagation(); ctx.onToggleVisibility(layer.id, layer.visible === false); }}
+          >
+            {layer.visible !== false ? '👁' : '🙈'}
+          </button>
           <span className="scene-layer-type-icon" title={ctx.assetsById.get(layer.assetId)?.type || 'object'}>
             {layerTypeIcon(ctx.assetsById.get(layer.assetId))}
           </span>

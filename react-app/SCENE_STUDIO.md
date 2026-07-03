@@ -1742,3 +1742,40 @@ Deferred polish — none block authoring:
   Still out of scope; one `out` curve per segment.
 - **Channels on Spine layers driving transforms** (beyond alpha/tint).
   Schema permits, interpreter ignores.
+
+### 20.12 Eye visibility model (T5, 2026-07-04) + Unity translation note
+
+The hierarchy panel's per-layer toggle is an **eye** (open/closed), not an
+enable/disable checkbox. It composes with the layer's own authored inspector
+alpha as `effectiveAlpha = min(inspectorAlpha, eyeAlpha)` (eyeAlpha ∈ {0,1})
+— closing the eye never overwrites `layer.transforms.*.alpha`, and the object
+never leaves the scene graph or stops ticking (a hidden Spine object still
+advances; a hidden spinner/win-sequence still tracks its own state). Reopening
+the eye shows wherever that state actually is now, not a stale frozen pose.
+`layer.visible` is still the underlying data field — only its *runtime
+composition* changed, not the schema.
+
+**Confirmed with the user (2026-07-04): a closed eye SHOULD serialize into
+exports as "starts hidden"**, not stay editor-only.
+
+- **Unity `.unitypackage` export** (`unity/exportUnityPackage.js`): a closed
+  eye now bakes `conv.alpha = 0` into the node's `SpriteRenderer`/`Image`/
+  `CanvasGroup` color-alpha component, and the GameObject's `active` flag is
+  **always `true`** — no `GameObject.SetActive(false)`, matching "no
+  hard-disable path." `CanvasGroup.m_Alpha` maps 1:1 (a UI-mode group's alpha
+  already cascades to its children the way `effectiveAlpha` does at runtime).
+  **Open follow-up (small, not done this session):** a plain
+  `SpriteRenderer` has no group-alpha concept — Unity's Transform hierarchy
+  doesn't cascade alpha the way Pixi containers or `CanvasGroup` do. A
+  *world-mode* GROUP layer (an `empty` node with SpriteRenderer children,
+  not a UI/CanvasGroup node) that closes its eye currently only zeroes its
+  own node's alpha, not its descendants' — each child SpriteRenderer would
+  need the ancestor-chain alpha PRODUCT baked into its own exported alpha at
+  export time to fully match the editor's cascade. Needs a small tree-walk in
+  `exportUnityPackage.js`'s `buildNodes` (accumulate parent alpha down the
+  recursion, multiply into `conv.alpha` before baking each world-mode child)
+  — flagged here rather than guessed at blind, since it's export-format-shape
+  work that benefits from a real Unity-side import check.
+- **WebM export**: unaffected — the exporter renders whatever the live Pixi
+  scene shows, and the eye's alpha-0 composition already renders correctly
+  through `applyFlowAtTime`/`syncTransforms`, same as any other alpha.

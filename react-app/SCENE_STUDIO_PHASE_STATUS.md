@@ -110,6 +110,37 @@ w kolejności z §3 planu.
   — TODO.
   Plik: `engine/pixiApp.js` (`applyFlowAtTime`).
 
+- **T5 — model widoczności „oko" (zamiast enable/disable) — UKOŃCZONE ✅.**
+  Checkbox w hierarchii zamieniony na przycisk oka (👁/🙈,
+  `components/HierarchyPanel.jsx`). Semantyka: `effectiveAlpha =
+  min(inspectorAlpha, eyeAlpha)` (eyeAlpha ∈ {0,1}) — zamknięcie oka NIGDY nie
+  nadpisuje `layer.transforms.*.alpha`; pole danych `layer.visible` zostaje
+  bez zmian, zmienia się tylko jego runtime'owa kompozycja. **Brak ścieżki
+  hard-disable**: `pixiApp.js` przestał ustawiać `obj.visible = false` —
+  `obj.visible` jest teraz zawsze `true`, a bramkowanie idzie WYŁĄCZNIE przez
+  finalną alfę (`gateEyeAlpha()` w `applyFlowAtTime`, analogiczny fix w
+  `syncTransforms` i buildzie w `rebuildScene`). To naprawia realny bug:
+  wcześniej ukryty obiekt Spine/spinner/winseq CAŁKOWICIE przestawał być
+  przetwarzany (wczesny `continue`), więc po ponownym odkryciu pokazywał
+  zamrożoną pozę sprzed ukrycia zamiast aktualnego stanu timeline'u.
+  **Decyzja użytkownika w tej sesji: zamknięte oko SERIALIZUJE się w
+  eksportach jako „start ukryty"** (nie tylko w edytorze). Eksport Unity
+  (`unity/exportUnityPackage.js`): `active` GameObjectu jest teraz zawsze
+  `true` (był `layer.visible !== false` — twardy SetActive, dokładnie ta
+  hard-disable ścieżka, której T5 zabrania), zamknięte oko piecze `alpha = 0`
+  w komponent `SpriteRenderer`/`Image`/`CanvasGroup`. Otwarty temat (mały,
+  świadomie odłożony — patrz `SCENE_STUDIO.md` §20.12): world-mode GRUPA z
+  zamkniętym okiem zeruje tylko WŁASNĄ alfę węzła, nie potomków —
+  SpriteRenderer nie ma odpowiednika `CanvasGroup`, więc pełna kaskada
+  wymaga mnożenia alfy przodków przy pieczeniu (mały task, nie zgadywany na
+  ślepo bez realnego importu do Unity). Brak harnessu testowego dla
+  `pixiApp.js`/`exportUnityPackage.js` — zweryfikowane `npm run build` +
+  pełny zestaw testów silnika/unity (146 testów, zero regresji) + przegląd
+  strukturalny. Wizualna weryfikacja w przeglądarce — TODO (jak T4/T6).
+  Pliki: `components/HierarchyPanel.jsx`, `styles/scene-studio.css`,
+  `engine/pixiApp.js` (`applyFlowAtTime`, `syncTransforms`, `rebuildScene`),
+  `unity/exportUnityPackage.js`, `SCENE_STUDIO.md` §20.12 (nowa sekcja).
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).
