@@ -87,6 +87,29 @@ w kolejności z §3 planu.
   `engine/pixiApp.js` (spinner/winseq branch w `applyFlowAtTime`),
   `engine/scenarioBlend.js` (`__isBakedBlend` flag + test).
 
+- **T6 — grupy trybów: naprawa propagacji alfy — UKOŃCZONE ✅.** Realny bug,
+  nie brak funkcji: warstwy typu `empty` (root Scene Setup + kontenery grup
+  trybów Free Spins/Bonus/Pick&Click, tworzone już z sesji 2026-07-03) w ogóle
+  nie miały gałęzi w dispatchu `applyFlowAtTime` (`engine/pixiApp.js`) — więc
+  ich alfa nigdy nie była odświeżana z klipu podczas animate/direct/scrubu,
+  zostawała zamrożona na wartości bazowej wpisanej przez `syncTransforms`
+  (0 dla grupy trybu, która akurat nie jest edytowana). Wygenerowane w T1
+  timeline'y „<Tryb> Idle" (klucz alfy per grupa) więc **nigdy realnie nie
+  działały** poza jednorazowym sync-em. Pixi i tak kaskaduje alfę kontenera
+  do dzieci naturalnie (potwierdzone: `buildNode` w `rebuildScene` zagnieżdża
+  Pixi-obiekty dzieci pod obiektem rodzica przez `parentId`, prawdziwe drzewo,
+  nie płaska lista) — brakowało tylko odświeżania alfy SAMEGO kontenera co
+  klatkę. Naprawa: `applyPngChannels` (generyczny, działa na dowolnym typie
+  obiektu Pixi) uruchamia się teraz też dla `asset.type === 'empty'`.
+  Base Game świadomie **nie** dostaje własnego kontenera (leży bezpośrednio
+  pod rootem, zawsze aktywny — decyzja z sesji 2026-07-03, nie zmieniana).
+  Brak migracji danych — czysty fix dispatchu runtime, zero zmian w kształcie
+  sceny. Jak w T4(1/2): brak harnessu testowego dla `pixiApp.js`; zweryfikowane
+  przez `npm run build` + przegląd strukturalny (Pixi-hierarchia potwierdzona
+  czytaniem `buildLayerTree`/`buildNode`). Wizualna weryfikacja w przeglądarce
+  — TODO.
+  Plik: `engine/pixiApp.js` (`applyFlowAtTime`).
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).

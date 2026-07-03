@@ -1170,6 +1170,22 @@ export function applyFlowAtTime(handles, scene, t) {
     if (asset.type === 'png' || asset.type === 'pngSequence') {
       applyPngChannels(obj, layer, tracks, t, orientation);
     }
+
+    // T6: 'empty' covers both the Scene Setup root and mode/feature GROUP
+    // containers (Free Spins / Bonus / Pick&Click). Every other asset type
+    // gets applyPngChannels above so its clip-keyed alpha/tint/transform
+    // channels apply every frame; 'empty' was falling through this whole
+    // dispatch, so a mode group's alpha stayed frozen at whatever
+    // syncTransforms set from its BASE pose (0 for a feature group) —
+    // the generated "<Mode> Idle" timelines' alpha keys (§ T1,
+    // sceneSetupTimelines.js) were silently never applied during
+    // animate/direct playback or scrub, only in the one-off base-pose sync.
+    // Pixi's own container alpha cascade already multiplies a correctly-
+    // updated parent's alpha into its children — this is the one missing
+    // piece, not a manual propagation step.
+    if (asset.type === 'empty') {
+      applyPngChannels(obj, layer, tracks, t, orientation);
+    }
   }
 }
 
