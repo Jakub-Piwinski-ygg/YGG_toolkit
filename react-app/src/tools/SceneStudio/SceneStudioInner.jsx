@@ -14,6 +14,7 @@ import { SpinnerWizard } from './components/SpinnerWizard.jsx';
 import { normalizeSpinnerConfig, buildSpinnerFullSpinTimeline } from './engine/spinner/spinnerModel.js';
 import { WinSequenceWizard } from './components/WinSequenceWizard.jsx';
 import { normalizeWinSeqConfig, buildWinSeqTimelines } from './engine/winseq/winseqModel.js';
+import { buildSceneSetupIdleTimelines } from './engine/sceneSetupTimelines.js';
 import { SceneSetupWizard } from './components/SceneSetupWizard.jsx';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { WorkspaceLockOverlay } from './components/WorkspaceLockOverlay.jsx';
@@ -61,7 +62,7 @@ import {
   duplicateScenario,
   updateScenario,
   addTimelineNode,
-  addTimelineNodeUnderStart,
+  addTimelineNodeChained,
   removeNode as scRemoveNode,
   addOutputPin as scAddOutputPin,
   removeOutputPin as scRemoveOutputPin,
@@ -76,8 +77,8 @@ import {
   setView as scSetView,
   listProjectTimelines
 } from './engine/scenarioModel.js';
-import { buildScenarioTimeline, sampleScenario, spinnerCarryByNode } from './engine/scenarioTimeline.js';
-import { buildBlendedScene } from './engine/scenarioBlend.js';
+import { buildScenarioTimeline, sampleScenario, spinnerCarryByNode, layerPoseCarryByNode } from './engine/scenarioTimeline.js';
+import { buildBlendedScene, bakeCarriedPoses } from './engine/scenarioBlend.js';
 import { clearSession, loadSession, saveSession } from './engine/sessionStore.js';
 import {
   createInitialFlowState,
@@ -609,7 +610,15 @@ export default function SceneStudioInner() {
     }
   }, []);
   useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const onChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+      // Fit the design frame to the new canvas size on BOTH enter and exit.
+      // Double-rAF lets the fullscreen layout settle and the ResizeObserver
+      // resize the renderer before we fit.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        pixiViewportRef.current?.fitToStage?.();
+      }));
+    };
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
@@ -1266,7 +1275,9 @@ export default function SceneStudioInner() {
   //      └─ machine frame (static ?? machine-anim)
   //         └─ machine frame anim (only if a static frame exists)
   // Each enabled game mode (Free Spins / Bonus / Pick&Click) gets the same
-  // sub-tree under its own hidden empty group.
+  // sub-tree under its own empty group, gated by group ALPHA (visible:true,
+  // alpha:0) so Direct-mode crossfades can ease between modes. One "<Mode>
+  // Idle" timeline per mode is generated to pose those alphas.
   const handleCreateSceneSetup = useCallback(({ name, modes, setup }) => {
     const editTarget = editSceneSetupTargetRef.current;
     setShowSceneSetupWizard(false);
@@ -1293,8 +1304,8 @@ export default function SceneStudioInner() {
       const def = defaultTransformsForNewLayer(prev.stage);
       const assets = [];
       const layers = [];
-      // add(spec, name, parentId, visible) → new layerId. spec.empty for a group.
-      const add = (spec, layerName, parentId, visible) => {
+      // add(spec, name, parentId, visible, alpha) → new layerId. spec.empty for a group.
+      const add = (spec, layerName, parentId, visible, alpha = 1) => {
         const assetId = uid('a');
         if (spec.empty) {
           assets.push({ id: assetId, type: 'empty', ...(spec.setup ? { sceneSetup: spec.setup } : {}), meta: { originalName: layerName } });
@@ -1308,8 +1319,8 @@ export default function SceneStudioInner() {
         // (parent-local 0,0), so the whole group stacks centred instead of each
         // node being offset by half the stage.
         const landscape = parentId
-          ? { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5], alpha: 1, tint: { r: 1, g: 1, b: 1 } }
-          : { ...def.landscape };
+          ? { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5], alpha, tint: { r: 1, g: 1, b: 1 } }
+          : { ...def.landscape, alpha };
         layers.push({
           id: layerId, name: layerName, assetId, canvasId, parentId: parentId || null,
           visible, blend: 'normal',
@@ -1320,9 +1331,9 @@ export default function SceneStudioInner() {
       };
       // Build one background→machine sub-tree under `parentId`. Z-order
       // (bottom→top): background, bg-anim, machine frame, machine anim, LOGO on
-      // top. All children are visible:true — a hidden mode is toggled via its
-      // top parent alone (Pixi hides the whole subtree), so enabling that parent
-      // reveals everything at once.
+      // top. All children stay visible and opaque — a mode is gated via its top
+      // parent's ALPHA alone (container alpha multiplies down the subtree), so
+      // fading that parent fades the whole mode at once.
       const buildGroup = (roles, parentId) => {
         if (!roles) return;
         const bgSpec = roles.background || roles.backgroundAnim;
@@ -1341,15 +1352,27 @@ export default function SceneStudioInner() {
       rootLayerId = add({ empty: true, setup }, name || 'Scene', null, true);
       buildGroup(modes.base, rootLayerId);
       const featureLabels = { freespins: 'Free Spins', bonus: 'Bonus Game', pick: 'Pick & Click' };
+      // Mode gating is ALPHA-based (visible stays a pure editing toggle): each
+      // feature group is created visible but fully transparent, and the
+      // generated "<Mode> Idle" timelines drive the group alphas — so Direct-
+      // mode edges can crossfade between game modes instead of hard-cutting.
+      const modeGroups = [{ key: 'base', label: 'Base Game', layerId: null }];
       for (const key of ['freespins', 'bonus', 'pick']) {
         const roles = modes[key];
         if (!roles || !Object.values(roles).some(Boolean)) continue;
-        // Only the mode's top parent is hidden; its children stay visible so
-        // toggling the parent reveals the whole mode at once.
-        const groupId = add({ empty: true }, featureLabels[key], rootLayerId, false);
+        const groupId = add({ empty: true }, featureLabels[key], rootLayerId, true, 0);
+        modeGroups.push({ key, label: featureLabels[key], layerId: groupId });
         buildGroup(roles, groupId);
       }
-      return { ...prev, assets: [...baseAssets, ...assets], layers: [...baseLayers, ...layers] };
+      let next = { ...prev, assets: [...baseAssets, ...assets], layers: [...baseLayers, ...layers] };
+      // Re-entry: drop the previous root's generated idle timelines with its
+      // subtree (the new ones get fresh layer ids).
+      if (editTarget) {
+        next = { ...next, timelines: (next.timelines || []).filter((t) => t.generatedBy !== editTarget.layerId) };
+      }
+      const idle = buildSceneSetupIdleTimelines(modeGroups).map((b) => ({ ...b, generatedBy: rootLayerId }));
+      if (idle.length) next = addPrebuiltTimelines(next, idle);
+      return next;
     });
     if (rootLayerId) setSelectedLayerId(rootLayerId);
     log(`Scene Studio: scene setup "${name}"`, 'ok');
@@ -1993,14 +2016,24 @@ export default function SceneStudioInner() {
   // flattened scenario timeline maps that time → which timeline + local time to
   // preview (or a same-scene crossfade blend).
   const [scenarioPlayhead, setScenarioPlayhead] = useState({ time: 0, playing: false });
+  const scenarioPlayheadRef = useRef(scenarioPlayhead);
+  scenarioPlayheadRef.current = scenarioPlayhead;
   const activeScenarioRef = useRef(null);
   const scenarioTimelineRef = useRef({ segments: [], total: 0 });
+  // Anchor for chained "+" node placement — the node spawned last, cleared on
+  // scenario switch/remove so a fresh chain starts from the rightmost node.
+  const lastSpawnedNodeIdRef = useRef(null);
+  // Wizard-preview transport (registered by the mounted preview, e.g.
+  // WinSeqPreview) so the global Space shortcut can drive it.
+  const wizardPreviewControlsRef = useRef(null);
+  const wizardActiveRef = useRef(false);
 
   const handleSelectScenario = useCallback((scenarioId) => {
     setProjectInternal((prev) => setActiveScenario(prev, scenarioId));
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     setScenarioPlayhead({ time: 0, playing: false });
+    lastSpawnedNodeIdRef.current = null;
   }, []);
 
   // Transport for the scenario playhead (▶ ⏸ ⏹). Play from the start when the
@@ -2014,6 +2047,7 @@ export default function SceneStudioInner() {
       }
       if (action === 'pause') return { ...prev, playing: false };
       if (action === 'stop') return { time: 0, playing: false };
+      if (action === 'seekStart') return { ...prev, time: 0 }; // ⏮ keeps play state
       return prev;
     });
   }, []);
@@ -2051,6 +2085,7 @@ export default function SceneStudioInner() {
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     setScenarioPlayhead({ time: 0, playing: false });
+    lastSpawnedNodeIdRef.current = null;
   }, []);
 
   /** Apply a node/edge mutation (fn: scenario → scenario) to the active scenario. */
@@ -2062,12 +2097,25 @@ export default function SceneStudioInner() {
     });
   }, []);
 
+  // Every spawned node (drop or "+") is selected and the graph view pans to it.
+  const graphFocusTokenRef = useRef(0);
+  const [graphFocus, setGraphFocus] = useState(null); // { nodeId, token } | null
+  const spawnedNode = useCallback((id) => {
+    lastSpawnedNodeIdRef.current = id;
+    setSelectedNodeId(id);
+    setSelectedEdgeId(null);
+    setGraphFocus({ nodeId: id, token: ++graphFocusTokenRef.current });
+  }, []);
   const handleAddTimelineNode = useCallback((sceneId, timelineId, x, y) => {
-    mutateActiveScenario((sc) => addTimelineNode(sc, sceneId, timelineId, x, y));
-  }, [mutateActiveScenario]);
-  const handleAddTimelineNodeUnderStart = useCallback((sceneId, timelineId) => {
-    mutateActiveScenario((sc) => addTimelineNodeUnderStart(sc, sceneId, timelineId));
-  }, [mutateActiveScenario]);
+    const id = uid('n');
+    mutateActiveScenario((sc) => addTimelineNode(sc, sceneId, timelineId, x, y, id));
+    spawnedNode(id);
+  }, [mutateActiveScenario, spawnedNode]);
+  const handleAddTimelineNodeChained = useCallback((sceneId, timelineId) => {
+    const id = uid('n');
+    mutateActiveScenario((sc) => addTimelineNodeChained(sc, sceneId, timelineId, lastSpawnedNodeIdRef.current, id));
+    spawnedNode(id);
+  }, [mutateActiveScenario, spawnedNode]);
   const handleScenarioConnect = useCallback((from, to) => {
     mutateActiveScenario((sc) => scConnect(sc, from, to));
   }, [mutateActiveScenario]);
@@ -2491,6 +2539,7 @@ export default function SceneStudioInner() {
     if (!sc) return null;
     const flat = buildScenarioTimeline(sc, project);
     const carryByNode = spinnerCarryByNode(flat, project);
+    const poseByNode = layerPoseCarryByNode(flat, project);
     // The live handles belong to the active scene only; segments from other
     // scenes can't render without a graph rebuild, so we skip them. (Compare
     // against the PROJECT scene id — the working scene's own id differs.)
@@ -2515,9 +2564,35 @@ export default function SceneStudioInner() {
       const markers = isActive ? (cur.flow?.markers || []) : (tl?.markers || []);
       const flow = deriveFlowGraph({ tracks, markers, nodes: [], edges: [] });
       const carry = carryByNode.get(s.segment?.nodeId) || null;
-      return { scene: { ...cur, flow, __spinnerCarry: carry }, flowTime: segLocalTime };
+      const poses = poseByNode.get(s.segment?.nodeId) || null;
+      const layers = poses
+        ? bakeCarriedPoses(cur.layers, poses, cur.stage?.activeOrientation || 'landscape')
+        : cur.layers;
+      const outcome = s.segment?.spinOutcome && s.segment.spinOutcome !== 'default' ? s.segment.spinOutcome : null;
+      return { scene: { ...cur, layers, flow, __spinnerCarry: carry, __spinnerOutcome: outcome }, flowTime: segLocalTime };
     };
   }, [project, log]);
+
+  // One-click "hero frame": render whatever the viewport is currently showing
+  // (current playhead + orientation) to a transparent PNG at native resolution
+  // and download it. No dialog — it's a quick single-frame companion to the
+  // WebM export.
+  const handlePngExport = useCallback(async () => {
+    try {
+      const out = await pixiViewportRef.current?.exportFramePng({ scale: 1, backgroundColor: null });
+      if (!out?.blob) throw new Error('the viewport is not ready');
+      const base = `${sceneRef.current.name || 'scene'}_${out.orientation}_frame`.replace(/[^\w.-]+/g, '_');
+      const url = URL.createObjectURL(out.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${base}.png`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      log(`Scene Studio: exported ${base}.png (${out.width}×${out.height}, ${out.orientation})`, 'ok');
+    } catch (err) {
+      log(`PNG export failed: ${err.message}`, 'err');
+    }
+  }, [log]);
 
   // Flattened, scrubbable scenario timeline (segments + total) — recomputed
   // whenever the scenario or project changes, so the scrubber + preview follow.
@@ -2533,6 +2608,15 @@ export default function SceneStudioInner() {
   // when the scenario/project changes (not per playhead frame).
   const spinnerCarry = useMemo(
     () => spinnerCarryByNode(scenarioTimeline, project),
+    [scenarioTimeline, project]
+  );
+
+  // Per-node carried layer poses: makes HOLD / CROSSFADE hand-offs keep the
+  // pose keyframed layers ended on instead of snapping back to the setup pose
+  // (cut hand-offs still snap — that's what a cut means). Same pure-fold shape
+  // as spinnerCarry above.
+  const poseCarry = useMemo(
+    () => layerPoseCarryByNode(scenarioTimeline, project),
     [scenarioTimeline, project]
   );
 
@@ -2552,6 +2636,9 @@ export default function SceneStudioInner() {
     if (!entry?.data) return null;
     const tls = entry.data.timelines || [];
     const carry = spinnerCarry.get(scenarioSample.segment?.nodeId) || null;
+    const poses = poseCarry.get(scenarioSample.segment?.nodeId) || null;
+    const segOutcome = scenarioSample.segment?.spinOutcome;
+    const spinOutcome = segOutcome && segOutcome !== 'default' ? segOutcome : null;
     if (scenarioSample.kind === 'blend') {
       const outTl = tls.find((t) => t.id === scenarioSample.out.timelineId);
       const inTl = tls.find((t) => t.id === scenarioSample.in.timelineId);
@@ -2560,24 +2647,31 @@ export default function SceneStudioInner() {
         entry.data, project.assets || [],
         outTl.tracks, scenarioSample.out.localTime,
         inTl.tracks, scenarioSample.in.localTime,
-        scenarioSample.f, scenarioSample.channels
+        scenarioSample.f, scenarioSample.channels,
+        poses
       );
       if (carry) scene.__spinnerCarry = carry;
+      if (spinOutcome) scene.__spinnerOutcome = spinOutcome;
       return { scene, flowTime: 0 };
     }
     const tl = tls.find((t) => t.id === scenarioSample.timelineId);
     if (!tl) return null;
+    const orientation = entry.data.stage?.activeOrientation || 'landscape';
     const scene = {
       ...entry.data,
       assets: project.assets || [],
+      // Carried poses become the layers' BASE pose for this segment; the
+      // timeline's own channels still override on top.
+      ...(poses ? { layers: bakeCarriedPoses(entry.data.layers, poses, orientation) } : {}),
       __spinnerCarry: carry,
+      __spinnerOutcome: spinOutcome,
       flow: {
         ...deriveFlowGraph({ tracks: tl.tracks, markers: tl.markers, nodes: [], edges: [] }),
         runtime: { time: scenarioSample.localTime, playing: scenarioPlayhead.playing, hold: null }
       }
     };
     return { scene, flowTime: scenarioSample.localTime };
-  }, [studioMode, scenarioSample, scenarioPlayhead.playing, project, spinnerCarry]);
+  }, [studioMode, scenarioSample, scenarioPlayhead.playing, project, spinnerCarry, poseCarry]);
 
   // ── Wizard preview (in-viewport, full-focus) ───────────────────────────
   // A wizard takes over the scene view with a synthetic preview scene + its
@@ -2585,6 +2679,7 @@ export default function SceneStudioInner() {
   // stage so the real scene never flashes underneath.
   const blankPreviewScene = useMemo(() => createEmptyScene('Wizard preview'), []);
   const wizardActive = showSpinnerWizard || !!editSpinnerTarget || showWinSeqWizard || !!editWinSeqTarget || showSceneSetupWizard;
+  wizardActiveRef.current = wizardActive;
   useEffect(() => {
     if (!wizardActive) { setWizardPreviewScene(null); setWizardPreviewTime(0); }
   }, [wizardActive]);
@@ -3193,14 +3288,28 @@ export default function SceneStudioInner() {
         if (handleDeleteSelectedClips()) { e.preventDefault(); return; }
         return;
       }
-      // Space = play / pause toggle
+      // Space = play / pause toggle for whatever transport owns the viewport:
+      // wizard preview → direct scenario playhead → animate flow. Setup mode is
+      // a deliberate no-op (it used to toggle the HIDDEN animate flow).
       if (e.key === ' ') {
         e.preventDefault();
-        setFlowState((prev) => prev.playing ? flowPause(prev) : flowPlay(prev));
+        if (wizardActiveRef.current) {
+          wizardPreviewControlsRef.current?.togglePlay?.();
+          return;
+        }
+        if (studioModeRef.current === 'direct') {
+          handleScenarioTransport(scenarioPlayheadRef.current.playing ? 'pause' : 'play');
+          return;
+        }
+        if (studioModeRef.current === 'animate') {
+          setFlowState((prev) => prev.playing ? flowPause(prev) : flowPlay(prev));
+        }
         return;
       }
-      // Arrow keys = stop playback + step one frame
+      // Arrow keys = stop playback + step one frame (animate mode only — in
+      // other modes they'd invisibly step the hidden animate flow)
       if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        if (wizardActiveRef.current || studioModeRef.current !== 'animate') return;
         e.preventDefault();
         const dir = e.key === 'ArrowLeft' ? -1 : 1;
         const fps = sceneRef.current.stage?.fps || 60;
@@ -3214,7 +3323,7 @@ export default function SceneStudioInner() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo, handleDuplicateSelection, handleCopySelection, handlePasteSelection, handleDeleteSelectedKeys, handleDeleteSelectedClips]);
+  }, [undo, redo, handleDuplicateSelection, handleCopySelection, handlePasteSelection, handleDeleteSelectedKeys, handleDeleteSelectedClips, handleScenarioTransport]);
 
   /**
    * Selecting a layer (via hierarchy, viewport click, or timeline label)
@@ -3484,6 +3593,7 @@ export default function SceneStudioInner() {
         canRedo={historyDepth.redo > 0}
         onUnityExport={() => setShowUnityExport(true)}
         onWebMExport={() => setShowWebMExport(true)}
+        onPngExport={handlePngExport}
       />
 
       {/* Wizards render embedded in the bottom-center slot (full-focus) — see
@@ -3542,7 +3652,7 @@ export default function SceneStudioInner() {
               timelines={projectTimelines}
               activeScenario={activeScenario}
               onJumpToTimeline={handleJumpToTimelineInAnimate}
-              onAddNode={handleAddTimelineNodeUnderStart}
+              onAddNode={handleAddTimelineNodeChained}
             />
           ) : (
             <>
@@ -3723,6 +3833,7 @@ export default function SceneStudioInner() {
             timeline={scenarioTimeline}
             time={scenarioPlayhead.time}
             playing={scenarioPlayhead.playing}
+            focusRequest={graphFocus}
             onTransport={handleScenarioTransport}
             onScrub={handleScenarioScrub}
             selectedNodeId={selectedNodeId}
@@ -3785,6 +3896,7 @@ export default function SceneStudioInner() {
                 initialStep={editWinSeqTarget?.initialStep || null}
                 onPreviewScene={setWizardPreviewScene}
                 onPreviewTime={setWizardPreviewTime}
+                previewControlsRef={wizardPreviewControlsRef}
                 onClose={() => { setShowWinSeqWizard(false); setEditWinSeqTarget(null); }}
                 onCreate={
                   editWinSeqTarget

@@ -63,6 +63,7 @@ Unity-phase split.
 |---|---|
 | **2026-06-24** | Design doc + pure model (`winseqModel.js`) + Spine-backed runtime (`winseqRuntime.js`). Tier parse (`NNx_tier_sub`), tier→flow escalation, normalize/derive sequences, flow eval (step + local time), duration sums, `hangOnLastIdle`, `large`/`max` gated default-off. First web + timeline render. |
 | **2026-06-25** | Wizard (`WinSequenceWizard.jsx`): skeleton-triplet fetch, tier auto-map **+ manual per-tier begin/idle/end dropdowns**, flow generation, in-panel preview transport. Model refinements + the full 15-test suite (`winseqModel.test.mjs`): single-frame anims respected, unknown-anim fallback, hang-mode final-idle loop. |
+| **2026-07-03** | Preview transport QoL: the mini-timeline bar is now **drag-to-scrub** (pointer capture, mirrors the animate timeline; pauses on grab), a **⏮ jump-to-start** button joined ▶/⏸, and the global **Space** shortcut toggles the preview's play state while the wizard is up (registered via `previewControlsRef` → `wizardPreviewControlsRef` in `SceneStudioInner`). |
 | **2026-06-26** | Wizard entry points **moved from the toolbar into the left stack** (under the hierarchy, above the workspace) — see `StudioToolbar.jsx` / `SceneStudioInner.jsx`. Workspace-lock gate (grey-out + centered forced load when no root). Wizard mode now defaults the scene view to **frame behind** (saving/restoring the prior overlay on close) so the previewed object isn't greyed by the in-front frame. Phase 1 declared complete. |
 
 > The wizards foldout referenced below as **🪄 wizards ▾** now lives as a
@@ -85,8 +86,9 @@ object whose "animations" are those flows.
 > second-`Application` crash entirely — there is only ever one Pixi renderer.
 >
 > The wizard panel keeps a transport: a color-coded begin/idle/end timeline
-> strip (segments sized by real durations) with play/scrub + current-anim label
-> that **drives the scene-view preview** (`onTime` → `onPreviewTime`).
+> strip (segments sized by real durations) with ⏮ / play / drag-scrub (pointer
+> capture) + current-anim label that **drives the scene-view preview**
+> (`onTime` → `onPreviewTime`); Space toggles play while the wizard is open.
 >
 > **Mode gating:** wizards and "add asset to hierarchy from the workspace" only
 > happen in setup mode — triggering either from another mode auto-switches to

@@ -3,7 +3,7 @@ type: design
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-06-16
+updated: 2026-07-03
 source: react-app/SCENE_STUDIO_DIRECT.md
 tags: [design, scene-studio, scenario, node-graph, pixi]
 ---
@@ -15,7 +15,15 @@ tags: [design, scene-studio, scenario, node-graph, pixi]
 > Companion to [[Scene Studio Design]] (§20 = as-built animation) and [[Spinner Design]].
 > Phase changelog lives in [[Scene Studio Phase Status]].
 
-> [!success] Status — P1–P4 shipped + scrubber/crossfade refit (2026-06-16); P5 pending.
+> [!success] Status — P1–P4 shipped + scrubber/crossfade refit (2026-06-16);
+> P4.x QoL batch shipped (2026-07-03): **hold/crossfade pose carry** (the web
+> preview now honours all three transition modes — hold keeps the outgoing
+> pose, crossfade blends from it; cut still snaps), **per-node spin outcome
+> overrides** (no/small/big/wild win, name-based symbol tiers, boards carried
+> downstream), chained ＋ node spawn with a focus tween, ⏮ + mode-aware Space
+> transport, playing-segment scrubber highlight. See
+> [[Session 2026-07-03 Scene Studio Direct QoL]]. P5 (auto-arrange, minimap,
+> Unity scenario export incl. outcome-generator parity) pending.
 
 ## TL;DR
 

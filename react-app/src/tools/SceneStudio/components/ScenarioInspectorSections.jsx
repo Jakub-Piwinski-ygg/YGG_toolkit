@@ -13,6 +13,7 @@ import {
   resolveTimelineRef,
   nodeEntry,
   edgeTransition,
+  spinnerStopInfo,
   TRANSITION_MODES,
   TRANSITION_CHANNELS
 } from '../engine/scenarioModel.js';
@@ -93,9 +94,18 @@ function SummarySection({ scenario, project }) {
   );
 }
 
+const SPIN_OUTCOME_LABELS = [
+  { value: 'default', label: 'default (as authored)' },
+  { value: 'noWin', label: 'no win' },
+  { value: 'smallWin', label: 'small win' },
+  { value: 'bigWin', label: 'big win' },
+  { value: 'wildWin', label: 'wild win' }
+];
+
 function NodeSection({ node, project, onSetNodeLabel, onSetNodeEntry, onAddOutputPin, onRemoveOutputPin, onRemoveNode, onJumpToTimeline }) {
   const ref = resolveTimelineRef(project, node.sceneId, node.timelineId);
   const entry = nodeEntry(node);
+  const spinInfo = spinnerStopInfo(project, node.sceneId, node.timelineId);
   return (
     <div className="ss-insp-body">
       <div className="ss-insp-title">{node.label || ref?.timelineName || 'timeline'}</div>
@@ -159,6 +169,35 @@ function NodeSection({ node, project, onSetNodeLabel, onSetNodeEntry, onAddOutpu
         <span>Wait for click before continuing</span>
         <span className="ss-insp-tag" title="Exported to Unity; not simulated in the web preview yet">export</span>
       </label>
+
+      {spinInfo.hasSpinnerStop && (
+        <>
+          <div className="ss-insp-sep" />
+          <div className="ss-insp-subhead">Spin outcome</div>
+          <label className="ss-insp-field">
+            <span>Result</span>
+            <select
+              className="ss-insp-input"
+              value={entry.spinOutcome}
+              onChange={(e) => onSetNodeEntry?.(node.id, { spinOutcome: e.target.value })}
+            >
+              {SPIN_OUTCOME_LABELS.map((o) => (
+                <option
+                  key={o.value}
+                  value={o.value}
+                  disabled={o.value === 'wildWin' && !spinInfo.hasWild}
+                >
+                  {o.label}{o.value === 'wildWin' && !spinInfo.hasWild ? ' — name a symbol “wild”' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="ss-insp-note">
+            Overrides the boards this node's stop clips land — the next nodes hold the result.
+            Low/high pools come from symbol names (L1/H1, low/high…).
+          </div>
+        </>
+      )}
 
       <div className="ss-insp-sep" />
       <div className="ss-insp-actions">
@@ -227,8 +266,10 @@ function EdgeSection({ scenario, edge, onSetEdgeTransition, onDeleteEdge }) {
 
       <div className="ss-insp-note">
         {t.mode === 'cut'
-          ? 'Cut — the next timeline starts instantly.'
-          : 'Crossfade / hold is authored + exported to Unity. The web preview plays the hand-off as a cut for now.'}
+          ? 'Cut — the next timeline starts instantly from its authored state.'
+          : t.mode === 'hold'
+            ? 'Hold — layers keep the pose (and spinners the board) the previous timeline ended on.'
+            : 'Crossfade — the opted-in channels blend over the mix window; unkeyed layers hold their carried pose.'}
       </div>
 
       <div className="ss-insp-sep" />

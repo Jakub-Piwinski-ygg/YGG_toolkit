@@ -176,8 +176,9 @@ A header bar + an infinite, pan/zoom node canvas.
   (mirrors the existing scene picker pattern in `StudioToolbar`).
 - Inline rename (✎), delete (with confirm).
 - Divider.
-- **▶ play · ⏸ pause · ⏹ stop · ↺ reset** transport (drives the scenario
-  runtime, §6).
+- **⏮ jump-to-start · ▶ play · ⏸ pause · ⏹ stop** transport (drives the
+  scenario playhead, §6). ⏮ rewinds to 0 keeping the play state; **Space**
+  toggles play/pause while in Direct mode (the global shortcut is mode-aware).
 - Right side: validity chip (`✓ playable` / `⚠ no path from start`),
   **⤢ maximize graph** toggle (collapses preview to a draggable PiP),
   **fit / 100% / auto-arrange** view buttons.
@@ -349,8 +350,15 @@ want to blend. We reserve this on the **edge** so it describes the *hand-off*:
 This piggybacks on the per-clip `mixDuration` / blend concept already in
 `normalizeClip`. The runtime would, during `switching`, overlap the tail of
 timeline A with the head of timeline B for `mixDuration`, lerping the opted-in
-channels. **Phase-gated** — ship the inspector section as a read-only stub first;
-the runtime honours `mode:'cut'` until crossfade lands.
+channels. **Shipped (2026-07-03):** the web preview now honours all three modes
+via a generic **pose carry** (`layerPoseCarryByNode`, `engine/scenarioTimeline.js`)
+— the analogue of the spinner board carry. `hold`/`crossfade` segments inherit
+the transform-channel pose every layer ended the previous segment on (baked as
+the layers' base transforms; the incoming timeline's own keys still win), and
+`buildBlendedScene` blends from that carried pose during the overlap. `cut`
+still snaps to the incoming timeline's authored state. Limitation: crossfade
+blends container transform channels only — spine/spinner/winseq *animation
+state* is frozen during the overlap window.
 
 The node inspector also reserves room for **entry options** (per-node speed
 multiplier, "wait for click before continuing", start offset) — all optional
@@ -444,8 +452,29 @@ is export-ready from day one.
   (P5) but the web preview plays the hand-off as a cut for now (documented in the
   edge editor). Per-layer (vs global) channel overrides from §9 deferred — v1 is
   global per-channel.
+- **P4.x — Hold/crossfade pose carry + QoL + spin outcomes. ✅ DONE (2026-07-03).**
+  (1) **Pose carry** — `layerPoseCarryByNode` folds the walk and gives hold/
+  crossfade segments the poses layers ended the previous segment on (see §9);
+  threaded through `directPreview` (single + blend) and the scenario video
+  export. (2) **Transport QoL** — ⏮ jump-to-start on all three timelines
+  (animate / win-seq preview / direct), mode-aware **Space** (wizard preview →
+  direct playhead → animate flow; setup = no-op), drag-to-scrub on the win-seq
+  preview bar, and an `is-current`/`is-running` highlight on the scrubber
+  segment under the playhead. (3) **Chained ＋ spawn** — `addTimelineNodeChained`
+  places each new node right of the last spawned one (fallback: rightmost node,
+  else Start) and the graph view pans to it with a 280 ms ease-out tween
+  (cancelled by any wheel/pointer input); drag-drops focus too. (4) **Spin
+  outcome overrides** — per-node `entry.spinOutcome`
+  (`default`/`noWin`/`smallWin`/`bigWin`/`wildWin`) in the node inspector when
+  the bound timeline stops a spinner; boards come from seeded generators in
+  `spinnerModel.js` with name-based tiers (l/lo/low · h/hi/high · wild) and a
+  wild-aware `evalWaysWins`; the override rides the resolve cache key and the
+  board carry, so downstream nodes hold the forced result. wildWin is disabled
+  until a symbol is named "wild".
 - **P5 — Polish & export.** Auto-arrange, minimap, breadcrumb, edge-insert;
-  `YggScenarioPlayer.cs` + scenario payload in `.unitypackage`.
+  `YggScenarioPlayer.cs` + scenario payload in `.unitypackage`. NOTE: the
+  outcome generators + wild-aware win eval must be mirrored in `YggSpinner.cs`
+  when the scenario export milestone lands.
 
 ---
 

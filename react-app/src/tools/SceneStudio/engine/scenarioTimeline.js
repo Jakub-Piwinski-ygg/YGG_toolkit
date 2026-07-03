@@ -19,6 +19,7 @@ import {
 } from './scenarioModel.js';
 import { normalizeSpinnerConfig } from './spinner/spinnerModel.js';
 import { resolveSpinnerTrack, spinnerVisibleBoard, pickSpinnerActionTrack } from './spinner/spinnerEval.js';
+import { resolveLayerTransform } from './scenarioBlend.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -73,7 +74,8 @@ export function buildScenarioTimeline(scenario, project) {
       mode: trans.mode,
       mixDuration: trans.mixDuration,
       channels: trans.channels,
-      overlapIn
+      overlapIn,
+      spinOutcome: entry.spinOutcome || 'default'
     };
     segments.push(seg);
     prev = seg;
@@ -158,6 +160,61 @@ export function segmentAt(tl, T) {
  * @returns {Map<string, Object<string, board>>} nodeId → { [layerId]: board }
  *          (board = symbolId[reels][rows]; a null entry means "use initialBoard")
  */
+/**
+ * Per-node carried layer POSES for a flattened scenario — the generic-channel
+ * analogue of spinnerCarryByNode. Without it, every timeline hand-off rebuilds
+ * the preview from the incoming timeline alone, so any layer it doesn't key
+ * snaps back to its setup pose. Fold across the walk:
+ *  - each segment's timeline overwrites the running pose of every layer it
+ *    keys, evaluated at the segment's END (channel values clamp-hold there);
+ *  - a segment entered via CUT drops the carried poses for its scene (a cut
+ *    means "snap to the incoming timeline's authored state");
+ *  - HOLD / CROSSFADE segments inherit them — the snapshot recorded per node is
+ *    the pose map the segment ENTERS with. Consumers bake it as the layers'
+ *    base transforms; the incoming timeline's own channels still win on top.
+ *
+ * @returns {Map<string, Object<string, transform>>} nodeId → { [layerId]: pose }
+ */
+export function layerPoseCarryByNode(flat, project) {
+  const byNode = new Map();
+  if (!flat?.segments?.length || !project) return byNode;
+  const scenesById = new Map((project.scenes || []).map((s) => [s.id, s]));
+  // Running end-of-segment pose, keyed `${sceneId}::${layerId}`.
+  const poses = new Map();
+
+  for (const seg of flat.segments) {
+    const data = scenesById.get(seg.sceneId)?.data;
+    if (!data) continue;
+    const prefix = `${seg.sceneId}::`;
+    if (seg.mode === 'hold' || seg.mode === 'crossfade') {
+      const entering = {};
+      for (const [key, pose] of poses) {
+        if (key.startsWith(prefix)) entering[key.slice(prefix.length)] = pose;
+      }
+      if (Object.keys(entering).length) byNode.set(seg.nodeId, entering);
+    } else {
+      // Cut hand-off: the incoming timeline's authored state wins outright.
+      for (const key of [...poses.keys()]) {
+        if (key.startsWith(prefix)) poses.delete(key);
+      }
+    }
+    const tl = (data.timelines || []).find((t) => t.id === seg.timelineId);
+    if (!tl?.tracks?.length) continue;
+    const orientation = data.stage?.activeOrientation || 'landscape';
+    const keyed = new Set(
+      tl.tracks.filter((tr) => (tr.clips || []).some((c) => c.channels)).map((tr) => tr.layerId)
+    );
+    for (const layer of data.layers || []) {
+      if (!keyed.has(layer.id)) continue;
+      // Resolve over the carried entering base (if any) so channels this
+      // timeline does NOT key chain through instead of reverting to setup.
+      const enteringBase = poses.get(prefix + layer.id) || null;
+      poses.set(prefix + layer.id, resolveLayerTransform(tl.tracks, layer, seg.refDur, orientation, enteringBase, data.stage || null));
+    }
+  }
+  return byNode;
+}
+
 export function spinnerCarryByNode(flat, project) {
   const byNode = new Map();
   if (!flat?.segments?.length || !project) return byNode;
@@ -191,8 +248,10 @@ export function spinnerCarryByNode(flat, project) {
       nodeCarry[layer.id] = entryBoard; // null → resolves to config.initialBoard
       const tracks = (tl?.tracks || []).filter((tr) => tr.layerId === layer.id);
       const track = pickSpinnerActionTrack(tracks);
-      const resolved = resolveSpinnerTrack(config, track, entryBoard);
-      // Board visible at the end of this segment's played window (settled).
+      const outcome = seg.spinOutcome !== 'default' ? seg.spinOutcome : null;
+      const resolved = resolveSpinnerTrack(config, track, entryBoard, outcome);
+      // Board visible at the end of this segment's played window (settled) —
+      // an outcome override lands here too, so downstream nodes HOLD it.
       carry.set(ckey, spinnerVisibleBoard(config, resolved, seg.refDur));
     }
     if (Object.keys(nodeCarry).length) byNode.set(seg.nodeId, nodeCarry);

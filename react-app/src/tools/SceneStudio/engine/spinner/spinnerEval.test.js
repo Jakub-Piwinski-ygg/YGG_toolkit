@@ -11,6 +11,8 @@ import {
   boardHasWin,
   generateNonWinningBoard,
   generateWinningBoard,
+  generateOutcomeBoard,
+  classifySymbols,
   spinnerPresentWinDuration,
   mulberry32
 } from './spinnerModel.js';
@@ -504,4 +506,120 @@ test('resolve is deterministic and the memo key is stable', () => {
   const b = resolveSpinnerTrack(cfg, track);
   assert.deepEqual(a.stops, b.stops);
   for (let r = 0; r < 5; r++) assert.deepEqual(a.segments[r], b.segments[r]);
+});
+
+// ── Direct-mode outcome overrides (name-based tiers + wild) ─────────────
+
+const NAMED_SYMS = [
+  { id: 'l1', name: 'L1' }, { id: 'l2', name: 'lo_2' }, { id: 'l3', name: 'low ace' },
+  { id: 'h1', name: 'H1' }, { id: 'h2', name: 'hi2' }, { id: 'h3', name: 'high_3' },
+  { id: 'wd', name: 'Wild' }
+];
+
+function namedConfig(over = {}) {
+  return normalizeSpinnerConfig({
+    symbols: NAMED_SYMS,
+    grid: { reels: 5, rows: 3, cellW: 200, cellH: 200 },
+    seed: 1234,
+    ...over
+  });
+}
+
+test('classifySymbols: name convention → low/high pools + wild', () => {
+  const { low, high, wildId } = classifySymbols(namedConfig());
+  assert.deepEqual([...low].sort(), ['l1', 'l2', 'l3']);
+  assert.deepEqual([...high].sort(), ['h1', 'h2', 'h3']);
+  assert.equal(wildId, 'wd');
+  // "gold" / "fish" must NOT classify as low/high by accident
+  const cfg2 = normalizeSpinnerConfig({
+    symbols: [{ id: 'g', name: 'gold' }, { id: 'f', name: 'fish' }, { id: 'x', name: 'axe' }, { id: 'y', name: 'orb' }],
+    grid: { reels: 5, rows: 3, cellW: 200, cellH: 200 }, seed: 1
+  });
+  const c2 = classifySymbols(cfg2);
+  assert.equal(c2.wildId, null);
+  // order-based fallback: first half low, rest high
+  assert.deepEqual(c2.low, ['g', 'f']);
+  assert.deepEqual(c2.high, ['x', 'y']);
+});
+
+test('evalWaysWins with wild: substitution extends runs and joins cells', () => {
+  const board = [
+    ['l1', 'h1', 'h2'],
+    ['wd', 'h3', 'l2'],
+    ['l1', 'l3', 'h1'],
+    ['h2', 'h3', 'l2'],
+    ['l3', 'h1', 'h2']
+  ];
+  // Without a wild id, l1 stops at reel 1 → no win.
+  assert.equal(boardHasWin(board), false);
+  // With wd as wild: l1 spans reels 0,1(wild),2 → 3-of-a-kind incl. the wild cell.
+  const wins = evalWaysWins(board, 'wd');
+  const l1 = wins.find((w) => w.symbolId === 'l1');
+  assert.ok(l1 && l1.count === 3);
+  assert.ok(l1.cells.some((c) => board[c.reel][c.row] === 'wd'), 'wild cell joins the win');
+  // The wild itself never appears as a winning symbol.
+  assert.ok(!wins.some((w) => w.symbolId === 'wd'));
+});
+
+test('generateOutcomeBoard: noWin has no wilds and never wins (200 seeds)', () => {
+  const cfg = namedConfig();
+  for (let seed = 0; seed < 200; seed++) {
+    const b = generateOutcomeBoard(cfg, 'noWin', seed);
+    assert.equal(boardHasWin(b, 'wd'), false, `seed ${seed}`);
+    assert.ok(!b.some((col) => col.includes('wd')), `seed ${seed} has a wild`);
+  }
+});
+
+test('generateOutcomeBoard: smallWin = exactly one modest win (200 seeds)', () => {
+  const cfg = namedConfig();
+  for (let seed = 0; seed < 200; seed++) {
+    const wins = evalWaysWins(generateOutcomeBoard(cfg, 'smallWin', seed), 'wd');
+    assert.equal(wins.length, 1, `seed ${seed}: ${wins.length} wins`);
+    assert.ok(wins[0].count >= 3 && wins[0].count <= 5, `seed ${seed}: count ${wins[0].count}`);
+  }
+});
+
+test('generateOutcomeBoard: bigWin = multiple long high-symbol wins (200 seeds)', () => {
+  const cfg = namedConfig();
+  const high = new Set(['h1', 'h2', 'h3']);
+  for (let seed = 0; seed < 200; seed++) {
+    const wins = evalWaysWins(generateOutcomeBoard(cfg, 'bigWin', seed), 'wd');
+    assert.ok(wins.length >= 2, `seed ${seed}: ${wins.length} wins`);
+    assert.ok(wins.every((w) => w.count >= 4), `seed ${seed}: counts ${wins.map((w) => w.count)}`);
+    assert.ok(wins.every((w) => high.has(w.symbolId)), `seed ${seed}: syms ${wins.map((w) => w.symbolId)}`);
+  }
+});
+
+test('generateOutcomeBoard: wildWin = wilds substituting into several wins (200 seeds)', () => {
+  const cfg = namedConfig();
+  for (let seed = 0; seed < 200; seed++) {
+    const b = generateOutcomeBoard(cfg, 'wildWin', seed);
+    const wins = evalWaysWins(b, 'wd');
+    assert.ok(wins.length >= 2, `seed ${seed}: ${wins.length} wins`);
+    assert.ok(b.some((col) => col.includes('wd')), `seed ${seed}: no wilds placed`);
+    assert.ok(
+      wins.some((w) => w.cells.some((c) => b[c.reel][c.row] === 'wd')),
+      `seed ${seed}: no win goes through a wild`
+    );
+  }
+});
+
+test('outcome overrides beat an authored targetBoard and change the resolve key', () => {
+  const cfg = namedConfig();
+  const authored = generateNonWinningBoard(['l1', 'l2', 'l3', 'h1', 'h2', 'h3'], 5, 3, 7);
+  const track = standardTrack({ stop: { targetBoard: authored } });
+  const plain = resolveSpinnerTrack(cfg, track);
+  assert.deepEqual(plain.stops[0].target, authored, 'no outcome → authored board');
+  const overridden = resolveSpinnerTrack(cfg, track, null, 'bigWin');
+  assert.notDeepEqual(overridden.stops[0].target, authored);
+  assert.ok(evalWaysWins(overridden.stops[0].target, 'wd').length >= 2);
+  assert.notEqual(
+    spinnerResolveKey(cfg, track, null, 'bigWin'),
+    spinnerResolveKey(cfg, track, null, null)
+  );
+  // determinism: same outcome + seed → same board
+  assert.deepEqual(
+    resolveSpinnerTrack(cfg, track, null, 'bigWin').stops[0].target,
+    overridden.stops[0].target
+  );
 });

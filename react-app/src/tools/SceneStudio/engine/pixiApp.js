@@ -1115,7 +1115,8 @@ export function applyFlowAtTime(handles, scene, t) {
       // that board across a timeline hand-off instead of resetting to the
       // authored initial board. Null in single-timeline mode → initial board.
       const carryBoard = scene.__spinnerCarry ? (scene.__spinnerCarry[layer.id] || null) : null;
-      applySpinnerAtTime(obj, layer, tracks, t, carryBoard);
+      // Per-node spin outcome override (Direct mode) — null → authored result.
+      applySpinnerAtTime(obj, layer, tracks, t, carryBoard, scene.__spinnerOutcome || null);
       applyPngChannels(obj, layer, tracks, t, orientation);
       continue;
     }

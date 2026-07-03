@@ -12,14 +12,18 @@
 
 import { evalChannel, channelFirstKeyTime, clipLocalSeconds } from './animation/keyframes.js';
 import { deriveFlowGraph } from './sceneModel.js';
+import { resolveTransform } from './orientationManager.js';
 
 const TRANSFORM_CHANNELS = ['position', 'scale', 'rotation', 'alpha', 'tint'];
 const lerp = (a, b, f) => a + (b - a) * f;
 
-function baseTransform(layer, orientation) {
-  const t = orientation === 'portrait'
-    ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
-    : layer.transforms?.landscape;
+// Routed through orientationManager's resolveTransform (not a local landscape/
+// portrait ?? fallback) so a portrait layer with no override gets the SAME
+// centre-relative inherited pose the live editor renders. A local duplicate
+// here previously read the raw landscape transform, so a portrait crossfade's
+// blend endpoints disagreed with what was actually on stage.
+function baseTransform(layer, orientation, stage) {
+  const t = resolveTransform(layer, orientation, stage);
   return t || { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, alpha: 1, tint: { r: 1, g: 1, b: 1 } };
 }
 
@@ -50,9 +54,14 @@ function resolveChannelValues(tracks, layerId, t) {
   return out;
 }
 
-/** Resolve a layer's flat transform (base pose overridden by channel values) at `t`. */
-export function resolveLayerTransform(tracks, layer, t, orientation) {
-  const base = baseTransform(layer, orientation);
+/**
+ * Resolve a layer's flat transform (base pose overridden by channel values) at
+ * `t`. `baseOverride` substitutes the layer's authored base pose — used by the
+ * direct-mode pose carry so a hold/crossfade segment starts from the pose the
+ * previous segment ended on instead of the setup pose.
+ */
+export function resolveLayerTransform(tracks, layer, t, orientation, baseOverride = null, stage = null) {
+  const base = baseOverride || baseTransform(layer, orientation, stage);
   const ch = resolveChannelValues(tracks, layer.id, t);
   return {
     ...base,
@@ -66,34 +75,62 @@ export function resolveLayerTransform(tracks, layer, t, orientation) {
   };
 }
 
-/** Blend two flat transforms by `f` (0=A → 1=B); opted-in channels lerp, others snap to B. */
+/**
+ * Blend two flat transforms by `f` (0=A → 1=B); opted-in channels lerp, others
+ * HOLD A (the outgoing/carried pose) for the whole overlap window. Holding A
+ * instead of snapping to B is what makes an alpha-only crossfade change
+ * nothing but alpha: an unmasked position/scale/rotation would otherwise jump
+ * to the incoming timeline's pose the instant the overlap begins. Once the
+ * overlap ends, the incoming timeline plays alone and its own authored pose
+ * takes over — this only governs the shared window.
+ */
 export function blendTransforms(A, B, f, mask = {}) {
   const at = A.tint || { r: 1, g: 1, b: 1 };
   const bt = B.tint || { r: 1, g: 1, b: 1 };
   return {
     ...B,
-    x: mask.position ? lerp(A.x, B.x, f) : B.x,
-    y: mask.position ? lerp(A.y, B.y, f) : B.y,
-    scaleX: mask.scale ? lerp(A.scaleX, B.scaleX, f) : B.scaleX,
-    scaleY: mask.scale ? lerp(A.scaleY, B.scaleY, f) : B.scaleY,
-    rotation: mask.rotation ? lerp(A.rotation, B.rotation, f) : B.rotation,
-    alpha: mask.alpha ? lerp(A.alpha ?? 1, B.alpha ?? 1, f) : (B.alpha ?? 1),
+    x: mask.position ? lerp(A.x, B.x, f) : A.x,
+    y: mask.position ? lerp(A.y, B.y, f) : A.y,
+    scaleX: mask.scale ? lerp(A.scaleX, B.scaleX, f) : A.scaleX,
+    scaleY: mask.scale ? lerp(A.scaleY, B.scaleY, f) : A.scaleY,
+    rotation: mask.rotation ? lerp(A.rotation, B.rotation, f) : A.rotation,
+    alpha: mask.alpha ? lerp(A.alpha ?? 1, B.alpha ?? 1, f) : (A.alpha ?? 1),
     tint: mask.tint
       ? { r: lerp(at.r, bt.r, f), g: lerp(at.g, bt.g, f), b: lerp(at.b, bt.b, f) }
-      : bt
+      : at
   };
+}
+
+/**
+ * Bake carried poses into a layer array as the new base transforms for the
+ * given orientation. Layers without a carried pose pass through untouched;
+ * timeline channels still override on top (a carried pose is only the BASE).
+ */
+export function bakeCarriedPoses(layers, poses, orientation) {
+  if (!poses) return layers;
+  return (layers || []).map((layer) => {
+    const pose = poses[layer.id];
+    if (!pose) return layer;
+    const transforms = { ...(layer.transforms || {}) };
+    transforms[orientation] = { ...transforms[orientation], ...pose };
+    return { ...layer, transforms };
+  });
 }
 
 /**
  * Bake a static preview scene whose layer poses are the blended result of two
  * timelines from the SAME scene. `sceneData` is the origin scene's data (minus
- * assets); `assets` is the shared pool.
+ * assets); `assets` is the shared pool. `carryPoses` ({layerId: pose}) seeds
+ * both sides' base poses so layers a timeline doesn't key blend from/to the
+ * carried pose instead of snapping to the setup pose.
  */
-export function buildBlendedScene(sceneData, assets, outTracks, outT, inTracks, inT, f, mask) {
+export function buildBlendedScene(sceneData, assets, outTracks, outT, inTracks, inT, f, mask, carryPoses = null) {
   const orientation = sceneData.stage?.activeOrientation || 'landscape';
+  const stage = sceneData.stage || null;
   const layers = (sceneData.layers || []).map((layer) => {
-    const A = resolveLayerTransform(outTracks, layer, outT, orientation);
-    const B = resolveLayerTransform(inTracks, layer, inT, orientation);
+    const carried = carryPoses?.[layer.id] || null;
+    const A = resolveLayerTransform(outTracks, layer, outT, orientation, carried, stage);
+    const B = resolveLayerTransform(inTracks, layer, inT, orientation, carried, stage);
     const blended = blendTransforms(A, B, f, mask || {});
     const transforms = { ...(layer.transforms || {}) };
     transforms[orientation] = { ...transforms[orientation], ...blended };

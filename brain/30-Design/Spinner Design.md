@@ -20,15 +20,15 @@ Studio via `TOOL_ALIASES`).
 
 ## Section map
 
-| § | Topic |
-|---|---|
-| 1 | Design principles |
-| 2 | Evaluation model (the math) |
-| 3 | Data model |
-| 4 | Editor UX |
-| 5 | Win logic (v1) |
-| 6 | Milestones |
-| 7 | Known risks |
+| §   | Topic                       |
+| --- | --------------------------- |
+| 1   | Design principles           |
+| 2   | Evaluation model (the math) |
+| 3   | Data model                  |
+| 4   | Editor UX                   |
+| 5   | Win logic (v1)              |
+| 6   | Milestones                  |
+| 7   | Known risks                 |
 
 ## Key concepts (from the Unity-export sessions)
 

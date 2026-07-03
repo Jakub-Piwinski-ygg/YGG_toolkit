@@ -17,6 +17,9 @@
 // return a NEW project. Nothing is mutated in place.
 
 import { uid } from './sceneModel.js';
+import { SPIN_OUTCOMES, normalizeSpinnerConfig, classifySymbols } from './spinner/spinnerModel.js';
+
+export { SPIN_OUTCOMES };
 
 export const SCENARIO_NODE_TYPES = ['start', 'end', 'timeline'];
 
@@ -36,7 +39,7 @@ function allChannels(v) {
 
 /** Default per-node entry options. */
 export function entryDefaults() {
-  return { speed: 1, startOffset: 0, waitForClick: false };
+  return { speed: 1, startOffset: 0, waitForClick: false, spinOutcome: 'default' };
 }
 
 /** Normalize a transition payload (or null → defaults-on-read). */
@@ -63,7 +66,8 @@ export function normalizeEntry(raw) {
   return {
     speed: Number.isFinite(sp) && sp > 0 ? sp : 1,
     startOffset: Number.isFinite(so) && so >= 0 ? so : 0,
-    waitForClick: raw.waitForClick === true
+    waitForClick: raw.waitForClick === true,
+    spinOutcome: SPIN_OUTCOMES.includes(raw.spinOutcome) ? raw.spinOutcome : 'default'
   };
 }
 
@@ -80,6 +84,13 @@ export function edgeTransition(edge) {
 /** Default canvas placement for the auto-created start / end nodes. */
 const START_POS = { x: 80, y: 220 };
 const END_POS = { x: 900, y: 220 };
+
+// Node geometry (graph units) — single source shared with the graph panel so
+// model-side placement and panel-side rendering can't drift.
+export const SCENARIO_TL_W = 168;   // timeline node width
+export const SCENARIO_SE_W = 90;    // start / end node width
+export const SCENARIO_NODE_H = 44;
+export const SCENARIO_NODE_GAP_X = 56;
 
 /**
  * @typedef {Object} ScenarioNode
@@ -351,9 +362,9 @@ export function duplicateScenario(project, scenarioId, name) {
 // ── Node / edge operations (scenario in → scenario out) ──────────────────────
 
 /** Add a timeline node bound to {sceneId, timelineId} at canvas (x, y). */
-export function addTimelineNode(sc, sceneId, timelineId, x, y) {
+export function addTimelineNode(sc, sceneId, timelineId, x, y, id = uid('n')) {
   const node = {
-    id: uid('n'),
+    id,
     type: 'timeline',
     sceneId,
     timelineId,
@@ -367,16 +378,23 @@ export function addTimelineNode(sc, sceneId, timelineId, x, y) {
 }
 
 /**
- * Add a timeline node placed just to the right of (and stepping down from) the
- * Start node, so the "+ add" buttons spawn nodes in a tidy column without an
- * exact drop point. Staggered by the number of timeline nodes already present.
+ * Add a timeline node CHAINED to the right of an anchor, so repeated "+ add"
+ * clicks build a left-to-right flow: the anchor is `afterNodeId` (the node the
+ * caller last spawned), else the rightmost timeline node, else Start. The new
+ * node sits one gap to the anchor's right, top-aligned with it (input/output
+ * pins share the same y-offset on every node type).
  */
-export function addTimelineNodeUnderStart(sc, sceneId, timelineId) {
+export function addTimelineNodeChained(sc, sceneId, timelineId, afterNodeId = null, id = uid('n')) {
   const start = startNode(sc);
-  const count = (sc.nodes || []).filter((n) => n.type === 'timeline').length;
-  const baseX = (start?.x ?? START_POS.x) + 180;
-  const baseY = (start?.y ?? START_POS.y) + count * 72;
-  return addTimelineNode(sc, sceneId, timelineId, baseX, baseY);
+  let anchor = afterNodeId ? findNode(sc, afterNodeId) : null;
+  if (!anchor || anchor.type === 'end') {
+    const tls = (sc.nodes || []).filter((n) => n.type === 'timeline');
+    anchor = tls.length ? tls.reduce((a, b) => (b.x > a.x ? b : a)) : start;
+  }
+  const w = anchor?.type === 'timeline' ? SCENARIO_TL_W : SCENARIO_SE_W;
+  const x = (anchor?.x ?? START_POS.x) + w + SCENARIO_NODE_GAP_X;
+  const y = anchor?.y ?? START_POS.y;
+  return addTimelineNode(sc, sceneId, timelineId, x, y, id);
 }
 
 /** Remove a node (and any edges touching it). start / end are protected. */
@@ -642,4 +660,30 @@ export function resolveTimelineRef(project, sceneId, timelineId) {
   return listProjectTimelines(project).find(
     (t) => t.sceneId === sceneId && t.timelineId === timelineId
   ) || null;
+}
+
+/**
+ * Does a {sceneId, timelineId} ref land a spin (any stopSpin clip on a spinner
+ * layer), and does that spinner have a name-designated wild symbol? Drives the
+ * node inspector's "Spin outcome" selector (hidden without a stop; wildWin
+ * disabled without a wild).
+ */
+export function spinnerStopInfo(project, sceneId, timelineId) {
+  const data = (project?.scenes || []).find((s) => s.id === sceneId)?.data;
+  const tl = (data?.timelines || []).find((t) => t.id === timelineId);
+  if (!data || !tl) return { hasSpinnerStop: false, hasWild: false };
+  const assetsById = new Map((project.assets || []).map((a) => [a.id, a]));
+  const layersById = new Map((data.layers || []).map((l) => [l.id, l]));
+  let hasSpinnerStop = false;
+  let hasWild = false;
+  for (const track of tl.tracks || []) {
+    const layer = layersById.get(track.layerId);
+    const asset = layer && assetsById.get(layer.assetId);
+    if (asset?.type !== 'spinner') continue;
+    if (!(track.clips || []).some((c) => c.action === 'stopSpin')) continue;
+    hasSpinnerStop = true;
+    const config = normalizeSpinnerConfig(asset.spinner);
+    if (config && classifySymbols(config).wildId) hasWild = true;
+  }
+  return { hasSpinnerStop, hasWild };
 }

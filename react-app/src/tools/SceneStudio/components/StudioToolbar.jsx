@@ -31,7 +31,8 @@ export function StudioToolbar({
   canUndo = false,
   canRedo = false,
   onUnityExport,
-  onWebMExport
+  onWebMExport,
+  onPngExport
 }) {
   return (
     <div className="scene-toolbar">
@@ -153,6 +154,12 @@ export function StudioToolbar({
         disabled={busy || !scene.layers.length}
         title="Export the active timeline as a .webm video (deterministic, native resolution)"
       >▶ webm</button>
+      <button
+        className="scene-btn"
+        onClick={onPngExport}
+        disabled={busy || !scene.layers.length}
+        title="Render the current frame as a transparent PNG at native resolution (current orientation)"
+      >📥 png</button>
       {!easyMode && (
         <button
           className="scene-btn"

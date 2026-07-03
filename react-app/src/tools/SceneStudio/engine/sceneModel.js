@@ -479,6 +479,28 @@ export function buildLayerTree(scene) {
 }
 
 /**
+ * Icon (emoji) for an asset's type, shown next to each hierarchy row so object
+ * kinds are scannable. Wizard-created objects reuse their toolbar emoji
+ * (🎬 Scene Setup, 🎰 Spinner, 🏆 Win Sequences, ◻ Static placeholder).
+ */
+export function layerTypeIcon(asset) {
+  if (!asset) return '❔';
+  switch (asset.type) {
+    case 'empty': return asset.sceneSetup ? '🎬' : '📁';
+    case 'spinner': return '🎰';
+    case 'winseq': return '🏆';
+    case 'winnumber': return '🔢';
+    case 'spine': return '🦴';
+    // The empty-static placeholder is a generated data-URL png; real art comes
+    // from the workspace as file/blob/http sources.
+    case 'png': return String(asset.src || '').startsWith('data:') ? '◻' : '🖼';
+    case 'video': return '🎞';
+    case 'pngSequence': return '📽';
+    default: return '❔';
+  }
+}
+
+/**
  * Flatten a layer tree to its display order (depth-first, sibling array
  * order). Used for both rendering loops and panel display.
  */

@@ -200,17 +200,20 @@ export async function buildSpinnerObject(asset, layer, deps) {
  * scenario segment landed on) — threaded into the resolve so the reels HOLD
  * that board instead of snapping to `config.initialBoard` when this timeline
  * has no spin clips. Null in single-timeline (animate) mode → initial board.
+ *
+ * `outcome` (optional): direct-mode per-node result override — see
+ * resolveSpinnerTrack. Null in animate mode → authored behavior.
  */
-export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null) {
+export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, outcome = null) {
   const sp = obj.__spinner;
   if (!sp) return;
   const { config, textures, reelViews, pitchY, symbolMap, spinePool, W, H } = sp;
   const { rows, cellW, cellH, spacingX } = config.grid;
 
   const track = pickSpinnerActionTrack(tracks || []);
-  const key = spinnerResolveKey(config, track, startBoard);
+  const key = spinnerResolveKey(config, track, startBoard, outcome);
   if (sp.resolveKey !== key) {
-    sp.resolved = resolveSpinnerTrack(config, track, startBoard);
+    sp.resolved = resolveSpinnerTrack(config, track, startBoard, outcome);
     sp.resolveKey = key;
   }
 

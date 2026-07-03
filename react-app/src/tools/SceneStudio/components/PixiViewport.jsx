@@ -440,6 +440,27 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       requestRender();
     },
 
+    /**
+     * Re-fit + center the design frame in the current canvas — same recipe as
+     * the mount/orientation-change fit. Called explicitly (e.g. on fullscreen
+     * enter/exit) rather than from the ResizeObserver so ordinary panel
+     * resizes never stomp the artist's pan/zoom.
+     */
+    fitToStage() {
+      const app = appRef.current;
+      const viewport = viewportRef.current;
+      const host = hostRef.current;
+      if (!app?.renderer || !viewport || !host) return;
+      const s = sceneRef.current;
+      const stage = s.stage.orientations[s.stage.activeOrientation];
+      const r = host.getBoundingClientRect();
+      fitViewportToStage(viewport, r.width, r.height, stage.w, stage.h);
+      if (stageFrameRef.current) {
+        drawStageFrame(stageFrameRef.current, stage.w, stage.h, viewport.scale.x, overlayModeRef.current);
+      }
+      app.render();
+    },
+
     screenToWorld(clientX, clientY) {
       const vp = viewportRef.current;
       const canvas = appRef.current?.canvas;
@@ -516,7 +537,11 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         dimVis: dimOverlay ? dimOverlay.visible : true,
         guideVis: deviceGuide ? deviceGuide.visible : false,
         bgAlpha: app.renderer.background.alpha,
-        bgColor: app.renderer.background.color,
+        // NB: `background.color` GETTER returns the live Color object by
+        // reference, and the SETTER mutates it in place — so snapshot an
+        // immutable numeric value here, else the export's fill leaks back into
+        // the editor view (the restore would just re-apply the mutated object).
+        bgColor: app.renderer.background.color.toNumber(),
         w: app.renderer.width, h: app.renderer.height,
         res: app.renderer.resolution
       };
@@ -562,8 +587,86 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         if (selectionOverlay) selectionOverlay.visible = saved.selVis;
         if (dimOverlay) dimOverlay.visible = saved.dimVis;
         if (deviceGuide) deviceGuide.visible = saved.guideVis;
-        app.renderer.background.alpha = saved.bgAlpha;
+        // Restore COLOR first (setting a numeric color resets alpha to 1), then
+        // reapply the saved alpha so a transparent editor background stays clear.
         app.renderer.background.color = saved.bgColor;
+        app.renderer.background.alpha = saved.bgAlpha;
+        const r = hostRef.current?.getBoundingClientRect();
+        const hw = Math.max(2, Math.round(r?.width || saved.w));
+        const hh = Math.max(2, Math.round(r?.height || saved.h));
+        app.renderer.resize(hw, hh, saved.res);
+        app.canvas.style.width = '100%';
+        app.canvas.style.height = '100%';
+        viewport.position.set(saved.x, saved.y);
+        viewport.scale.set(saved.sx, saved.sy);
+        exportingRef.current = false;
+        try { app.start(); } catch { /* ignore */ }
+        requestRender();
+      }
+    },
+
+    /**
+     * Render the CURRENT frame (whatever the playhead/mode is showing) to a PNG
+     * Blob at the active orientation's native stage resolution. Transparent by
+     * default (pass an opaque `backgroundColor` to fill). Mirrors exportVideo's
+     * clean capture (no pan/zoom, no stage-frame/selection chrome) and restores
+     * everything in `finally`, so it never leaves a mark on the editor view.
+     */
+    async exportFramePng({ scale = 1, backgroundColor = null } = {}) {
+      const app = appRef.current;
+      const viewport = viewportRef.current;
+      const stageFrame = stageFrameRef.current;
+      const selectionOverlay = selectionOverlayRef.current;
+      const dimOverlay = dimOverlayRef.current;
+      const deviceGuide = deviceGuideRef.current;
+      const scene = sceneRef.current;
+      if (!app?.renderer || !viewport || !scene) throw new Error('Scene is not ready.');
+
+      const stage = scene.stage.orientations[scene.stage.activeOrientation];
+      const outW = Math.max(2, Math.round(stage.w * scale));
+      const outH = Math.max(2, Math.round(stage.h * scale));
+
+      exportingRef.current = true;
+      try { app.stop(); } catch { /* ignore */ }
+      const saved = {
+        x: viewport.x, y: viewport.y, sx: viewport.scale.x, sy: viewport.scale.y,
+        frameVis: stageFrame ? stageFrame.visible : true,
+        selVis: selectionOverlay ? selectionOverlay.visible : true,
+        dimVis: dimOverlay ? dimOverlay.visible : true,
+        guideVis: deviceGuide ? deviceGuide.visible : false,
+        // Immutable numeric snapshot — the getter returns the live Color object.
+        bgAlpha: app.renderer.background.alpha,
+        bgColor: app.renderer.background.color.toNumber(),
+        w: app.renderer.width, h: app.renderer.height,
+        res: app.renderer.resolution
+      };
+      if (stageFrame) stageFrame.visible = false;
+      if (selectionOverlay) selectionOverlay.visible = false;
+      if (dimOverlay) dimOverlay.visible = false;
+      if (deviceGuide) deviceGuide.visible = false;
+      if (backgroundColor == null) {
+        app.renderer.background.alpha = 0; // transparent PNG
+      } else {
+        app.renderer.background.color = backgroundColor;
+        app.renderer.background.alpha = 1;
+      }
+      app.renderer.resize(outW, outH, 1); // resolution 1 → backing store == outW×outH
+      viewport.position.set(0, 0);
+      viewport.scale.set(scale, scale);
+
+      try {
+        app.render();
+        const blob = await new Promise((resolve, reject) => {
+          app.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('canvas.toBlob returned null'))), 'image/png');
+        });
+        return { blob, width: outW, height: outH, orientation: scene.stage.activeOrientation };
+      } finally {
+        if (stageFrame) stageFrame.visible = saved.frameVis;
+        if (selectionOverlay) selectionOverlay.visible = saved.selVis;
+        if (dimOverlay) dimOverlay.visible = saved.dimVis;
+        if (deviceGuide) deviceGuide.visible = saved.guideVis;
+        app.renderer.background.color = saved.bgColor;
+        app.renderer.background.alpha = saved.bgAlpha;
         const r = hostRef.current?.getBoundingClientRect();
         const hw = Math.max(2, Math.round(r?.width || saved.w));
         const hh = Math.max(2, Math.round(r?.height || saved.h));

@@ -14,7 +14,7 @@ import {
   duplicateScenario,
   activeScenario,
   addTimelineNode,
-  addTimelineNodeUnderStart,
+  addTimelineNodeChained,
   removeNode,
   addOutputPin,
   removeOutputPin,
@@ -149,15 +149,26 @@ test('setActiveEdge enforces per-source exclusivity', () => {
   assert.equal(after0.active, false, 'activating a sibling deselects the previous');
 });
 
-test('addTimelineNodeUnderStart places nodes in a staggered column near Start', () => {
+test('addTimelineNodeChained builds a left-to-right chain from Start', () => {
   let sc = createScenario();
   const start = sc.nodes.find((n) => n.type === 'start');
-  sc = addTimelineNodeUnderStart(sc, 'S1', 'TL_a');
-  sc = addTimelineNodeUnderStart(sc, 'S1', 'TL_b');
-  const tls = sc.nodes.filter((n) => n.type === 'timeline');
-  assert.equal(tls.length, 2);
-  assert.ok(tls[0].x > start.x, 'placed to the right of start');
-  assert.ok(tls[1].y > tls[0].y, 'second node stepped down');
+  sc = addTimelineNodeChained(sc, 'S1', 'TL_a', null, 'n_a');
+  sc = addTimelineNodeChained(sc, 'S1', 'TL_b', 'n_a', 'n_b');
+  const a = sc.nodes.find((n) => n.id === 'n_a');
+  const b = sc.nodes.find((n) => n.id === 'n_b');
+  assert.ok(a.x > start.x, 'first node placed right of Start');
+  assert.equal(a.y, start.y, 'first node top-aligned with Start');
+  assert.ok(b.x > a.x, 'second node chained right of the first');
+  assert.equal(b.y, a.y, 'chain stays on one row');
+});
+
+test('addTimelineNodeChained falls back to the rightmost node without an anchor', () => {
+  let sc = createScenario();
+  sc = addTimelineNode(sc, 'S1', 'TL_a', 500, 40, 'n_far');
+  sc = addTimelineNodeChained(sc, 'S1', 'TL_b', null, 'n_next');
+  const next = sc.nodes.find((n) => n.id === 'n_next');
+  assert.ok(next.x > 500, 'chained after the rightmost timeline node');
+  assert.equal(next.y, 40);
 });
 
 test('connecting an output pin auto-grows one new free pin below', () => {
@@ -431,7 +442,7 @@ test('setNodeEntry merges + normalizes per-node entry options', () => {
   sc = addTimelineNode(sc, 'S1', 'TL_a', 200, 100);
   const a = sc.nodes.find((n) => n.type === 'timeline');
   // defaults on read
-  assert.deepEqual(nodeEntry(a), { speed: 1, startOffset: 0, waitForClick: false });
+  assert.deepEqual(nodeEntry(a), { speed: 1, startOffset: 0, waitForClick: false, spinOutcome: 'default' });
   sc = setNodeEntry(sc, a.id, { speed: 2, waitForClick: true });
   const a2 = sc.nodes.find((n) => n.id === a.id);
   assert.equal(nodeEntry(a2).speed, 2);

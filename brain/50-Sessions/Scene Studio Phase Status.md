@@ -3,7 +3,7 @@ type: session
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-06-30
+updated: 2026-07-03
 lang: en
 source: react-app/SCENE_STUDIO_PHASE_STATUS.md
 tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, tracks]
@@ -14,6 +14,74 @@ tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, t
 > [!info] Translated from Polish
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
+
+## Direct: hold/crossfade pose carry + spin outcomes + transport QoL — COMPLETE ✅ (2026-07-03)
+
+Big QoL session off the user's punch-list (10 items + a reported hold/crossfade bug).
+
+- **Pose carry (bugfix)** — `hold` behaved like `cut`: on a segment hand-off
+  objects snapped back to the setup pose because the preview was built from the
+  incoming timeline alone. New `layerPoseCarryByNode`
+  (`engine/scenarioTimeline.js`, analogue of the spinner board carry) folds the
+  walk and records each keyed layer's transform-channel pose at segment END;
+  `hold`/`crossfade` segments inherit those poses (baked as base transforms —
+  the incoming timeline's keys still win), `cut` deliberately resets.
+  `buildBlendedScene` blends FROM the carried pose (`carryPoses` +
+  `baseOverride` in `resolveLayerTransform`), so a crossfade no longer snaps
+  after the mix window. Wired into `directPreview` (single + blend) and the
+  scenario video export. Documented limitation: crossfade blends transform
+  channels only — spine/spinner/winseq animation state is frozen in the overlap.
+  Tests: 6 new in `scenarioTimeline.test.mjs`, 3 in `scenarioBlend.test.mjs`.
+- **Per-node spin outcomes** — new `entry.spinOutcome`
+  (`default`/`noWin`/`smallWin`/`bigWin`/`wildWin`) + a "Spin outcome" select in
+  the node inspector (shown when the timeline stops a spinner; `spinnerStopInfo`
+  in `scenarioModel.js`). Boards from seeded generators (`generateOutcomeBoard`
+  in `spinnerModel.js`): smallWin = exactly one 3–5-reel win (70% low pool),
+  bigWin = 2–3 long high-symbol combos with 2-high stacks, wildWin = 3–5 wilds
+  completing several combos. Symbol classification is **name-based**
+  (`classifySymbols`): wild = name contains "wild", low = l/lo/low token (L1,
+  lo_2, low ace), high = h/hi/high; list-order fallback. `evalWaysWins(board,
+  wildId)` — wilds substitute in runs, wild cells join the win and play their
+  OWN win anim (winCells read the board symbol + dedupe). The override rides
+  `resolveSpinnerTrack`/`spinnerResolveKey`/`applySpinnerAtTime`
+  (`scene.__spinnerOutcome`) AND the board carry, so downstream nodes hold the
+  forced result. `wildWin` greyed out without a "wild"-named symbol. 7 new
+  tests in `spinnerEval.test.js`. Export TODO: mirror the generators in
+  `YggSpinner.cs`.
+- **Transport / keyboard** — the global **Space is context-aware**: wizard
+  preview (new `wizardPreviewControlsRef`) → Direct playhead → animate flow;
+  no-op in setup (it used to toggle the HIDDEN flow). Arrow keys ←/→ animate
+  only. **⏮ "jump to start"** on all three timelines (animate `TimelinePanel`,
+  win-seq preview, Direct graph transport — new `seekStart` action that keeps
+  the play state). The win-sequences preview bar now **drag-scrubs** with
+  pointer capture (was click-only).
+- **Playing-segment highlight** — the Direct scrubber marks the segment under
+  the playhead with `is-current` + a pulsing `is-running`.
+- **Fullscreen fit** — `fitToStage()` on the `PixiViewport` imperative ref
+  (recipe from the orientation-change refit), called after `fullscreenchange`
+  (double rAF) on enter AND exit. The ResizeObserver deliberately does not
+  refit — ordinary panel resizes never stomp the artist's pan/zoom.
+- **Chained ＋ in Direct** — `addTimelineNodeChained` (`scenarioModel.js`):
+  first node right of Start, next ones right of the last spawned (fallback:
+  rightmost / Start), row-aligned; node geometry exported from the model
+  (`SCENARIO_TL_W`…), the panel imports it. The graph view **pans with a tween**
+  (280 ms ease-out) to the new node — also on drag-drop; wheel/pointer input
+  cancels the tween. The new node is selected immediately.
+- **Hierarchy type icons** — `layerTypeIcon(asset)` (`sceneModel.js`):
+  🎬 scene-setup root / 📁 empty group / 🎰 spinner / 🏆 winseq / 🔢 winnumber /
+  🦴 spine / 🖼 png (◻ for the generated data-URL placeholder) / 🎞 video /
+  📽 pngSequence. Rendered between the visibility checkbox and the name.
+- **Scene Setup: alpha-gated modes + idle timelines** — mode groups (Free
+  Spins / Bonus / Pick&Click) are now created `visible:true` + **alpha 0**
+  (`visible` stays a pure editing toggle; the alpha channel is animatable →
+  Direct-mode crossfades between game modes). The wizard generates one
+  **"<Mode> Idle"** timeline per mode (2 s, one alpha key per group: own 1,
+  rest 0; `engine/sceneSetupTimelines.js`, tagged `generatedBy: rootLayerId`,
+  regenerated on wizard re-entry). Old scenes: no migration — `visible:false`
+  works as before; upgrade by re-running the wizard. 3 tests in
+  `sceneSetupTimelines.test.mjs`.
+
+Session note: [[Session 2026-07-03 Scene Studio Direct QoL]].
 
 ## Spine: per-clip tracks + animation mixing — COMPLETE ✅ (2026-06-30)
 

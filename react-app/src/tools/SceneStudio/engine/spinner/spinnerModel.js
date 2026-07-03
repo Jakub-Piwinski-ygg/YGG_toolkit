@@ -412,29 +412,71 @@ export function generateStrips(symbolIds, reels, length, seed) {
   return out;
 }
 
+// ── Symbol classification (name-based) ─────────────────────────────────
+// Wild / low-pay / high-pay tiers are inferred from symbol NAMES — the studio
+// convention: a wild contains "wild", lows carry an l/lo/low token ("L1",
+// "lo_3", "low ace"), highs an h/hi/high token ("H2", "hi7"). Symbols matching
+// neither fall back to list order (first half low, rest high — royals first).
+// Used by the Direct-mode outcome board generators; nothing else changes
+// behavior when the convention isn't followed.
+
+const LOW_NAME_RE = /(^|[^a-z])(l|lo|low)(?=[^a-z]|\d|$)/i;
+const HIGH_NAME_RE = /(^|[^a-z])(h|hi|high)(?=[^a-z]|\d|$)/i;
+
+/** @returns {{ low: string[], high: string[], wildId: string|null }} */
+export function classifySymbols(config) {
+  const symbols = config?.symbols || [];
+  const wildId = symbols.find((s) => /wild/i.test(s.name))?.id ?? null;
+  const rest = symbols.filter((s) => s.id !== wildId);
+  const low = [];
+  const high = [];
+  const unmatched = [];
+  for (const s of rest) {
+    if (LOW_NAME_RE.test(s.name)) low.push(s.id);
+    else if (HIGH_NAME_RE.test(s.name)) high.push(s.id);
+    else unmatched.push(s.id);
+  }
+  // Order-based fallback for unnamed tiers so both pools always cover the set.
+  const half = Math.ceil(rest.length / 2) - low.length;
+  unmatched.forEach((id, i) => (i < half ? low : high).push(id));
+  if (!low.length && high.length) low.push(...high);
+  if (!high.length && low.length) high.push(...low);
+  return { low, high, wildId };
+}
+
 // ── Ways win evaluation ────────────────────────────────────────────────
 // v1 win rule (SPINNER.md §5): a symbol wins when it appears on
 // WAYS_MIN_COUNT+ consecutive reels starting from reel 0, in any rows.
+// With a `wildId`, a wild substitutes for any symbol (display semantics):
+// reels count while they contain the symbol OR a wild, and substituting wild
+// cells join the win's cells.
 
 /**
  * @param {string[][]} board [reel][row] symbol ids
+ * @param {string|null} wildId optional wild symbol id (substitutes for any)
  * @returns {Array<{symbolId, count, cells: Array<{reel, row}>}>}
  */
-export function evalWaysWins(board) {
+export function evalWaysWins(board, wildId = null) {
   if (!Array.isArray(board) || !board.length) return [];
   const wins = [];
-  const firstReelSymbols = [...new Set(board[0])];
-  for (const symbolId of firstReelSymbols) {
+  // Candidates: reel-0 symbols; when reel 0 holds a wild, reel-1 symbols too
+  // (a wild-led line substitutes for them). The wild itself never "wins".
+  const candidates = new Set(board[0].filter((id) => id !== wildId));
+  if (wildId && board[0].includes(wildId) && board.length > 1) {
+    for (const id of board[1]) if (id !== wildId) candidates.add(id);
+  }
+  const matches = (cell, symbolId) => cell === symbolId || (wildId != null && cell === wildId);
+  for (const symbolId of candidates) {
     let count = 0;
     for (let r = 0; r < board.length; r++) {
-      if (board[r].includes(symbolId)) count++;
+      if (board[r].some((cell) => matches(cell, symbolId))) count++;
       else break;
     }
     if (count >= WAYS_MIN_COUNT) {
       const cells = [];
       for (let r = 0; r < count; r++) {
         for (let row = 0; row < board[r].length; row++) {
-          if (board[r][row] === symbolId) cells.push({ reel: r, row });
+          if (matches(board[r][row], symbolId)) cells.push({ reel: r, row });
         }
       }
       wins.push({ symbolId, count, cells });
@@ -443,8 +485,8 @@ export function evalWaysWins(board) {
   return wins;
 }
 
-export function boardHasWin(board) {
-  return evalWaysWins(board).length > 0;
+export function boardHasWin(board, wildId = null) {
+  return evalWaysWins(board, wildId).length > 0;
 }
 
 function randomBoard(symbolIds, reels, rows, rand) {
@@ -464,7 +506,12 @@ function randomBoard(symbolIds, reels, rows, rand) {
  * 0..2 — a win needs presence on the first three reels, so breaking the
  * third reel kills every win.
  */
-export function generateNonWinningBoard(symbolIds, reels, rows, seed) {
+export function generateNonWinningBoard(symbolIds, reels, rows, seed, wildId = null) {
+  // Wilds substitute for anything, so a guaranteed non-win excludes them.
+  if (wildId != null) {
+    const filtered = symbolIds.filter((id) => id !== wildId);
+    if (filtered.length) symbolIds = filtered;
+  }
   const rand = mulberry32(seed >>> 0);
   let board = randomBoard(symbolIds, reels, rows, rand);
   for (let attempt = 0; attempt < 200 && boardHasWin(board); attempt++) {
@@ -503,14 +550,182 @@ export function generateWinningBoard(symbolIds, reels, rows, seed) {
   return board;
 }
 
+// ── Outcome board generators (Direct-mode per-node overrides) ──────────
+// All seeded/deterministic. Tiers + wild come from classifySymbols (name
+// convention); every generator validates its post-condition with the
+// wild-aware evalWaysWins before returning.
+
+export const SPIN_OUTCOMES = ['default', 'noWin', 'smallWin', 'bigWin', 'wildWin'];
+
+/** Fillers that can never START a win: symbols absent from reel 0. */
+function fillCell(board, reel, row, pool, avoid, rand) {
+  const reel0 = new Set(board[0].filter(Boolean));
+  const safe = pool.filter((id) => !avoid.has(id) && (reel === 0 || !reel0.has(id)));
+  const src = safe.length ? safe : pool.filter((id) => !avoid.has(id));
+  board[reel][row] = (src.length ? src : pool)[Math.floor(rand() * (src.length ? src : pool).length)];
+}
+
+function emptyBoard(reels, rows) {
+  return Array.from({ length: reels }, () => new Array(rows).fill(null));
+}
+
+/** Place `symbolId` spanning reels 0..count-1; stacks add extra same-reel cells. */
+function placeRun(board, symbolId, count, rows, rand, stacks = 0) {
+  const cells = [];
+  for (let r = 0; r < count; r++) {
+    const free = [];
+    for (let row = 0; row < rows; row++) if (board[r][row] == null) free.push(row);
+    if (!free.length) return null; // grid too dense for this run
+    const row = free[Math.floor(rand() * free.length)];
+    board[r][row] = symbolId;
+    cells.push({ reel: r, row });
+    // Occasional 2-high stack on middle reels → "many ways" feel.
+    if (stacks > 0 && r > 0 && r < count - 1 && free.length > 1 && rand() < 0.5) {
+      const row2 = free.filter((x) => x !== row)[0];
+      board[r][row2] = symbolId;
+      stacks--;
+    }
+  }
+  return cells;
+}
+
+/** One modest win: a single 3..min(5,reels) run of one (mostly low) symbol. */
+function generateSmallWinBoard(config, seed) {
+  const { reels, rows } = config.grid;
+  const { low, high, wildId } = classifySymbols(config);
+  const ids = config.symbols.map((s) => s.id).filter((id) => id !== wildId);
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const rand = mulberry32((seed + attempt * 0x9e3779b9) >>> 0);
+    const pool = rand() < 0.7 && low.length ? low : high;
+    const sym = pool[Math.floor(rand() * pool.length)];
+    const k = Math.min(reels, WAYS_MIN_COUNT + Math.floor(rand() * (Math.min(5, reels) - WAYS_MIN_COUNT + 1)));
+    const board = emptyBoard(reels, rows);
+    placeRun(board, sym, k, rows, rand);
+    const avoid = new Set([sym, wildId].filter(Boolean));
+    for (let r = 0; r < reels; r++) {
+      for (let row = 0; row < rows; row++) {
+        if (board[r][row] == null) fillCell(board, r, row, ids, avoid, rand);
+      }
+    }
+    const wins = evalWaysWins(board, wildId);
+    if (wins.length === 1 && wins[0].symbolId === sym && wins[0].count === k) return board;
+  }
+  return generateWinningBoard(ids, reels, rows, seed);
+}
+
+/** Several long high-symbol runs with stacks — an impressive multi-way board. */
+function generateBigWinBoard(config, seed) {
+  const { reels, rows } = config.grid;
+  const { low, high, wildId } = classifySymbols(config);
+  const ids = config.symbols.map((s) => s.id).filter((id) => id !== wildId);
+  const wantWins = Math.min(rows, 2 + (rows > 2 ? 1 : 0));
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const rand = mulberry32((seed + attempt * 0x9e3779b9) >>> 0);
+    const pool = [...new Set(high.length ? high : low)];
+    const board = emptyBoard(reels, rows);
+    const placed = [];
+    for (let i = 0; i < wantWins && pool.length; i++) {
+      const sym = pool.splice(Math.floor(rand() * pool.length), 1)[0];
+      const k = Math.max(Math.min(reels, 4), reels - (rand() < 0.5 ? 1 : 0));
+      if (placeRun(board, sym, k, rows, rand, 2)) placed.push({ sym, k });
+    }
+    if (!placed.length) break;
+    const avoid = new Set([...placed.map((p) => p.sym), wildId].filter(Boolean));
+    for (let r = 0; r < reels; r++) {
+      for (let row = 0; row < rows; row++) {
+        if (board[r][row] == null) fillCell(board, r, row, ids, avoid, rand);
+      }
+    }
+    const wins = evalWaysWins(board, wildId);
+    const minCount = Math.min(reels, 4);
+    if (wins.length >= Math.min(wantWins, 2) && wins.every((w) => w.count >= Math.min(minCount, reels))) {
+      return board;
+    }
+  }
+  return generateWinningBoard(ids, reels, rows, seed);
+}
+
+/** Wild-heavy showcase: several combos completing THROUGH substituting wilds. */
+function generateWildWinBoard(config, seed) {
+  const { reels, rows } = config.grid;
+  const { low, high, wildId } = classifySymbols(config);
+  if (!wildId || reels < WAYS_MIN_COUNT) return generateBigWinBoard(config, seed);
+  const ids = config.symbols.map((s) => s.id).filter((id) => id !== wildId);
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const rand = mulberry32((seed + attempt * 0x85ebca6b) >>> 0);
+    const board = emptyBoard(reels, rows);
+    const mixed = [...new Set([...high, ...low])];
+    const combos = [];
+    const comboCount = Math.min(rows, 2 + (rand() < 0.5 ? 1 : 0));
+    for (let i = 0; i < comboCount && mixed.length; i++) {
+      const sym = mixed.splice(Math.floor(rand() * mixed.length), 1)[0];
+      const k = Math.min(reels, WAYS_MIN_COUNT + Math.floor(rand() * (reels - WAYS_MIN_COUNT + 1)));
+      const cells = placeRun(board, sym, k, rows, rand);
+      if (cells) combos.push({ sym, cells });
+    }
+    if (!combos.length) break;
+    // Swap middle-reel combo cells to wilds (never reel 0) so the combos
+    // demonstrably complete through substitution. Wilds interact with every
+    // combo crossing their reel.
+    let wilds = 3 + Math.floor(rand() * 3); // 3..5
+    for (const combo of combos) {
+      const mid = combo.cells.filter((c) => c.reel > 0 && c.reel < reels - 1);
+      for (const c of mid) {
+        if (wilds <= 0) break;
+        if (rand() < 0.6) { board[c.reel][c.row] = wildId; wilds--; }
+      }
+    }
+    // Any remaining wild budget lands on free middle-reel cells.
+    for (let r = 1; r < Math.min(reels - 1, 3) + 1 && wilds > 0; r++) {
+      for (let row = 0; row < rows && wilds > 0; row++) {
+        if (board[r][row] == null) { board[r][row] = wildId; wilds--; }
+      }
+    }
+    const avoid = new Set([...combos.map((c) => c.sym), wildId]);
+    for (let r = 0; r < reels; r++) {
+      for (let row = 0; row < rows; row++) {
+        if (board[r][row] == null) fillCell(board, r, row, ids, avoid, rand);
+      }
+    }
+    const wins = evalWaysWins(board, wildId);
+    const hasWildCells = board.some((col) => col.includes(wildId));
+    const wildSubstitutes = wins.some((w) => w.cells.some((c) => board[c.reel][c.row] === wildId));
+    if (wins.length >= Math.min(2, rows) && hasWildCells && wildSubstitutes) return board;
+  }
+  return generateBigWinBoard(config, seed);
+}
+
 /**
- * The target board a stopSpin clip lands. Explicit board wins; otherwise a
- * seeded non-winning board derived from the clip (stable across sessions).
+ * Dispatch a Direct-mode outcome override to its board generator.
+ * `outcome` ∈ SPIN_OUTCOMES minus 'default' (callers skip 'default').
  */
-export function targetBoardForClip(config, clip) {
+export function generateOutcomeBoard(config, outcome, seed) {
+  const { reels, rows } = config.grid;
+  const ids = config.symbols.map((s) => s.id);
+  const { wildId } = classifySymbols(config);
+  switch (outcome) {
+    case 'noWin': return generateNonWinningBoard(ids, reels, rows, seed, wildId);
+    case 'smallWin': return generateSmallWinBoard(config, seed);
+    case 'bigWin': return generateBigWinBoard(config, seed);
+    case 'wildWin': return generateWildWinBoard(config, seed);
+    default: return null;
+  }
+}
+
+/**
+ * The target board a stopSpin clip lands. A Direct-mode `outcome` override
+ * wins over everything; then an explicit authored board; otherwise a seeded
+ * non-winning board derived from the clip (stable across sessions).
+ */
+export function targetBoardForClip(config, clip, outcome = null) {
   const payload = clip?.spinner || {};
   const { reels, rows } = config.grid;
   const ids = config.symbols.map((s) => s.id);
+  if (outcome && outcome !== 'default' && SPIN_OUTCOMES.includes(outcome)) {
+    const seed = (config.seed ^ hash32(`${clip?.id || 'stop'}::${outcome}`)) >>> 0;
+    const board = generateOutcomeBoard(config, outcome, seed);
+    if (board) return board;
+  }
   // randomResult=true: always derive a seeded non-winning board, ignore any saved targetBoard.
   const explicit = payload.randomResult ? null : payload.targetBoard;
   if (Array.isArray(explicit) && explicit.length === reels

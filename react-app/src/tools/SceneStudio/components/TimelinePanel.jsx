@@ -1252,6 +1252,7 @@ export function TimelinePanel({
 
         {/* Center: playback transport + time readout. */}
         <div className="scene-timeline-center">
+          <button className="scene-btn" onClick={() => onFlowAction?.('seek', 0)} title="Jump to start">⏮</button>
           <button className="scene-btn" onClick={() => onFlowAction?.('play')}>▶</button>
           <button className="scene-btn" onClick={() => onFlowAction?.('pause')}>⏸</button>
           <button className="scene-btn" onClick={() => onFlowAction?.('stop')}>⏹</button>

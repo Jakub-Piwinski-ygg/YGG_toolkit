@@ -1,4 +1,111 @@
-# Scene Studio — status po sesji (2026-06-02, sesja 2)
+# Scene Studio — status po sesji (2026-07-03)
+
+## Direct QoL round 2 (2026-07-04) — plan w `SCENE_STUDIO_QOL_PLAN.md`
+
+Ponowna weryfikacja kodu wykazała, że część zgłoszonych regresji przetrwała
+sesję 2026-07-03; nowy plan (T1–T12) koduje poprawki. Realizacja tematami,
+w kolejności z §3 planu.
+
+- **T2 — izolacja kanałów crossfade'u + parytet portretu — UKOŃCZONE ✅.**
+  `blendTransforms` (`engine/scenarioBlend.js`) dla kanałów NIE opt-in
+  trzymał wartość **B** (przychodzącą) zamiast **A** (wychodzącą/carried) —
+  crossfade tylko na alfie i tak przesuwał obiekt w chwili wejścia w okno
+  mixu (skok do pozy B przy f=0). Naprawione: nieoptowane kanały trzymają A
+  przez całe okno; po zakończeniu crossfade'u przychodzący timeline i tak
+  przejmuje kontrolę samodzielnie. Dodatkowo `baseTransform` duplikował
+  logikę dziedziczenia orientacji zamiast korzystać z
+  `orientationManager.resolveTransform` — w portrecie bez override'u czytał
+  surowy landscape zamiast pozy centrowanej względem środka sceny, więc pozy
+  A/B w blendzie nie zgadzały się z tym, co faktycznie renderuje edytor.
+  `resolveLayerTransform`/`buildBlendedScene` przyjmują teraz `stage` i
+  przepuszczają je do `resolveTransform`. 5 nowych testów w
+  `scenarioBlend.test.mjs` (alfa-only niezmienia pozycji, parytet portretu).
+  Pliki: `engine/scenarioBlend.js`, `engine/scenarioTimeline.js` (przekazanie
+  `stage`), `engine/scenarioBlend.test.mjs`.
+
+## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
+
+Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).
+
+- **Pose carry (bugfix)** — `hold` w Direct zachowywał się jak `cut`: po
+  przełączeniu segmentu obiekty wracały do pozy z setupu, bo preview budował się
+  wyłącznie z nadchodzącego timeline'a. Nowy `layerPoseCarryByNode`
+  (`engine/scenarioTimeline.js`, analogia do carry planszy spinnera) foldem po
+  walk-u zapisuje pozę (transform-channels) każdej klatkowanej warstwy na KOŃCU
+  segmentu; segmenty wchodzące przez `hold`/`crossfade` dziedziczą te pozy
+  (wpieczone jako bazowe transformy — klucze nadchodzącego timeline'a nadal
+  wygrywają), `cut` świadomie resetuje. `buildBlendedScene` blenduje OD pozy
+  carry (nowy parametr `carryPoses` + `baseOverride` w `resolveLayerTransform`),
+  więc crossfade nie skacze po oknie miksu. Wpięte w `directPreview` (single +
+  blend) i eksport wideo scenariusza. Ograniczenie (udokumentowane): crossfade
+  blenduje tylko kanały transformacji — stan animacji spine/spinner/winseq jest
+  zamrożony w oknie overlapu. Testy: 6 nowych w `scenarioTimeline.test.mjs`,
+  3 w `scenarioBlend.test.mjs`.
+- **Outcome spinów per węzeł** — nowe `entry.spinOutcome`
+  (`default`/`noWin`/`smallWin`/`bigWin`/`wildWin`) + selektor „Spin outcome"
+  w inspektorze węzła (pokazuje się, gdy timeline stopuje spinner;
+  `spinnerStopInfo` w `scenarioModel.js`). Plansze z seedowanych generatorów
+  (`generateOutcomeBoard` w `spinnerModel.js`): smallWin = dokładnie jedna
+  wygrana 3–5 bębnów (70% low), bigWin = 2–3 długie kombinacje high z 2-wysokimi
+  stackami, wildWin = 3–5 wildów domykających kilka kombinacji. Klasyfikacja
+  symboli **po nazwach** (`classifySymbols`): wild = nazwa zawiera „wild",
+  low = token l/lo/low (L1, lo_2, low ace), high = h/hi/high; fallback po
+  kolejności listy. `evalWaysWins(board, wildId)` — wild substytuuje w run-ach,
+  komórki wildów dołączają do wygranej i grają WŁASNĄ animację wygranej
+  (winCells czytają symbol z planszy + dedupe). Override jedzie przez
+  `resolveSpinnerTrack`/`spinnerResolveKey`/`applySpinnerAtTime`
+  (`scene.__spinnerOutcome`) ORAZ przez carry plansz, więc kolejne węzły trzymają
+  wymuszony wynik. `wildWin` wyszarzone bez symbolu „wild". 7 nowych testów
+  w `spinnerEval.test.js`. TODO eksport: odbicie generatorów w `YggSpinner.cs`.
+- **Transport / klawiatura** — globalna **spacja jest kontekstowa**: preview
+  wizarda (nowy `wizardPreviewControlsRef`) → playhead Direct → flow animate;
+  w setupie nic (dotąd przełączała UKRYTY flow). Strzałki ←/→ tylko w animate.
+  **⏮ „jump to start"** na wszystkich trzech timeline'ach (animate
+  `TimelinePanel`, preview win-seq, transport grafu Direct — nowa akcja
+  `seekStart` zachowująca stan odtwarzania). Pasek preview win sequences ma
+  **drag-scrub** z pointer capture (dotąd tylko klik).
+- **Highlight grającego segmentu** — scrubber Direct dostaje `is-current` +
+  pulsujące `is-running` na segmencie pod playheadem (dane były — `curNodeId`).
+- **Fullscreen fit** — `fitToStage()` w imperatywnym ref `PixiViewport`
+  (przepis z refitu przy zmianie orientacji), wołane po `fullscreenchange`
+  (podwójny rAF na osadzenie layoutu) przy wejściu I wyjściu. ResizeObserver
+  celowo nie fituje — zwykłe resize'y paneli nie niszczą pan/zoomu artysty.
+- **Chained ＋ w Direct** — `addTimelineNodeChained` (`scenarioModel.js`):
+  pierwszy węzeł na prawo od Startu, kolejne na prawo od ostatnio dodanego
+  (fallback: najbardziej prawy / Start), wyrównane do rzędu; geometria węzłów
+  wyeksportowana z modelu (`SCENARIO_TL_W`…), panel importuje. Widok grafu
+  **panuje tweenem** (280 ms ease-out) do nowego węzła — także przy drag-dropie;
+  kółko/wciśnięcie myszy anuluje tween. Nowy węzeł od razu zaznaczony.
+- **Ikony typów w hierarchii** — `layerTypeIcon(asset)` (`sceneModel.js`):
+  🎬 root scene-setupu / 📁 pusta grupa / 🎰 spinner / 🏆 winseq / 🔢 winnumber /
+  🦴 spine / 🖼 png (◻ dla generowanego placeholdera data-URL) / 🎞 video /
+  📽 pngSequence. Render między checkboxem widoczności a nazwą.
+- **Scene Setup: tryby na alfie + idle timeline'y** — grupy trybów (Free Spins /
+  Bonus / Pick&Click) tworzone teraz `visible:true` + **alpha 0** (visible
+  zostaje czystym togglem edycyjnym; kanał alpha jest animowalny → crossfade'y
+  trybów w Direct). Wizard generuje po jednym timeline **„<Tryb> Idle"** (2 s,
+  jeden klucz alpha na grupę: własna 1, reszta 0; `engine/sceneSetupTimelines.js`,
+  tag `generatedBy: rootLayerId`, regeneracja przy re-edycji wizarda). Stare
+  sceny bez migracji — `visible:false` działa jak dotąd; upgrade przez ponowne
+  przejście wizarda. 3 testy w `sceneSetupTimelines.test.mjs`.
+
+Notatka sesji (EN): `brain/50-Sessions/Session 2026-07-03 Scene Studio Direct QoL.md`.
+
+| Warstwa | Plik |
+|---|---|
+| Pose carry (fold + semantyka cut/hold/crossfade) | `engine/scenarioTimeline.js` (`layerPoseCarryByNode`) |
+| `baseOverride`, `carryPoses`, `bakeCarriedPoses` | `engine/scenarioBlend.js` |
+| Konsumpcja carry + `__spinnerOutcome` + eksport | `SceneStudioInner.jsx` (`directPreview`, `makeVideoFrameProvider`) |
+| Generatory outcome + `classifySymbols` + wild-aware eval | `engine/spinner/spinnerModel.js` |
+| Outcome w resolve/key/winCells | `engine/spinner/spinnerEval.js`, `spinnerRuntime.js`, `pixiApp.js` |
+| `entry.spinOutcome` + `spinnerStopInfo` + chained add | `engine/scenarioModel.js` |
+| Selektor outcome + nowe opisy trybów przejść | `components/ScenarioInspectorSections.jsx` |
+| ⏮/Space/scrub-highlight/focus-tween | `components/ScenarioGraphPanel.jsx`, `TimelinePanel.jsx`, `WinSequenceWizard.jsx`, `SceneStudioInner.jsx` |
+| `fitToStage()` | `components/PixiViewport.jsx` |
+| Ikony hierarchii | `engine/sceneModel.js` (`layerTypeIcon`), `components/HierarchyPanel.jsx` |
+| Idle timeline'y setupu | `engine/sceneSetupTimelines.js` (+ test) |
+| Style (scrubber highlight, ikona typu) | `styles/scene-studio.css` |
+
 
 ## Spine: tracki per-klip + miksowanie animacji — UKOŃCZONE ✅ (2026-06-30)
 

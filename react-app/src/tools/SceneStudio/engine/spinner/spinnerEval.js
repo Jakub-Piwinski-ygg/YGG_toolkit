@@ -32,7 +32,7 @@
 //           on an integer scroll, with an additive bounce window at the end.
 
 import { curveEval } from '../animation/curves.js';
-import { SPINNER_ACTIONS, targetBoardForClip, evalWaysWins } from './spinnerModel.js';
+import { SPINNER_ACTIONS, targetBoardForClip, evalWaysWins, classifySymbols } from './spinnerModel.js';
 
 const LUT_N = 256;
 const EPS_V = 1e-6;
@@ -152,12 +152,16 @@ function stopEntrySlope(easePos) {
  * key so a spinner re-resolves when a preceding scenario segment hands off a
  * different landed board.
  */
-export function spinnerResolveKey(config, track, startBoard = null) {
+export function spinnerResolveKey(config, track, startBoard = null, outcome = null) {
   return JSON.stringify([
     config.rev, config.seed, config.grid, config.timing, config.bounce,
     config.blur, config.events, config.perReel, config.direction,
     (track?.clips || []).map((c) => [c.id, c.start, c.duration, c.action, c.spinner]),
-    startBoard
+    startBoard,
+    // Direct-mode outcome override + the name-derived wild id (symbol names
+    // aren't otherwise in the key, but they decide wild substitution).
+    outcome,
+    classifySymbols(config).wildId
   ]);
 }
 
@@ -191,9 +195,14 @@ function isValidBoard(config, board) {
  * the board a spinner landed on in a preceding timeline segment through here so
  * the reels HOLD their result across a timeline hand-off instead of snapping
  * back to the authored initial board.
+ *
+ * `outcome` (optional): a Direct-mode per-node result override ('noWin' /
+ * 'smallWin' / 'bigWin' / 'wildWin') — every stopSpin clip then lands a board
+ * generated for that outcome instead of its authored/seeded one.
  */
-export function resolveSpinnerTrack(config, track, startBoard = null) {
+export function resolveSpinnerTrack(config, track, startBoard = null, outcome = null) {
   const { reels: R, rows } = config.grid;
+  const wildId = classifySymbols(config).wildId;
   const segments = Array.from({ length: R }, () => []);
   const overlayAbs = Array.from({ length: R }, () => new Map());
   const state = Array.from({ length: R }, () => ({ s: 0, v: 0, t: 0 }));
@@ -220,7 +229,7 @@ export function resolveSpinnerTrack(config, track, startBoard = null) {
     const meta = { clipId: clip.id, action: clip.action, perReel: [] };
 
     let target = null;
-    if (clip.action === 'stopSpin') target = targetBoardForClip(config, clip);
+    if (clip.action === 'stopSpin') target = targetBoardForClip(config, clip, outcome);
     const landAt = new Array(R).fill(null);
 
     for (let r = 0; r < R; r++) {
@@ -285,14 +294,27 @@ export function resolveSpinnerTrack(config, track, startBoard = null) {
 
     if (clip.action === 'stopSpin') {
       const allLandedAt = Math.max(...landAt);
-      const wins = evalWaysWins(target);
+      const wins = evalWaysWins(target, wildId);
       const autoWinStart = allLandedAt + config.events.winDelay;
+      // A substituting wild cell plays the WILD's own win anim (the cell's
+      // visible symbol), not the substituted symbol's. Dedupe cells shared by
+      // several wild-bridged wins.
+      const winCellSeen = new Set();
+      const winCells = [];
+      for (const w of wins) {
+        for (const c of w.cells) {
+          const k = `${c.reel}:${c.row}`;
+          if (winCellSeen.has(k)) continue;
+          winCellSeen.add(k);
+          winCells.push({ ...c, symbolId: target[c.reel][c.row] });
+        }
+      }
       stops.push({
         clipId: clip.id,
         target,
         landAt,
         allLandedAt,
-        winCells: wins.flatMap((w) => w.cells.map((c) => ({ ...c, symbolId: w.symbolId }))),
+        winCells,
         // Scalar base (auto = all reels land then winDelay). winStartByReel
         // carries the per-reel win timing the cell evaluator actually reads;
         // a presentWin clip later overrides both (see below). winExplicit

@@ -168,7 +168,7 @@ function isExactWinSeq(s) {
 // each animation's real duration, with a play/scrub playhead and the current
 // animation name — it previews the WHOLE flow (timing + escalation) safely.
 
-function WinSeqPreview({ flow, durations, onTime }) {
+function WinSeqPreview({ flow, durations, onTime, controlsRef }) {
   // Start PAUSED on the biggest flow's mid-idle so entering the Sequences step
   // shows a meaningful idle pose (like the Number step) instead of the often-
   // invisible begin frame. The user hits ▶ to play the chain.
@@ -227,20 +227,52 @@ function WinSeqPreview({ flow, durations, onTime }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onScrub = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
-    timeRef.current = p * total;
+  const scrubToClientX = (el, clientX) => {
+    const rect = el.getBoundingClientRect();
+    const p = Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, rect.width)));
+    timeRef.current = p * totalRef.current;
     setTime(timeRef.current);
     emit(timeRef.current);
   };
+  // Drag-to-scrub with pointer capture (mirrors the animate-mode timeline);
+  // a plain click still just sets the time.
+  const onScrubDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setPlaying(false);
+    scrubToClientX(e.currentTarget, e.clientX);
+  };
+  const onScrubMove = (e) => {
+    if (e.buttons & 1) scrubToClientX(e.currentTarget, e.clientX);
+  };
+  const onScrubUp = (e) => {
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
+  // Expose transport controls to the host (Space play/stop, ⏮ reset) while
+  // this preview is mounted — the wizard preview owns the global shortcuts.
+  useEffect(() => {
+    if (!controlsRef) return undefined;
+    controlsRef.current = {
+      togglePlay: () => setPlaying((p) => !p),
+      resetToStart: () => { timeRef.current = 0; setTime(0); emit(0); }
+    };
+    return () => { controlsRef.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controlsRef]);
 
   const activeStep = flow ? evaluateWinSeqFlow(flow, durations, time, { hangOnLastIdle: false }) : null;
   const playPct = total > 0 ? (time / total) * 100 : 0;
 
   return (
     <div className="winseq-preview">
-      <div className="winseq-preview-bar" onPointerDown={onScrub}>
+      <div
+        className="winseq-preview-bar"
+        onPointerDown={onScrubDown}
+        onPointerMove={onScrubMove}
+        onPointerUp={onScrubUp}
+      >
         {segments.filter((s) => s.dur > 0).map((s, i) => {
           const active = time >= s.start && time < s.start + s.dur;
           return (
@@ -257,6 +289,14 @@ function WinSeqPreview({ flow, durations, onTime }) {
         <div className="winseq-preview-playhead" style={{ left: `${playPct}%` }} />
       </div>
       <div className="winseq-preview-controls">
+        <button
+          type="button"
+          className="scene-btn scene-btn--ghost"
+          title="Jump to start"
+          onClick={() => { timeRef.current = 0; setTime(0); emit(0); }}
+        >
+          ⏮
+        </button>
         <button type="button" className="scene-btn scene-btn--ghost" onClick={() => setPlaying((p) => !p)}>
           {playing ? '⏸' : '▶'}
         </button>
@@ -273,6 +313,7 @@ export function WinSequenceWizard({
   scene, assetItems, rootHandle, onClose, onCreate,
   existingConfig = null, existingName = null, existingSkeleton = null,
   embedded = false, onPreviewScene, onPreviewTime, initialStep = null,
+  previewControlsRef = null,
 }) {
   const isEdit = !!existingConfig;
   const [step, setStep] = useState(STEPS.includes(initialStep) ? initialStep : 'skeleton');
@@ -939,7 +980,7 @@ export function WinSequenceWizard({
                     Preview · {previewFlow.label}
                     <span className="scene-pill">plays in the scene view ↑</span>
                   </div>
-                  <WinSeqPreview flow={previewFlow} durations={durations} onTime={handlePreviewTime} />
+                  <WinSeqPreview flow={previewFlow} durations={durations} onTime={handlePreviewTime} controlsRef={previewControlsRef} />
                 </>
               )}
 

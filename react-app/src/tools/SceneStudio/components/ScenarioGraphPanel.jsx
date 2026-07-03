@@ -15,15 +15,19 @@ import {
   activeEdgeFrom,
   START_PIN,
   END_PIN,
-  TIMELINE_IN_PIN
+  TIMELINE_IN_PIN,
+  SCENARIO_TL_W,
+  SCENARIO_SE_W,
+  SCENARIO_NODE_H
 } from '../engine/scenarioModel.js';
 import { sampleScenario } from '../engine/scenarioTimeline.js';
 import { TIMELINE_REF_MIME } from './ScenarioTimelineList.jsx';
 
-// Node geometry (graph units). Kept in sync between node render + edge anchors.
-const TL_W = 168;     // timeline node width
-const SE_W = 90;      // start / end node width
-const NODE_H = 44;
+// Node geometry (graph units) — shared with the model (chained placement) so
+// render + placement can't drift.
+const TL_W = SCENARIO_TL_W;   // timeline node width
+const SE_W = SCENARIO_SE_W;   // start / end node width
+const NODE_H = SCENARIO_NODE_H;
 const PIN_IN_Y = 20;  // input pin centre, relative to node top
 const TL_OUT_Y0 = 20; // first output pin centre
 const TL_OUT_DY = 16; // vertical spacing between branch output pins
@@ -52,6 +56,7 @@ export function ScenarioGraphPanel({
   timeline = { segments: [], total: 0 },
   time = 0,
   playing = false,
+  focusRequest = null,
   onTransport,
   onScrub,
   selectedNodeId,
@@ -97,6 +102,47 @@ export function ScenarioGraphPanel({
   const [drag, setDrag] = useState(null);   // { nodeId, x, y } | null
   const [link, setLink] = useState(null);    // { fromNode, fromPin, x, y } | null
 
+  // ── Focus-on-node: pan (zoom unchanged) to centre a freshly spawned node.
+  // Tweened over ~280ms; any user wheel/pointer input cancels the tween.
+  const focusRafRef = useRef(0);
+  const consumedFocusRef = useRef(0);
+  const cancelFocusTween = useCallback(() => cancelAnimationFrame(focusRafRef.current), []);
+  useEffect(() => {
+    if (!focusRequest || focusRequest.token === consumedFocusRef.current) return;
+    const node = (scenario?.nodes || []).find((n) => n.id === focusRequest.nodeId);
+    // The request can land one render before the node exists in `scenario` —
+    // leave the token unconsumed so the re-run (scenario dep) picks it up.
+    if (!node) return;
+    consumedFocusRef.current = focusRequest.token;
+    const el = canvasRef.current;
+    const rect = el?.getBoundingClientRect();
+    if (!rect) return;
+    const z = elementZoom(el); // same layout-px space as screenToGraph
+    const cw = rect.width / z;
+    const ch = rect.height / z;
+    const from = { ...viewRef.current };
+    const target = {
+      panX: cw / 2 - (node.x + nodeWidth(node) / 2) * from.zoom,
+      panY: ch / 2 - (node.y + NODE_H / 2) * from.zoom,
+      zoom: from.zoom
+    };
+    cancelAnimationFrame(focusRafRef.current);
+    const t0 = performance.now();
+    const step = (now) => {
+      const p = Math.min(1, (now - t0) / 280);
+      const e = 1 - Math.pow(1 - p, 3); // cubic ease-out
+      setView({
+        panX: from.panX + (target.panX - from.panX) * e,
+        panY: from.panY + (target.panY - from.panY) * e,
+        zoom: from.zoom
+      });
+      if (p < 1) focusRafRef.current = requestAnimationFrame(step);
+      else commitView(target);
+    };
+    focusRafRef.current = requestAnimationFrame(step);
+  }, [focusRequest, scenario, commitView]);
+  useEffect(() => () => cancelAnimationFrame(focusRafRef.current), []);
+
   const screenToGraph = useCallback((clientX, clientY) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     const v = viewRef.current;
@@ -113,6 +159,7 @@ export function ScenarioGraphPanel({
     if (!el) return;
     const onWheel = (e) => {
       e.preventDefault();
+      cancelFocusTween();
       const rect = el.getBoundingClientRect();
       const z = elementZoom(el);
       const cx = (e.clientX - rect.left) / z;
@@ -128,7 +175,7 @@ export function ScenarioGraphPanel({
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [commitView]);
+  }, [commitView, cancelFocusTween]);
 
   // ── Drop a timeline from the left list to spawn a node ──────────────────────
   const onCanvasDragOver = (e) => {
@@ -150,6 +197,7 @@ export function ScenarioGraphPanel({
 
   // ── Canvas pointer: middle-mouse pan, left-click empty = clear selection ────
   const onCanvasPointerDown = (e) => {
+    cancelFocusTween();
     if (e.button === 1) {
       e.preventDefault();
       const sx = e.clientX;
@@ -303,6 +351,12 @@ export function ScenarioGraphPanel({
 
         {/* Transport — drives the scenario playhead. */}
         <div className="ss-graph-transport" role="group" aria-label="Scenario playback">
+          <button
+            className="scene-btn scene-btn--sm"
+            onClick={() => onTransport?.('seekStart')}
+            disabled={time === 0}
+            title="Jump to start"
+          >⏮</button>
           {playing ? (
             <button className="scene-btn scene-btn--sm" onClick={() => onTransport?.('pause')} title="Pause">⏸</button>
           ) : (
@@ -326,7 +380,7 @@ export function ScenarioGraphPanel({
         </span>
       </div>
 
-      <ScenarioScrubber timeline={timeline} time={time} onScrub={onScrub} />
+      <ScenarioScrubber timeline={timeline} time={time} onScrub={onScrub} activeNodeId={curNodeId} playing={playing} />
 
       <div
         ref={canvasRef}
@@ -378,7 +432,7 @@ export function ScenarioGraphPanel({
 }
 
 /** Scrubber bar: segment blocks proportional to play-duration + a draggable playhead. */
-function ScenarioScrubber({ timeline, time, onScrub }) {
+function ScenarioScrubber({ timeline, time, onScrub, activeNodeId = null, playing = false }) {
   const barRef = useRef(null);
   const { segments, total } = timeline;
 
@@ -413,7 +467,11 @@ function ScenarioScrubber({ timeline, time, onScrub }) {
         {segments.map((s) => (
           <div
             key={s.nodeId}
-            className={'ss-scrub-seg' + (s.missing ? ' is-missing' : '') + (s.overlapIn > 0 ? ' has-xfade' : '')}
+            className={'ss-scrub-seg'
+              + (s.missing ? ' is-missing' : '')
+              + (s.overlapIn > 0 ? ' has-xfade' : '')
+              + (s.nodeId === activeNodeId ? ' is-current' : '')
+              + (s.nodeId === activeNodeId && playing ? ' is-running' : '')}
             style={{ left: pct(s.t0), width: pct(s.t1 - s.t0) }}
             title={`${s.label} · ${Math.round(s.playDur * 100) / 100}s`}
           >

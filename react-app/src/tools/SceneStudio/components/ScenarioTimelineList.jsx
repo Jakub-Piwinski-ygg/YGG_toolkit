@@ -70,7 +70,7 @@ export function ScenarioTimelineList({ timelines = [], activeScenario = null, on
                   {used > 0 && <span className="ss-tl-badge" title={`Used ${used}× in this scenario`}>×{used}</span>}
                   <button
                     className="ss-tl-add"
-                    title="Add this timeline as a node near Start"
+                    title="Add this timeline as a node chained after the last one"
                     disabled={!activeScenario}
                     onClick={(e) => { e.stopPropagation(); onAddNode?.(t.sceneId, t.timelineId); }}
                   >＋</button>
@@ -80,7 +80,7 @@ export function ScenarioTimelineList({ timelines = [], activeScenario = null, on
           </div>
         ))}
       </div>
-      <div className="ss-scenario-list-hint">Drag a timeline onto the canvas, or click ＋ to drop it near Start.</div>
+      <div className="ss-scenario-list-hint">Drag a timeline onto the canvas, or click ＋ to chain it after the last node.</div>
     </div>
   );
 }

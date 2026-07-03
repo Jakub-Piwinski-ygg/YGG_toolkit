@@ -9,7 +9,7 @@
 // Items at the bottom are drawn last (= on top). Matches Unity UI Canvas.
 
 import { useMemo, useRef, useState } from 'react';
-import { buildLayerTree } from '../engine/sceneModel.js';
+import { buildLayerTree, layerTypeIcon } from '../engine/sceneModel.js';
 
 const INDENT_PX = 14;
 
@@ -23,6 +23,7 @@ export function HierarchyPanel({
   onRenameScene // (name) — rename the active scene (shown as the panel head title)
 }) {
   const trees = useMemo(() => buildLayerTree(scene), [scene]);
+  const assetsById = useMemo(() => new Map((scene.assets || []).map((a) => [a.id, a])), [scene.assets]);
   const activeCanvasId = scene.activeCanvasId || scene.canvases?.[0]?.id;
   const [expanded, setExpanded] = useState(() => new Set()); // collapsed by default? expanded by default? Default expanded.
   const [dragId, setDragId] = useState(null);
@@ -125,6 +126,7 @@ export function HierarchyPanel({
               <ul className="scene-layer-list">
                 {renderNodes(roots, {
                   scene,
+                  assetsById,
                   selectedLayerId,
                   dragId,
                   dropTarget,
@@ -190,6 +192,9 @@ function renderNodes(nodes, ctx) {
             onChange={(e) => { e.stopPropagation(); ctx.onToggleVisibility(layer.id, e.target.checked); }}
             onClick={(e) => e.stopPropagation()}
           />
+          <span className="scene-layer-type-icon" title={ctx.assetsById.get(layer.assetId)?.type || 'object'}>
+            {layerTypeIcon(ctx.assetsById.get(layer.assetId))}
+          </span>
           <span className="scene-layer-name">{layer.name}</span>
           {layer.locked ? (
             <span className="scene-icon-btn scene-layer-lock" title="Locked to its parent — removed with it">🔒</span>
