@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { getImageDimensions } from '../utils/image.js';
 import { makeBatchRun } from '../utils/batch.js';
+import { NumberField } from '../components/NumberField.jsx';
 
 export const cropMeta = {
   id: 'crop',
@@ -86,11 +87,11 @@ export function CropTool() {
       <div className="field-row">
         <div className="field">
           <label>Width (px)</label>
-          <input type="number" min="1" max="8192" value={w} onChange={(e) => setW(+e.target.value)} />
+          <NumberField min={1} max={8192} value={w} onChange={(v) => setW(v)} />
         </div>
         <div className="field">
           <label>Height (px)</label>
-          <input type="number" min="1" max="8192" value={h} onChange={(e) => setH(+e.target.value)} />
+          <NumberField min={1} max={8192} value={h} onChange={(v) => setH(v)} />
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { canvasToBlob } from '../utils/image.js';
+import { NumberField } from '../components/NumberField.jsx';
 
 export const converterMeta = {
   id: 'converter',
@@ -269,7 +270,7 @@ export function ConverterTool() {
             <div className="field-row">
               <div className="field">
                 <label>FPS</label>
-                <input type="number" min="1" step="1" value={fps} onChange={(e) => setFps(+e.target.value || 1)} />
+                <NumberField min={1} step={1} value={fps} fallback={1} onChange={(v) => setFps(v)} />
               </div>
             </div>
           )}
@@ -286,7 +287,7 @@ export function ConverterTool() {
             <div className="field-row">
               <div className="field">
                 <label>Frame</label>
-                <input type="number" min="0" step="1" value={frame} onChange={(e) => setFrame(+e.target.value || 0)} />
+                <NumberField min={0} step={1} value={frame} onChange={(v) => setFrame(v)} />
               </div>
             </div>
           )}
@@ -295,15 +296,15 @@ export function ConverterTool() {
             <div className="field-row">
               <div className="field">
                 <label>Count</label>
-                <input type="number" min="1" step="1" value={count} onChange={(e) => setCount(+e.target.value || 1)} />
+                <NumberField min={1} step={1} value={count} fallback={1} onChange={(v) => setCount(v)} />
               </div>
               <div className="field">
                 <label>Start (0–1)</label>
-                <input type="number" min="0" max="1" step="0.01" value={startN} onChange={(e) => setStartN(+e.target.value || 0)} />
+                <NumberField min={0} max={1} step={0.01} value={startN} onChange={(v) => setStartN(v)} />
               </div>
               <div className="field">
                 <label>End (0–1)</label>
-                <input type="number" min="0" max="1" step="0.01" value={endN} onChange={(e) => setEndN(+e.target.value || 0)} />
+                <NumberField min={0} max={1} step={0.01} value={endN} onChange={(v) => setEndN(v)} />
               </div>
             </div>
           )}
@@ -311,15 +312,15 @@ export function ConverterTool() {
             <div className="field-row">
               <div className="field">
                 <label>Start frame</label>
-                <input type="number" min="0" step="1" value={startF} onChange={(e) => setStartF(+e.target.value || 0)} />
+                <NumberField min={0} step={1} value={startF} onChange={(v) => setStartF(v)} />
               </div>
               <div className="field">
                 <label>End frame</label>
-                <input type="number" min="0" step="1" value={endF} onChange={(e) => setEndF(+e.target.value || 0)} />
+                <NumberField min={0} step={1} value={endF} onChange={(v) => setEndF(v)} />
               </div>
               <div className="field">
                 <label>Step</label>
-                <input type="number" min="1" step="1" value={step} onChange={(e) => setStep(+e.target.value || 1)} />
+                <NumberField min={1} step={1} value={step} fallback={1} onChange={(v) => setStep(v)} />
               </div>
             </div>
           )}

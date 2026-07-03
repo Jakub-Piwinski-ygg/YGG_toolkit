@@ -1,19 +1,14 @@
-// StudioToolbar — top strip with scene name, save/load, project root pick,
-// orientation toggle.
-
-import { isFsAccessSupported } from '../engine/persist.js';
+// StudioToolbar — top strip: left = scene picker + studio mode; center = view
+// controls (resolution, orientation, overlay, new-keyframe ease); right =
+// history + file ops + export. Workspace linking (folder indicator / reload /
+// close) lives in the left Assets panel now, and loading a workspace only
+// happens from the start-screen gate — the toolbar no longer owns any of that.
 
 export function StudioToolbar({
   scene,
   onRename,
-  rootHandle,
-  onPickRoot,
-  onPickFolderFallback,
-  onClearRoot,
   canCommit = false,
   onCommit,
-  onRefreshAssets,
-  canRefreshAssets = false,
   onSave,
   onLoad,
   onNewProject,
@@ -27,16 +22,10 @@ export function StudioToolbar({
   onSetOverlayMode,
   defaultEase = 'auto',
   onSetDefaultEase,
-  livePreview = true,
-  onToggleLivePreview,
   studioMode = 'animate',
   onSetStudioMode,
+  easyMode = false,
   busy,
-  rootDropSupported = false,
-  rootDropHover = false,
-  onRootDragOver,
-  onRootDragLeave,
-  onRootDrop,
   onUndo,
   onRedo,
   canUndo = false,
@@ -44,14 +33,9 @@ export function StudioToolbar({
   onUnityExport,
   onWebMExport
 }) {
-  const supported = isFsAccessSupported();
-  const handleFallbackInput = (e) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (files.length) onPickFolderFallback?.(files);
-  };
   return (
     <div className="scene-toolbar">
+      {/* ── LEFT: scene picker + studio mode ─────────────────────────── */}
       {/* Scene name input moved to the hierarchy panel head (rename ✎). */}
       <select
         className="scene-toolbar-select scene-scene-picker"
@@ -90,18 +74,21 @@ export function StudioToolbar({
           <RunPoseIcon />
           <span>animate</span>
         </button>
-        <button
-          className={'scene-mode-btn' + (studioMode === 'direct' ? ' is-active' : '')}
-          onClick={() => onSetStudioMode?.('direct')}
-          title="Direct mode — sequence timelines into a scenario node-graph and preview the flow."
-        >
-          <DirectIcon />
-          <span>direct</span>
-        </button>
+        {!easyMode && (
+          <button
+            className={'scene-mode-btn' + (studioMode === 'direct' ? ' is-active' : '')}
+            onClick={() => onSetStudioMode?.('direct')}
+            title="Direct mode — sequence timelines into a scenario node-graph and preview the flow."
+          >
+            <DirectIcon />
+            <span>direct</span>
+          </button>
+        )}
       </div>
 
       <div className="scene-toolbar-spacer" />
 
+      {/* ── CENTER: view controls ────────────────────────────────────── */}
       <span className="scene-toolbar-tag">
         {scene.stage.activeOrientation === 'landscape'
           ? `${scene.stage.orientations.landscape.w}×${scene.stage.orientations.landscape.h}`
@@ -120,92 +107,22 @@ export function StudioToolbar({
         <option value="behind">□ frame behind</option>
         {/* device-view guide modes temporarily disabled — needs alignment fix */}
       </select>
-      <select
-        className="scene-toolbar-select"
-        value={defaultEase}
-        onChange={(e) => onSetDefaultEase?.(e.target.value)}
-        title="Tangent mode applied to newly created keyframes"
-      >
-        <option value="auto">⌇ new: smooth</option>
-        <option value="flat">⎯ new: flat</option>
-        <option value="linear">╱ new: linear</option>
-      </select>
-
-      <button
-        className={'scene-btn' + (livePreview ? ' scene-btn--primary' : '')}
-        onClick={onToggleLivePreview}
-        title={livePreview
-          ? 'Live preview ON — Spine animations + video play continuously. Click to freeze.'
-          : 'Live preview OFF — Spine animations are paused. Click to resume.'}
-      >
-        {livePreview ? '● live' : '◯ frozen'}
-      </button>
-
-      <div className="scene-toolbar-divider" />
-
-      {rootHandle ? (
-        <>
-          <span
-            className={'scene-toolbar-tag scene-root-drop-target' + (rootDropHover ? ' active' : '')}
-            title="Drop folder here to replace linked root"
-            onDragOver={onRootDragOver}
-            onDragLeave={onRootDragLeave}
-            onDrop={onRootDrop}
-          >
-            📁 {rootHandle.name}{rootHandle.writable === false ? ' (read-only)' : ''}
-          </span>
-          {onRefreshAssets && (
-            <button
-              className="scene-btn scene-btn--ghost"
-              onClick={onRefreshAssets}
-              disabled={busy || !canRefreshAssets}
-              title="Re-read the project folder from disk (updated Spine + PNG assets) without reloading the page"
-            >🔄</button>
-          )}
-          <button className="scene-btn scene-btn--ghost" onClick={onClearRoot} title="Unlink project folder">✕</button>
-        </>
-      ) : (
-        <div
-          className={'scene-root-drop-slot' + (rootDropHover ? ' active' : '')}
-          onDragOver={onRootDragOver}
-          onDragLeave={onRootDragLeave}
-          onDrop={onRootDrop}
-          title="Drop project folder here"
+      {!easyMode && (
+        <select
+          className="scene-toolbar-select"
+          value={defaultEase}
+          onChange={(e) => onSetDefaultEase?.(e.target.value)}
+          title="Smoothing (tangent mode) applied to newly created keyframes"
         >
-          {supported ? (
-            <button className="scene-btn" onClick={onPickRoot} title="Pick the Unity project folder">
-              📁 pick project root
-            </button>
-          ) : (
-            <label className="scene-btn" title="Pick a project folder (Firefox / Safari read-only fallback)">
-              <input
-                type="file"
-                webkitdirectory=""
-                directory=""
-                multiple
-                style={{ display: 'none' }}
-                onChange={handleFallbackInput}
-                disabled={busy}
-              />
-              📁 pick project root
-            </label>
-          )}
-          <span className="scene-root-drop-hint">or drop folder</span>
-        </div>
+          <option value="auto">⌇ smoothing: smooth</option>
+          <option value="flat">⎯ smoothing: flat</option>
+          <option value="linear">╱ smoothing: linear</option>
+        </select>
       )}
 
-      {!rootHandle && (
-        <span
-          className="scene-toolbar-tag"
-          title={supported
-            ? 'Tip: drag a project folder from Explorer onto the folder slot or the Assets panel.'
-            : 'Firefox / Safari fallback: workspace opens read-only (folder picked via webkitdirectory). scene.json saves are downloaded.'}
-        >
-          {supported ? 'drop on folder slot' : 'read-only workspace (Firefox / Safari)'}
-        </span>
-      )}
+      <div className="scene-toolbar-spacer" />
 
-      <div className="scene-toolbar-divider" />
+      {/* ── RIGHT: history + file ops + export ────────────────────────── */}
       <button
         className="scene-btn"
         onClick={onUndo}
@@ -236,12 +153,14 @@ export function StudioToolbar({
         disabled={busy || !scene.layers.length}
         title="Export the active timeline as a .webm video (deterministic, native resolution)"
       >▶ webm</button>
-      <button
-        className="scene-btn"
-        onClick={onUnityExport}
-        disabled={busy || !scene.layers.length}
-        title="Export the scene as a .unitypackage: assets + import settings, prefab per canvas, baked animation, Timeline builder"
-      >⇪ unity</button>
+      {!easyMode && (
+        <button
+          className="scene-btn"
+          onClick={onUnityExport}
+          disabled={busy || !scene.layers.length}
+          title="Export the scene as a .unitypackage: assets + import settings, prefab per canvas, baked animation, Timeline builder"
+        >⇪ unity</button>
+      )}
     </div>
   );
 }

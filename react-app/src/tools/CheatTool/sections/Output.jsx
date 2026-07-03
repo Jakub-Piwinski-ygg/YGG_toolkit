@@ -3,6 +3,7 @@ import { syntaxHL } from '../lib/jsonBuilder.js';
 import { copyToClipboard, findSpinSteps, extractBoardReels, describeCombination, extractWinPositions } from '../lib/playResponse.js';
 import { symColor } from '../lib/symbolColors.js';
 import { useState } from 'react';
+import { NumberField } from '../../../components/NumberField.jsx';
 
 // Right-hand output panel: JSON tabs (Pretty/Minified/PascalCase), API response
 // (Result / Real Spin), status bar. Designed to be the wide column.
@@ -220,7 +221,7 @@ function PlayCheatBox({ cheatString, onPlay, getPlayStake, setPlayStake }) {
         <div className="meta">⚡ background auto-play → 🎰 Real Spin tab</div>
       </div>
       <div className="ct-play-box-row">
-        <input type="number" value={cashBet} step={0.1} min={0.01} placeholder="cashBet" onChange={(e) => setCashBet(parseFloat(e.target.value) || 0)} />
+        <NumberField value={cashBet} step={0.1} min={0.01} fallback={0.01} placeholder="cashBet" onChange={(v) => setCashBet(v)} />
         <input type="text" value={currency} maxLength={3} placeholder="EUR" onChange={(e) => setCurrency(e.target.value.toUpperCase())} />
         <button onClick={replay} className="ct-play-btn">↻ Replay</button>
       </div>

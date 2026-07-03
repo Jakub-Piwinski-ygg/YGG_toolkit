@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { freshBytes, makeFeatherMask } from '../utils/image.js';
 import { makeBatchRun } from '../utils/batch.js';
+import { NumberField } from '../components/NumberField.jsx';
 
 export const blurMeta = {
   id: 'blur',
@@ -102,11 +103,11 @@ export function BlurTool() {
       <div className="field-row">
         <div className="field">
           <label>Radius</label>
-          <input type="number" min="0" max="50" value={radius} onChange={(e) => setRadius(+e.target.value)} />
+          <NumberField min={0} max={50} value={radius} onChange={(v) => setRadius(v)} />
         </div>
         <div className="field">
           <label>Sigma (strength)</label>
-          <input type="number" min="1" max="100" value={sigma} onChange={(e) => setSigma(+e.target.value)} />
+          <NumberField min={1} max={100} value={sigma} onChange={(v) => setSigma(v)} />
         </div>
       </div>
       <div className="field-row">
@@ -118,7 +119,7 @@ export function BlurTool() {
         </div>
         <div className="field">
           <label>Edge Feather (px)</label>
-          <input type="number" min="0" max="100" value={feather} onChange={(e) => setFeather(+e.target.value)} />
+          <NumberField min={0} max={100} value={feather} onChange={(v) => setFeather(v)} />
         </div>
       </div>
       <div className="field-row">

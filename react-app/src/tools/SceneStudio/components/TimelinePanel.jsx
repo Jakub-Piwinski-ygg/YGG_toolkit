@@ -4,6 +4,8 @@ import { channelKeyDots, CHANNEL_NAMES, evalChannel, isPathChannel, maxChannelKe
 import { SPINNER_ACTIONS, normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 import { normalizeWinSeqConfig, findWinSeqFlow, winSeqFlowDuration } from '../engine/winseq/winseqModel.js';
 import { spinnerClipDurationAction } from './SpinnerInspectorSections.jsx';
+import { NumberField } from '../../../components/NumberField.jsx';
+import { elementZoom, rootZoom } from '../../../utils/domZoom.js';
 
 /**
  * Compute the clip length that matches the content a clip points at — one spine
@@ -455,8 +457,9 @@ export function TimelinePanel({
     const wrap = lanesScrollRef.current;
     if (!wrap) return 0;
     const rect = wrap.getBoundingClientRect();
+    const z = elementZoom(wrap); // undo CSS ui-scale zoom on the pointer term
     // Lane content starts after the frozen label column inside the scroller.
-    const xInScroll = (clientX - rect.left) + wrap.scrollLeft - LABEL_COL_W;
+    const xInScroll = (clientX - rect.left) / z + wrap.scrollLeft - LABEL_COL_W;
     return clamp(xInScroll / pxPerSec, 0, duration);
   };
 
@@ -878,8 +881,9 @@ export function TimelinePanel({
     const wrap = lanesScrollRef.current;
     if (!wrap) return 0;
     const rect = wrap.getBoundingClientRect();
+    const z = elementZoom(wrap);
     // Lane content starts after the frozen label column inside the scroller.
-    const xInScroll = (clientX - rect.left) + wrap.scrollLeft - LABEL_COL_W;
+    const xInScroll = (clientX - rect.left) / z + wrap.scrollLeft - LABEL_COL_W;
     return clamp(xInScroll / pxPerSec, 0, duration);
   }, [duration, pxPerSec]);
 
@@ -1025,9 +1029,10 @@ export function TimelinePanel({
   const lanesContentPoint = (clientX, clientY) => {
     const wrap = lanesScrollRef.current;
     const rect = wrap.getBoundingClientRect();
+    const z = elementZoom(wrap);
     return {
-      x: (clientX - rect.left) + wrap.scrollLeft,
-      y: (clientY - rect.top) + wrap.scrollTop
+      x: (clientX - rect.left) / z + wrap.scrollLeft,
+      y: (clientY - rect.top) / z + wrap.scrollTop
     };
   };
 
@@ -1056,8 +1061,9 @@ export function TimelinePanel({
     const pan = panRef.current;
     if (pan) {
       const wrap = lanesScrollRef.current;
-      wrap.scrollLeft = pan.sl - (e.clientX - pan.x);
-      wrap.scrollTop = pan.st - (e.clientY - pan.y);
+      const z = elementZoom(wrap);
+      wrap.scrollLeft = pan.sl - (e.clientX - pan.x) / z;
+      wrap.scrollTop = pan.st - (e.clientY - pan.y) / z;
       return;
     }
     const st = marqueeRef.current;
@@ -1313,15 +1319,14 @@ export function TimelinePanel({
               : 'Timeline length (seconds) — auto-fits the content. Type a value to set it manually.'}
           >
             <span>length</span>
-            <input
+            <NumberField
               className="scene-duration-input"
-              type="number"
               step={0.5}
               min={0.5}
               max={300}
               value={Number(duration.toFixed(2))}
               disabled={!manualDuration}
-              onChange={(e) => onFlowAction?.('setDuration', Number(e.target.value))}
+              onChange={(v) => onFlowAction?.('setDuration', v)}
             />
             <button
               type="button"
@@ -1334,16 +1339,13 @@ export function TimelinePanel({
           </label>
           <label className="scene-timeline-fps" title="Frames per second — affects keyframe snap and move-by-frame">
             <span>fps</span>
-            <input
-              type="number"
+            <NumberField
               min={1}
               max={120}
               step={1}
+              int
               value={fps}
-              onChange={(e) => {
-                const n = Math.round(Number(e.target.value));
-                if (Number.isFinite(n) && n >= 1) onFlowAction?.('setFps', n);
-              }}
+              onChange={(v) => onFlowAction?.('setFps', v)}
             />
           </label>
         </div>
@@ -1748,7 +1750,7 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
   const onPointerMove = useCallback((e) => {
     const st = dragRef.current;
     if (!st) return;
-    const deltaT = (e.clientX - st.startClientX) / pxPerSec;
+    const deltaT = (e.clientX - st.startClientX) / rootZoom() / pxPerSec;
     if (!st.moved && Math.abs(e.clientX - st.startClientX) > 3) st.moved = true;
     if (st.group) { onGroupMoveUpdate?.(deltaT); return; }
     const altDisableSnap = e.altKey;
@@ -1851,16 +1853,13 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
               onClick={(e) => e.stopPropagation()}
             >
               <span className="scene-clip-track-tag">T</span>
-              <input
-                type="number"
+              <NumberField
                 min={0}
                 max={64}
                 step={1}
+                int
                 value={Number.isFinite(Number(clip.track)) ? Math.floor(Number(clip.track)) : 0}
-                onChange={(e) => {
-                  const n = Math.max(0, Math.min(64, Math.floor(Number(e.target.value) || 0)));
-                  onPatch?.({ track: n });
-                }}
+                onChange={(v) => onPatch?.({ track: v })}
               />
             </label>
           )}
@@ -2073,7 +2072,7 @@ function ClipKeyframeDots({
   const handleMove = (e) => {
     const st = handleDragRef.current;
     if (!st || st.span <= 1e-4) return;
-    const deltaT = (e.clientX - st.startX) / pxPerSec;
+    const deltaT = (e.clientX - st.startX) / rootZoom() / pxPerSec;
     let pivot;
     let factor;
     if (st.side === 'right') { pivot = st.minSelT; factor = (st.span + deltaT) / st.span; }
@@ -2100,7 +2099,7 @@ function ClipKeyframeDots({
   const boxMoveMove = (e) => {
     const st = dotDragRef.current;
     if (!st || st.startX == null) return;
-    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: snapDeltaToPlayhead(st.anchorT, (e.clientX - st.startX) / pxPerSec) });
+    onTransformKeys?.(st.snapshot, st.list, { kind: 'move', delta: snapDeltaToPlayhead(st.anchorT, (e.clientX - st.startX) / rootZoom() / pxPerSec) });
   };
   const boxMoveUp = (e) => {
     if (!dotDragRef.current) return;
@@ -2112,7 +2111,8 @@ function ClipKeyframeDots({
   const bandLocal = (e) => {
     const r = bandRef.current?.getBoundingClientRect();
     if (!r) return { x: 0, y: 0 };
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    const z = elementZoom(bandRef.current);
+    return { x: (e.clientX - r.left) / z, y: (e.clientY - r.top) / z };
   };
   const marqueeDown = (e) => {
     if (e.button !== 0) return;
@@ -2298,7 +2298,7 @@ function KeyframeDot({ left, bottom, big, summary, channel, title, selected, pxP
     if (!st) return;
     if (!st.moved && Math.abs(e.clientX - st.startClientX) < 3) return;
     st.moved = true;
-    onDragMove?.((e.clientX - st.startClientX) / pxPerSec);
+    onDragMove?.((e.clientX - st.startClientX) / rootZoom() / pxPerSec);
   };
   const onPointerUp = (e) => {
     const st = dragRef.current;

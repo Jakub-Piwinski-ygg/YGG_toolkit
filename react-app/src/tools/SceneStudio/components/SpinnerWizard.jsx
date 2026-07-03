@@ -33,6 +33,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DragNumberField } from './DragNumberField.jsx';
+import { NumberField } from '../../../components/NumberField.jsx';
 import { resolveAssetFile } from '../engine/persist.js';
 import {
   createEmptyScene,
@@ -1068,19 +1069,16 @@ export function SpinnerWizard({
                               patchSymbol(i, { landAnim: { ...sym.landAnim, anim: e.target.value } });
                           }}
                         />
-                        <input
+                        <NumberField
                           className="spinner-sym-anim-name spinner-sym-anim-offset"
-                          type="number"
                           step={0.05}
                           title="Land anim timing offset (s): negative = before the land moment, positive = after"
                           placeholder="+0s"
                           style={{ width: 52 }}
-                          value={sym.landAnim?.offset ?? ''}
-                          onChange={(e) => {
+                          value={sym.landAnim?.offset}
+                          onChange={(v) => {
                             if (!sym.landAnim?.assetId) return;
-                            const raw = e.target.value;
-                            const n = raw === '' ? 0 : Number(raw);
-                            if (Number.isFinite(n)) patchSymbol(i, { landAnim: { ...sym.landAnim, offset: n } });
+                            patchSymbol(i, { landAnim: { ...sym.landAnim, offset: v } });
                           }}
                         />
                         <span className="spinner-sym-anim-label">win</span>
@@ -1104,19 +1102,16 @@ export function SpinnerWizard({
                               patchSymbol(i, { winAnim: { ...sym.winAnim, anim: e.target.value } });
                           }}
                         />
-                        <input
+                        <NumberField
                           className="spinner-sym-anim-name spinner-sym-anim-offset"
-                          type="number"
                           step={0.05}
                           title="Win anim timing offset (s): negative = before the win moment, positive = after"
                           placeholder="+0s"
                           style={{ width: 52 }}
-                          value={sym.winAnim?.offset ?? ''}
-                          onChange={(e) => {
+                          value={sym.winAnim?.offset}
+                          onChange={(v) => {
                             if (!sym.winAnim?.assetId) return;
-                            const raw = e.target.value;
-                            const n = raw === '' ? 0 : Number(raw);
-                            if (Number.isFinite(n)) patchSymbol(i, { winAnim: { ...sym.winAnim, offset: n } });
+                            patchSymbol(i, { winAnim: { ...sym.winAnim, offset: v } });
                           }}
                         />
                       </div>

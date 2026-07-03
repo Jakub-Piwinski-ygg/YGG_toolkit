@@ -157,13 +157,13 @@ export function defaultTransformAt(stage) {
 
 /**
  * Default transforms for BOTH orientations when adding a new layer.
- * If the user is in portrait mode at drop time, portrait gets its own
- * centered transform (not inherited from landscape), so toggling
- * orientations later doesn't move the layer unexpectedly.
+ * Portrait starts as `null` (inherit) regardless of the active orientation:
+ * inheritance is now centre-relative, so a new layer sits centred in BOTH
+ * orientations, and portrait only diverges once the user actually moves it in
+ * portrait view (copy-on-write). (PLAN_2026-07 M8)
  */
 export function defaultTransformsForNewLayer(stage) {
   const land = stage.orientations.landscape;
-  const port = stage.orientations.portrait;
   const landscape = {
     x: land.w / 2, y: land.h / 2,
     scaleX: 1, scaleY: 1,
@@ -172,17 +172,7 @@ export function defaultTransformsForNewLayer(stage) {
     alpha: 1,
     tint: { r: 1, g: 1, b: 1 }
   };
-  const portrait = stage.activeOrientation === 'portrait'
-    ? {
-        x: port.w / 2, y: port.h / 2,
-        scaleX: 1, scaleY: 1,
-        rotation: 0,
-        anchor: [0.5, 0.5],
-        alpha: 1,
-        tint: { r: 1, g: 1, b: 1 }
-      }
-    : null;
-  return { landscape, portrait };
+  return { landscape, portrait: null };
 }
 
 /** Normalise a transform, accepting the legacy { scale: number } form. */
@@ -289,6 +279,9 @@ export function normalizeTimeline(tl) {
   return {
     id: tl.id || uid('TL'),
     name: typeof tl.name === 'string' && tl.name ? tl.name : 'Timeline',
+    // Layer id this timeline was auto-generated from (spinner / win-seq wizard).
+    // Kept so "Regenerate" can find and replace exactly its own timelines.
+    generatedBy: tl.generatedBy || null,
     tracks: derived.tracks,
     markers: derived.markers,
     nodes: derived.nodes,
@@ -353,10 +346,47 @@ export function addPrebuiltTimelines(scene, built) {
   const synced = syncFlowToActiveTimeline(scene);
   const made = list.map((b) => ({
     ...createTimeline(b.name),
+    generatedBy: b.generatedBy || null,
     tracks: (b.tracks || []).map(normalizeTrack).filter(Boolean),
     markers: Array.isArray(b.markers) ? b.markers : []
   }));
   return { ...synced, timelines: [...(synced.timelines || []), ...made] };
+}
+
+/**
+ * Regenerate the auto-built timelines for one layer: drop every timeline
+ * previously tagged `generatedBy === layerId`, then append the freshly built
+ * ones (also tagged). The live flow is committed to its own timeline first, so
+ * regenerating while a generated timeline is active can't leak the stale flow
+ * into a surviving timeline.
+ */
+export function regenerateTimelinesForLayer(scene, layerId, built) {
+  const list = (Array.isArray(built) ? built : [built]).filter(Boolean)
+    .map((b) => ({ ...b, generatedBy: b.generatedBy || layerId }));
+  const synced = syncFlowToActiveTimeline(scene);
+  const kept = (synced.timelines || []).filter((t) => t.generatedBy !== layerId);
+  let activeTimelineId = synced.activeTimelineId;
+  let flow = synced.flow;
+  if (!kept.some((t) => t.id === activeTimelineId)) {
+    const first = kept[0] || null;
+    activeTimelineId = first?.id || null;
+    flow = first
+      ? deriveFlowGraph({ tracks: first.tracks, markers: first.markers, nodes: [], edges: [] })
+      : flow;
+  }
+  const made = list.map((b) => ({
+    ...createTimeline(b.name),
+    generatedBy: b.generatedBy,
+    tracks: (b.tracks || []).map(normalizeTrack).filter(Boolean),
+    markers: Array.isArray(b.markers) ? b.markers : []
+  }));
+  const timelines = [...kept, ...made];
+  return {
+    ...synced,
+    timelines,
+    activeTimelineId: activeTimelineId || timelines[0]?.id || null,
+    flow
+  };
 }
 
 /** Rename a timeline by id. */

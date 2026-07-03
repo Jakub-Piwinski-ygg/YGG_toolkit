@@ -4,7 +4,7 @@ tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
 priority: P0
-updated: 2026-06-30
+updated: 2026-07-02
 tags: [scene-studio, pixi, animation, unity, spine, tracks]
 ---
 
@@ -21,6 +21,45 @@ Spine-2D-style document model (2026-06-14): a **Project** (`ygg-project/1`) owns
 active one). Scene **variants** (`variantOf`), a **Setup vs Animate** toolbar toggle,
 and **per-timeline Unity bake** (one `.anim` per timeline, descriptor
 `ygg-unity-scene/2`). Engine: `engine/projectModel.js` + `engine/sceneModel.js`.
+
+## 2026-07-02 UX batch (see [[Plan 2026-07]])
+
+New/changed this session:
+- **Scene Setup wizard** (`components/SceneSetupWizard.jsx`) — scans workspace,
+  name-first scoring (folder only weak — a folder like `03_Machine_Frame` must
+  NOT tag every file inside as a frame), ◆ suggestions sort to top. Builds a
+  **parented tree** under one empty root: `root → background(static ?? bg-anim)
+  → {bg-anim, machine(static ?? anim) → machine-anim, LOGO on top}`. Feature
+  modes (Free Spins / Bonus / Pick&Click) = hidden empty groups under the root.
+  Re-enterable via inspector **✎ edit scene setup** (config stored on the root
+  asset's `sceneSetup`).
+- **New object type `empty`** — transform-only group parent (`pixiApp`
+  `buildLayerObject`, default `__baseBounds` so the gizmo works). Moving it drives
+  the whole subtree. Toggle its visibility to show/hide a whole mode "per proxy".
+- **Toolkit** — horizontal creation bar at the BOTTOM of the center stack
+  (where the timeline sits in animate), **setup-mode only**. Buttons: 🎬 Scene
+  Setup, 🎰 Spinner, 🏆 Win Sequences, ◻ Static (empty white-square png, scale +
+  tint). Bigger buttons.
+- **Center origin (M8, display-only variant)** — inspector x/y are stage-CENTRE
+  relative for top-level layers; children stay parent-local (0,0 = parent
+  origin); win-number stays bone-offset. Portrait inheritance is centre-relative
+  (`orientationManager.inheritedPortrait`, top-level only).
+- **Pivot cross** on selection (`drawSelection`) — X red (right light/left dark),
+  Y green (up light/down dark); rotation now pivots around the object ORIGIN
+  (local 0,0), not the bbox centre.
+- **Gizmo toggle** button (left of fullscreen) hides the cross + handles and
+  disables handle/rotate hit-testing.
+- **UI scale** (`hooks/useUiScale.js`) — CSS `zoom` on #root, default 0.8,
+  Ctrl±/0. Pointer math in timeline/scenario/panel-resize divided by
+  `utils/domZoom.js` (self-measuring, no-op at scale 1). Pixi canvas re-asserts
+  `100%` style after resize (autoDensity + zoom double-scaled it). See [[Gotchas]].
+- **Blend mode** now applied to Pixi (`applyBlendMode`); **shared ColorField**
+  popover (`components/ColorPicker.jsx`) replaced native `input[type=color]`.
+- **Wizards auto-generate timelines**; inspector buttons became **↻ regenerate**
+  (`regenerateTimelinesForLayer`, timelines tagged `generatedBy`).
+- **Rebuild builds hidden layers too** (only marks `visible=false`) — previously
+  `rebuildScene` skipped invisible subtrees, so a layer created hidden had no
+  Pixi object and couldn't be toggled on without a full rebuild.
 
 - **Good**: feature depth rivals desktop tools; clean module split (`projectModel.js`,
   `sceneModel.js`, `keyframes.js`, `flowInterpreter.js`, `pixiApp.js`); Spine + video;

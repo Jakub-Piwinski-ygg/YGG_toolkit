@@ -61,7 +61,8 @@ react-app/
     │   ├── GreyToAlphaTool.jsx     # Luminance → Alpha (canvas pixel-push, threshold)
     │   ├── GradientMapTool.jsx     # Gradient Map (drag stops, 8 presets, 256-LUT)
     │   ├── OutlineTool.jsx         # Outline/Stroke (outside/center/inside, 3 kernel shapes)
-    │   ├── AtlasPackerTool.jsx     # Atlas Packer (grid/tile mode, pre-scaling)
+    │   ├── AtlasPackerTool.jsx     # Atlas Packer (grid/tile/winfont mode, pre-scaling)
+    │   ├── atlasWinFont.js         # Win Font mode: filename→glyph detection + Scene Studio layout mapping
     │   ├── PaylinesTool.jsx        # Paylines designer (toggle cells, import/export .txt)
     │   ├── FontPreviewTool.jsx     # Image Font Preview (per-letter PNG assignment, live canvas)
     │   ├── RepoContentBrowserTool.jsx  # Repo browser (GH/GL auth, art+sound modes, global search, lightbox)
@@ -352,6 +353,15 @@ defaults). Sound Browser sets explicit dimensions — don't "simplify" them away
 
 ## React version: what NOT to do
 
+- **Do not clamp/coerce numeric inputs while the user is typing.** Never call
+  `onChange(clamp(value))` per keystroke and never rewrite the field's text
+  mid-edit (typing "1" on the way to "20" must not snap to `min`). Keep the raw
+  text in local state; parse + clamp + commit only on **Enter or blur** (Esc =
+  revert). If a field must drive a live preview, propagate the value only when
+  the current text parses to an in-range number — and still never touch the
+  user's text. Use the shared numeric field component (`DragNumberField` /
+  `NumberField`) instead of bare `<input type="number">` with inline
+  `Math.max/min` in `onChange`.
 - Do not import tools directly in components — use the runner registry.
 - Do not store settings in context — let tools own their state.
 - Do not make WASM calls before `magickReady` is true.

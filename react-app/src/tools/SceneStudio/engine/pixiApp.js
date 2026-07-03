@@ -256,18 +256,22 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
 
   const buildNode = async (node, pixiParent) => {
     const { layer, children } = node;
-    if (!layer.visible) return;
+    // NB: build hidden layers too (just mark them invisible). Skipping them
+    // meant a layer created hidden — e.g. a Scene-Setup mode group — had no Pixi
+    // object, so toggling its visibility later showed nothing until a full
+    // rebuild. Building it lets the cheap-path visibility toggle work live.
     const asset = scene.assets.find((a) => a.id === layer.assetId);
     if (!asset) return;
     const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations, blobUrls);
     if (!obj) return;
+    obj.visible = layer.visible !== false;
 
     if ((asset.type === 'spine' || asset.type === 'winseq') && onAssetReady) {
       try { onAssetReady(asset.id, describeSpine(obj)); }
       catch (e) { console.warn('[SceneStudio] describeSpine failed', e); }
     }
 
-    const t = resolveTransform(layer, orientation);
+    const t = resolveTransform(layer, orientation, scene.stage);
     obj.label = layer.name;
     obj.x = t.x;
     obj.y = t.y;
@@ -382,6 +386,15 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       const texture = await loadTextureFromUrl(resolved.url);
       return new Sprite(texture);
     }
+    if (asset.type === 'empty') {
+      // A transform-only group parent (no visual). Children parent under it so
+      // moving/scaling/rotating this node drives the whole group. A default
+      // selection box makes it grabbable in the viewport.
+      const c = new Container();
+      c.__baseBounds = { x: -60, y: -60, width: 120, height: 120 };
+      if (!c.anchor) c.anchor = { x: 0.5, y: 0.5, set() {} };
+      return c;
+    }
     if (asset.type === 'spine') {
       const skelR = await resolve(asset.src);
       const atlasR = await resolve(asset.atlas);
@@ -469,6 +482,35 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
 // Each handle holds the world-space x,y where its marker is drawn.
 export const HANDLE_NAMES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
+// Scene model blend → Pixi v8 blend-mode string. normal/add/screen/multiply are
+// all GPU-native in Pixi v8 (no advanced-blend-modes import needed).
+const BLEND_PIXI = { normal: 'normal', additive: 'add', screen: 'screen', multiply: 'multiply' };
+
+/**
+ * Apply a layer's blend mode to its display object. Sprites take it directly;
+ * Spine / spinner objects render through child meshes, so the mode is pushed
+ * down the whole subtree. Cached on the object (mode + child count) so the
+ * per-frame syncTransforms call doesn't re-walk the tree unless something
+ * actually changed.
+ */
+export function applyBlendMode(obj, blend) {
+  if (!obj) return;
+  const mode = BLEND_PIXI[blend] || 'normal';
+  const n = obj.children?.length || 0;
+  if (obj.__blendApplied === mode && obj.__blendChildCount === n) return;
+  obj.__blendApplied = mode;
+  obj.__blendChildCount = n;
+  try { obj.blendMode = mode; } catch { /* some containers reject */ }
+  if (n) {
+    const stack = obj.children.slice();
+    while (stack.length) {
+      const c = stack.pop();
+      try { c.blendMode = mode; } catch { /* ignore */ }
+      if (c.children && c.children.length) for (const gc of c.children) stack.push(gc);
+    }
+  }
+}
+
 /**
  * Unified metrics for any selectable object — Sprite (texture-based) or
  * Spine (bounds-based). Returns null if the object has no measurable
@@ -478,35 +520,46 @@ export const HANDLE_NAMES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
  */
 export function getObjectMetrics(obj) {
   if (!obj) return null;
-  if (obj.texture && obj.texture.width != null) {
-    return {
+  // Every successful computation is cached on the object as `__lastMetrics`.
+  // If a later call can't measure the geometry (a texture that hasn't loaded
+  // yet, or a Spine whose live bounds momentarily collapse to 0×0), we fall
+  // back to the last good value instead of returning null — otherwise the
+  // object becomes silently un-clickable / un-draggable for that window, which
+  // is one root of the intermittent "can't move/scale/rotate" bug
+  // (PLAN_2026-07 B3).
+  const remember = (m) => { if (m) obj.__lastMetrics = m; return m; };
+
+  if (obj.texture && obj.texture.width != null && obj.texture.width > 0 && obj.texture.height > 0) {
+    return remember({
       baseW: obj.texture.width,
       baseH: obj.texture.height,
       ax: obj.anchor?.x ?? 0.5,
       ay: obj.anchor?.y ?? 0.5
-    };
+    });
   }
   // Spine — use cached base bounds captured at build time so selection
   // doesn't jitter as the animation progresses.
-  if (obj.__baseBounds) {
+  if (obj.__baseBounds && obj.__baseBounds.width > 0 && obj.__baseBounds.height > 0) {
     const b = obj.__baseBounds;
-    return {
+    return remember({
       baseW: b.width,
       baseH: b.height,
       ax: b.width > 0 ? -b.x / b.width : 0.5,
       ay: b.height > 0 ? -b.y / b.height : 0.5
-    };
+    });
   }
   try {
     const lb = obj.getLocalBounds?.();
-    if (!lb || lb.width === 0 || lb.height === 0) return null;
-    return {
-      baseW: lb.width,
-      baseH: lb.height,
-      ax: lb.width > 0 ? -lb.x / lb.width : 0.5,
-      ay: lb.height > 0 ? -lb.y / lb.height : 0.5
-    };
-  } catch { return null; }
+    if (lb && lb.width > 0 && lb.height > 0) {
+      return remember({
+        baseW: lb.width,
+        baseH: lb.height,
+        ax: lb.width > 0 ? -lb.x / lb.width : 0.5,
+        ay: lb.height > 0 ? -lb.y / lb.height : 0.5
+      });
+    }
+  } catch { /* fall through to cache */ }
+  return obj.__lastMetrics || null;
 }
 
 /**
@@ -810,12 +863,42 @@ export function drawSelection(overlay, obj, viewportScale = 1, contentRoot = nul
     overlay.rect(p.x - m / 2, p.y - m / 2, m, m).fill({ color: 0xffd166, alpha: 1 });
     overlay.rect(p.x - m / 2, p.y - m / 2, m, m).stroke({ color: 0x1a1d24, width: 1 / viewportScale, alpha: 1 });
   }
+
+  // Pivot cross — the object's origin (rotation centre) + orientation. Drawn
+  // through the anchor (local 0,0) so it rotates with the object. Axis colours:
+  //   +x (right) light red · −x (left) dark red
+  //   −y (up)   light green · +y (down) dark green
+  const axLen = 48 / viewportScale;
+  const axW = 2 / viewportScale;
+  const pivot = localToContent(obj, 0, 0, contentRoot);
+  const xPos = localToContent(obj, axLen, 0, contentRoot);
+  const xNeg = localToContent(obj, -axLen, 0, contentRoot);
+  const yDown = localToContent(obj, 0, axLen, contentRoot);
+  const yUp = localToContent(obj, 0, -axLen, contentRoot);
+  overlay.moveTo(pivot.x, pivot.y).lineTo(xNeg.x, xNeg.y).stroke({ color: 0x7a1f1f, width: axW, alpha: 0.95 });
+  overlay.moveTo(pivot.x, pivot.y).lineTo(xPos.x, xPos.y).stroke({ color: 0xff5a5a, width: axW, alpha: 0.95 });
+  overlay.moveTo(pivot.x, pivot.y).lineTo(yDown.x, yDown.y).stroke({ color: 0x1f7a2a, width: axW, alpha: 0.95 });
+  overlay.moveTo(pivot.x, pivot.y).lineTo(yUp.x, yUp.y).stroke({ color: 0x5aff6e, width: axW, alpha: 0.95 });
+  const pr = 3.5 / viewportScale;
+  overlay.circle(pivot.x, pivot.y, pr).fill({ color: 0xffffff, alpha: 0.95 });
+  overlay.circle(pivot.x, pivot.y, pr).stroke({ color: 0x1a1d24, width: 1 / viewportScale, alpha: 1 });
+
   return { keyDots, pathHandles };
 }
 
 /** Resize the renderer canvas to match its DOM container. */
 export function resizeRenderer(app, canvasW, canvasH) {
   app.renderer.resize(canvasW, canvasH);
+  // Pixi's `autoDensity` rewrites canvas.style.width/height to px on every
+  // resize. Under the global CSS ui-scale (`zoom` on #root) that px value is
+  // ALREADY zoomed, so the browser would zoom it a second time — at scale < 1
+  // the canvas ends up smaller than its host and the stage's right/bottom edge
+  // stops rendering (empty checkerboard). Re-assert the fluid 100% sizing so the
+  // canvas always fills the host; the backing buffer stays correctly sized.
+  if (app.canvas) {
+    app.canvas.style.width = '100%';
+    app.canvas.style.height = '100%';
+  }
 }
 
 /**
@@ -836,7 +919,7 @@ export function syncTransforms(app, handles, scene) {
     // follow + user offset composed each frame) — don't fight it here.
     if (assetTypeById.get(layer.assetId) === 'winnumber') { obj.visible = layer.visible !== false; continue; }
     obj.visible = layer.visible;
-    const t = resolveTransform(layer, orientation);
+    const t = resolveTransform(layer, orientation, scene.stage);
     obj.x = t.x;
     obj.y = t.y;
     if (obj.scale?.set) obj.scale.set(t.scaleX ?? 1, t.scaleY ?? 1);
@@ -850,6 +933,7 @@ export function syncTransforms(app, handles, scene) {
     const g = Math.max(0, Math.min(255, Math.round((tint.g ?? 1) * 255)));
     const b = Math.max(0, Math.min(255, Math.round((tint.b ?? 1) * 255)));
     try { obj.tint = (r << 16) | (g << 8) | b; } catch { /* spine container may reject */ }
+    applyBlendMode(obj, layer.blend);
   }
   if (app?.renderer) app.render();
 }
@@ -1050,7 +1134,7 @@ export function applyFlowAtTime(handles, scene, t) {
       // Colour (alpha + tint) can be keyframed on the number layer's clips —
       // composed on top of the bone follow inside applyWinNumberAtTime.
       const colorOverride = evalWinNumberColor(tracks, t);
-      applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation), sampleOverride, liveNum, colorOverride);
+      applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation, scene.stage), sampleOverride, liveNum, colorOverride);
       continue;
     }
 

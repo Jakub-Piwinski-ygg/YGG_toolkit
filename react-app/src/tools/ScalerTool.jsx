@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { getImageDimensions, scaleImageWasm } from '../utils/image.js';
 import { makeBatchRun } from '../utils/batch.js';
+import { NumberField } from '../components/NumberField.jsx';
 
 export const scalerMeta = {
   id: 'scaler',
@@ -108,7 +109,7 @@ export function ScalerTool() {
       <div className="field-row">
         <div className="field">
           <label>{factorLabel}</label>
-          <input type="number" min="0.01" max="20" step="0.01" value={factor} onChange={(e) => setFactor(+e.target.value)} />
+          <NumberField min={0.01} max={20} step={0.01} value={factor} onChange={(v) => setFactor(v)} />
         </div>
         <div className="field">
           <label>{pxLabel}</label>
@@ -119,7 +120,7 @@ export function ScalerTool() {
         <div className="field-row">
           <div className="field">
             <label>Height factor</label>
-            <input type="number" min="0.01" max="20" step="0.01" value={factorY} onChange={(e) => setFactorY(+e.target.value)} />
+            <NumberField min={0.01} max={20} step={0.01} value={factorY} onChange={(v) => setFactorY(v)} />
           </div>
           <div className="field">
             <label>Target height (px)</label>

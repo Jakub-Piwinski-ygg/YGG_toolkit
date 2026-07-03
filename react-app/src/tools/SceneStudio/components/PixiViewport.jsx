@@ -20,8 +20,14 @@ import {
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 import { pickVideoMime, recordCanvasFrames, grabCanvasFrames } from '../engine/webmExport.js';
 
-export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate', refreshNonce = 0 }, ref) {
+export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate', refreshNonce = 0, onDiag = null, showGizmo = true }, ref) {
   const hostRef = useRef(null);
+  const onDiagRef = useRef(onDiag);
+  onDiagRef.current = onDiag;
+  // Gizmo visibility (pivot cross + selection box/handles). When off we clear
+  // the overlay and disable handle/rotate hit-testing for a clean preview.
+  const showGizmoRef = useRef(showGizmo);
+  showGizmoRef.current = showGizmo;
   const appRef = useRef(null);
   const viewportRef = useRef(null);
   const contentRef = useRef(null);
@@ -40,6 +46,10 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   const detachControllerRef = useRef(null);
   const fittedOnceRef = useRef(false);
   const interactionGuidesRef = useRef([]);
+  // True while the user is directly manipulating an object (drag / resize /
+  // rotate / path edit). Playback's per-frame syncTransforms skips while this
+  // is set, so a running timeline can't stomp the gesture (PLAN_2026-07 B3).
+  const interactingRef = useRef(false);
   const [pixiTick, setPixiTick] = useState(0);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
@@ -173,7 +183,10 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
           getMotionKeyDots: () => motionKeyDotsRef.current,
           onSeekToKey: (t) => onSeekToKeyRef.current?.(t),
           getPathHandles: () => pathHandlesRef.current,
-          onPathEdit: (edit) => onPathEditRef.current?.(edit)
+          onPathEdit: (edit) => onPathEditRef.current?.(edit),
+          onInteractingChange: (v) => { interactingRef.current = v; },
+          onDiag: (msg) => onDiagRef.current?.(msg),
+          getGizmoEnabled: () => showGizmoRef.current
         });
         // Reference is already passed above; keep this stub so HMR replacements
         // re-attach cleanly when the controller file changes.
@@ -335,32 +348,47 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   // rebuild — they update existing handles in place. This is what makes
   // dragging Spine sprites and scrubbing scale sliders not crash.
   useEffect(() => {
-    syncTransforms(appRef.current, handlesRef.current, scene);
-    // Setup mode shows the base pose only — no timeline overrides applied.
-    if (studioMode !== 'setup') applyFlowAtTime(handlesRef.current, scene, flowTime);
+    // While a direct manipulation is in flight, the controller drives the
+    // object's transform imperatively and renders via its own RAF. Re-running
+    // syncTransforms here (e.g. because a playing timeline advanced flowTime)
+    // would reset the object back to its scene/flow pose mid-gesture — the
+    // "can't move/scale/rotate" bug. Skip the pose sync but still refresh the
+    // selection overlay so the handles track the object as it moves.
+    if (!interactingRef.current) {
+      syncTransforms(appRef.current, handlesRef.current, scene);
+      // Setup mode shows the base pose only — no timeline overrides applied.
+      if (studioMode !== 'setup') applyFlowAtTime(handlesRef.current, scene, flowTime);
+    }
     if (selectionOverlayRef.current) {
-      const ctx = selectedClipRef.current;
-      const selClip = ctx?.clip || ctx || null;
-      const selLayer = selectedLayerId ? scene.layers.find((l) => l.id === selectedLayerId) : null;
-      const baseT = selLayer
-        ? (scene.stage.activeOrientation === 'portrait'
-            ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
-            : selLayer.transforms?.landscape)
-        : null;
-      const selResult = drawSelection(
-        selectionOverlayRef.current,
-        handlesRef.current.get(selectedLayerId),
-        viewportRef.current?.scale?.x ?? 1,
-        contentRef.current,
-        interactionGuidesRef.current,
-        selClip,
-        baseT
-      ) || {};
-      motionKeyDotsRef.current = selResult.keyDots || [];
-      pathHandlesRef.current = selResult.pathHandles || [];
+      if (!showGizmo) {
+        // Gizmo hidden — clear the overlay and drop interactive dots/handles.
+        selectionOverlayRef.current.clear();
+        motionKeyDotsRef.current = [];
+        pathHandlesRef.current = [];
+      } else {
+        const ctx = selectedClipRef.current;
+        const selClip = ctx?.clip || ctx || null;
+        const selLayer = selectedLayerId ? scene.layers.find((l) => l.id === selectedLayerId) : null;
+        const baseT = selLayer
+          ? (scene.stage.activeOrientation === 'portrait'
+              ? (selLayer.transforms?.portrait ?? selLayer.transforms?.landscape)
+              : selLayer.transforms?.landscape)
+          : null;
+        const selResult = drawSelection(
+          selectionOverlayRef.current,
+          handlesRef.current.get(selectedLayerId),
+          viewportRef.current?.scale?.x ?? 1,
+          contentRef.current,
+          interactionGuidesRef.current,
+          selClip,
+          baseT
+        ) || {};
+        motionKeyDotsRef.current = selResult.keyDots || [];
+        pathHandlesRef.current = selResult.pathHandles || [];
+      }
       appRef.current?.render();
     }
-  }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime, studioMode]);
+  }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime, studioMode, showGizmo]);
 
   // Reorder stageFrame and redraw it when overlay mode changes.
   useEffect(() => {

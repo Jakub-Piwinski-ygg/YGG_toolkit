@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { NumberField } from '../components/NumberField.jsx';
 
 export const paylinesMeta = {
   id: 'paylines',
@@ -117,15 +118,15 @@ export function PaylinesTool() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '.8rem' }}>
         <div className="field">
           <label>Paylines</label>
-          <input type="number" min="1" max="200" value={num} onChange={(e) => setNum(Math.max(1, +e.target.value || 1))} />
+          <NumberField min={1} max={200} value={num} fallback={1} onChange={(v) => setNum(v)} />
         </div>
         <div className="field">
           <label>Columns</label>
-          <input type="number" min="1" max="20" value={cols} onChange={(e) => setCols(Math.max(1, +e.target.value || 1))} />
+          <NumberField min={1} max={20} value={cols} fallback={1} onChange={(v) => setCols(v)} />
         </div>
         <div className="field">
           <label>Rows</label>
-          <input type="number" min="1" max="16" value={rows} onChange={(e) => setRows(Math.max(1, +e.target.value || 1))} />
+          <NumberField min={1} max={16} value={rows} fallback={1} onChange={(v) => setRows(v)} />
         </div>
       </div>
 

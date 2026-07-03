@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useUnityExport } from '../context/UnityExportContext.jsx';
+import { NumberField } from './NumberField.jsx';
 
 const RULE_LABELS = {
   transliterate:  'Transliterate non-ASCII (ą→a, ł→l, …)',
@@ -72,7 +73,7 @@ export function UnityExportConfigPanel() {
             <input className="ac-export-input ac-export-filter" type="text" value={m.suffixFilter} onChange={(e) => updateMapping(i, 'suffixFilter', e.target.value)} placeholder="_static" />
             <input className="ac-export-input" type="text" value={m.dstFolder}     onChange={(e) => updateMapping(i, 'dstFolder',     e.target.value)} placeholder="Art/_Game" />
             <input className="ac-export-input ac-export-filter" type="text" value={m.dstSuffix ?? ''} onChange={(e) => updateMapping(i, 'dstSuffix', e.target.value)} placeholder="Statics" title="Subfolder inserted after parent segs (e.g. Animations, Statics)" />
-            <input className="ac-export-input ac-export-parent" type="number" min="0" max="5" value={m.includeParent ?? 0} onChange={(e) => updateMapping(i, 'includeParent', Math.max(0, parseInt(e.target.value, 10) || 0))} title="Include N parent segments before matched segment" />
+            <NumberField int className="ac-export-input ac-export-parent" min={0} max={5} value={m.includeParent ?? 0} onChange={(v) => updateMapping(i, 'includeParent', v)} title="Include N parent segments before matched segment" />
             <input type="checkbox" checked={!!m.flatten} onChange={(e) => updateMapping(i, 'flatten', e.target.checked)} title="Flatten — filename only" className="ac-export-check" />
             <button className="ac-export-x" onClick={() => removeMapping(i)} title="Remove row">×</button>
           </div>

@@ -3,6 +3,7 @@ import { FieldRow } from '../components/FieldRow.jsx';
 import { Toggle } from '../components/Toggle.jsx';
 import { useCheatTool } from '../CheatToolContext.jsx';
 import { SymbolAutocompleteInput } from '../components/SymbolAutocompleteInput.jsx';
+import { NumberField } from '../../../components/NumberField.jsx';
 
 export function GameModeSection() {
   const {
@@ -25,12 +26,13 @@ export function GameModeSection() {
       <FieldRow label="Json Index">
         <div className="ct-inline-row">
           <Toggle checked={jsonIndexEnabled} onChange={setJsonIndexEnabled} />
-          <input
-            type="number"
+          <NumberField
             value={jsonIndexValue}
             min={1}
             step={1}
-            onChange={(e) => setJsonIndexValue(parseInt(e.target.value) || 1)}
+            int
+            fallback={1}
+            onChange={(v) => setJsonIndexValue(v)}
             className="ct-num-narrow"
             title="Przypina cheat do konkretnego deterministycznego wyniku"
           />

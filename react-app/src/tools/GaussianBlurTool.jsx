@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { freshBytes, makeFeatherMask } from '../utils/image.js';
 import { makeBatchRun } from '../utils/batch.js';
+import { NumberField } from '../components/NumberField.jsx';
 
 export const gaussBlurMeta = {
   id: 'gaussblur',
@@ -120,7 +121,7 @@ export function GaussianBlurTool() {
       <div className="field-row">
         <div className="field">
           <label>Radius (0 = auto)</label>
-          <input type="number" min="0" max="100" value={radius} onChange={(e) => setRadius(+e.target.value)} />
+          <NumberField min={0} max={100} value={radius} onChange={(v) => setRadius(v)} />
         </div>
         <div className="field">
           <label>
@@ -132,7 +133,7 @@ export function GaussianBlurTool() {
       <div className="field-row">
         <div className="field">
           <label>Edge feather (0 = none)</label>
-          <input type="number" min="0" max="200" value={feather} onChange={(e) => setFeather(+e.target.value)} />
+          <NumberField min={0} max={200} value={feather} onChange={(v) => setFeather(v)} />
         </div>
         <div className="field">
           <label>Alpha handling</label>

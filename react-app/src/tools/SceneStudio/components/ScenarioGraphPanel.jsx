@@ -8,6 +8,7 @@
 // rubber-band. Active-edge click selection. Playback transport is P3.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { elementZoom, rootZoom } from '../../../utils/domZoom.js';
 import {
   resolveWalk,
   resolveTimelineRef,
@@ -100,7 +101,10 @@ export function ScenarioGraphPanel({
     const rect = canvasRef.current?.getBoundingClientRect();
     const v = viewRef.current;
     if (!rect) return { x: 0, y: 0 };
-    return { x: (clientX - rect.left - v.panX) / v.zoom, y: (clientY - rect.top - v.panY) / v.zoom };
+    // Undo the global CSS ui-scale on the pointer term first: pan/zoom + node
+    // positions live in the canvas's own (layout-px) space.
+    const z = elementZoom(canvasRef.current);
+    return { x: ((clientX - rect.left) / z - v.panX) / v.zoom, y: ((clientY - rect.top) / z - v.panY) / v.zoom };
   }, []);
 
   // Wheel zoom around the cursor — attached non-passively so we can preventDefault.
@@ -110,8 +114,9 @@ export function ScenarioGraphPanel({
     const onWheel = (e) => {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
+      const z = elementZoom(el);
+      const cx = (e.clientX - rect.left) / z;
+      const cy = (e.clientY - rect.top) / z;
       const v = viewRef.current;
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       const zoom = clamp(v.zoom * factor, ZOOM_MIN, ZOOM_MAX);
@@ -150,7 +155,7 @@ export function ScenarioGraphPanel({
       const sx = e.clientX;
       const sy = e.clientY;
       const base = { x: viewRef.current.panX, y: viewRef.current.panY };
-      const move = (ev) => setView((v) => ({ ...v, panX: base.x + (ev.clientX - sx), panY: base.y + (ev.clientY - sy) }));
+      const move = (ev) => { const z = rootZoom(); setView((v) => ({ ...v, panX: base.x + (ev.clientX - sx) / z, panY: base.y + (ev.clientY - sy) / z })); };
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
@@ -176,16 +181,18 @@ export function ScenarioGraphPanel({
     let moved = false;
     setDrag({ nodeId: node.id, x: node.x, y: node.y });
     const move = (ev) => {
-      const dx = (ev.clientX - sx) / viewRef.current.zoom;
-      const dy = (ev.clientY - sy) / viewRef.current.zoom;
+      const z = rootZoom();
+      const dx = (ev.clientX - sx) / z / viewRef.current.zoom;
+      const dy = (ev.clientY - sy) / z / viewRef.current.zoom;
       if (Math.abs(dx) > 1 || Math.abs(dy) > 1) moved = true;
       setDrag({ nodeId: node.id, x: orig.x + dx, y: orig.y + dy });
     };
     const up = (ev) => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      const dx = (ev.clientX - sx) / viewRef.current.zoom;
-      const dy = (ev.clientY - sy) / viewRef.current.zoom;
+      const z = rootZoom();
+      const dx = (ev.clientX - sx) / z / viewRef.current.zoom;
+      const dy = (ev.clientY - sy) / z / viewRef.current.zoom;
       setDrag(null);
       if (moved) onMoveNode?.(node.id, orig.x + dx, orig.y + dy);
       else onSelectNode?.(node.id);

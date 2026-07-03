@@ -12,13 +12,16 @@ import { useRef, useState } from 'react';
 
 const DRAG_THRESHOLD = 3; // px movement before we commit to "scrub" mode
 
-export function DragNumberField({ label, value, step = 1, suffix, min, max, onChange }) {
+export function DragNumberField({ label, value, step = 1, suffix, min, max, onChange, live = false }) {
   const inputRef = useRef(null);
   const stateRef = useRef({ active: false, scrubbing: false, startX: 0, startValue: 0 });
   // While the field is focused the user types into this local string; the
-  // input always renders it verbatim, so the parent's clamped state can't
-  // rewrite "1" to the minimum mid-way through typing "120". The parent
-  // still receives clamped live values; blur / Enter commits, Esc reverts.
+  // input renders it verbatim, so the parent's clamped state can't rewrite
+  // "1" to the minimum mid-way through typing "120". Keyboard edits commit on
+  // blur / Enter (Esc reverts) — the parent is NOT clamped per keystroke.
+  // Opt into `live` only for fields that must drive a real-time preview; even
+  // then we forward the parsed value only when it's already in range, and
+  // never touch the user's raw text. (See CLAUDE.md — numeric input rule.)
   const [editText, setEditText] = useState(null); // null = not editing
   const preEditRef = useRef(0);                   // value to restore on Esc
 
@@ -103,9 +106,14 @@ export function DragNumberField({ label, value, step = 1, suffix, min, max, onCh
         }}
         onChange={(e) => {
           setEditText(e.target.value);
-          // Parent state stays valid (clamped); the raw text stays local.
-          const v = parseFloat(e.target.value);
-          if (Number.isFinite(v)) onChange(clamp(v));
+          // Default: keep the raw text local, commit on blur/Enter — do NOT
+          // clamp mid-typing. `live` fields forward the value for real-time
+          // preview, but only when it already parses in-range (so typing "1"
+          // toward "120" with min=10 won't snap), and never rewrite the text.
+          if (live) {
+            const v = parseFloat(e.target.value);
+            if (Number.isFinite(v) && v === clamp(v)) onChange(v);
+          }
         }}
         onBlur={commitEdit}
         onKeyDown={(e) => {

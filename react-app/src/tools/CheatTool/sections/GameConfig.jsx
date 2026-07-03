@@ -4,6 +4,7 @@ import { FieldRow } from '../components/FieldRow.jsx';
 import { useCheatTool } from '../CheatToolContext.jsx';
 import { EnvPills } from '../components/EnvPills.jsx';
 import { PROXY_TARGETS } from '../lib/envs.js';
+import { NumberField } from '../../../components/NumberField.jsx';
 
 export function GameConfigSection() {
   const {
@@ -36,10 +37,11 @@ export function GameConfigSection() {
         </select>
       </FieldRow>
       <FieldRow label="Game ID">
-        <input
-          type="number"
+        <NumberField
           value={gameId ?? ''}
-          onChange={(e) => setGameId(parseInt(e.target.value) || 0)}
+          int
+          fallback={0}
+          onChange={(v) => setGameId(v)}
           className={validation.fieldErrors.gameId ? 'ct-invalid' : ''}
           title={validation.fieldErrors.gameId || ''}
         />

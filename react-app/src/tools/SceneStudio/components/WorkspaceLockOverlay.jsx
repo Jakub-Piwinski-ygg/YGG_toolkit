@@ -12,13 +12,23 @@ export function WorkspaceLockOverlay({
   onPickRepo,           // () => void — open the remote (GitHub/GitLab) picker
   busy = false,
   pickError = null,
-  onDismissPickError
+  onDismissPickError,
+  // Drag-drop a folder onto this gate — the only place a workspace is loaded.
+  rootDropHover = false,
+  onRootDragOver,
+  onRootDragLeave,
+  onRootDrop
 }) {
   const fallbackInputRef = useRef(null);
   const supported = isFsAccessSupported();
 
   return (
-    <div className="scene-workspace-lock">
+    <div
+      className={'scene-workspace-lock' + (rootDropHover ? ' scene-workspace-lock--drop' : '')}
+      onDragOver={onRootDragOver}
+      onDragLeave={onRootDragLeave}
+      onDrop={onRootDrop}
+    >
       <div className="scene-workspace-lock-panel">
         <div className="scene-workspace-lock-icon">📁</div>
         <div className="scene-workspace-lock-title">No Workspace Loaded</div>
@@ -66,7 +76,9 @@ export function WorkspaceLockOverlay({
             </button>
           </>
         )}
-        <div className="scene-workspace-lock-hint">…or drop a project folder onto the toolbar.</div>
+        <div className="scene-workspace-lock-hint">
+          {rootDropHover ? '⬇ drop to load this folder' : '…or drop a project folder anywhere on this screen.'}
+        </div>
         {pickError && (
           <div className="scene-workspace-cta-error">
             <span className="scene-workspace-cta-error-msg">⚠ {pickError}</span>

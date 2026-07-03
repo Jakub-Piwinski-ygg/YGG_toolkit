@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveAssetFile } from '../engine/persist.js';
+import { NumberField } from '../../../components/NumberField.jsx';
 import { loadSkeletonData } from '../engine/spineLoader.js';
 import {
   createEmptyScene,
@@ -168,10 +169,14 @@ function isExactWinSeq(s) {
 // animation name — it previews the WHOLE flow (timing + escalation) safely.
 
 function WinSeqPreview({ flow, durations, onTime }) {
-  const [playing, setPlaying] = useState(true);
-  const [time, setTime] = useState(0);
-  const timeRef = useRef(0);
-  const playingRef = useRef(true);
+  // Start PAUSED on the biggest flow's mid-idle so entering the Sequences step
+  // shows a meaningful idle pose (like the Number step) instead of the often-
+  // invisible begin frame. The user hits ▶ to play the chain.
+  const initialTime = () => flowMidIdleTime(flow, durations);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(initialTime);
+  const timeRef = useRef(time);
+  const playingRef = useRef(false);
   const rafRef = useRef(0);
   const lastTsRef = useRef(0);
   const onTimeRef = useRef(onTime);
@@ -198,7 +203,12 @@ function WinSeqPreview({ flow, durations, onTime }) {
     });
   }, [flow, durations]);
 
-  useEffect(() => { timeRef.current = 0; setTime(0); emit(0); }, [flow?.id]);
+  // On flow change re-pose on that flow's mid-idle (still paused).
+  useEffect(() => {
+    const t = flowMidIdleTime(flow, durations);
+    timeRef.current = t; setTime(t); emit(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flow?.id]);
 
   useEffect(() => {
     lastTsRef.current = 0;
@@ -446,9 +456,22 @@ export function WinSequenceWizard({
     const named = fontPool.find((f) => looksLikeFont(f.label) || looksLikeFont(f.src));
     const pick = named?.src || TEMPLATE_FONT_ID;
     setNum((n) => (n.fontSrc === pick ? n : { ...n, fontSrc: pick }));
-    if (!isEdit && !skipTouchedRef.current) setSkipNumber(false);
+    // NB: numbers stay SKIPPED by default now — they're only enabled the first
+    // time the user actually opens the Number step (effect below). Jumping
+    // straight to Sequences keeps them skipped.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fontPool]);
+
+  // First visit to the Number step enables the number (skip → off) for a new
+  // win-seq, unless the user already toggled skip manually. Skipping straight
+  // to Sequences never fires this, so numbers stay off by default.
+  const numberStepVisitedRef = useRef(false);
+  useEffect(() => {
+    if (step !== 'number' || numberStepVisitedRef.current) return;
+    numberStepVisitedRef.current = true;
+    if (!isEdit && !skipTouchedRef.current) setSkipNumber(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   // Resolve the chosen font to a previewable URL (for the verify grid) + probe size.
   const [fontUrl, setFontUrl] = useState(null);
@@ -775,8 +798,8 @@ export function WinSequenceWizard({
                     </label>
                     <label className="scene-field">
                       <span>decimals</span>
-                      <input type="number" min="0" max="4" step="1" value={num.decimals}
-                        onChange={(e) => setNumField('decimals', Math.max(0, Math.min(4, parseInt(e.target.value, 10) || 0)))} />
+                      <NumberField min={0} max={4} step={1} int live value={num.decimals}
+                        onChange={(v) => setNumField('decimals', v)} />
                     </label>
                   </div>
 
@@ -784,18 +807,18 @@ export function WinSequenceWizard({
                   <div className="scene-field-row">
                     <label className="scene-field">
                       <span>glyph scale</span>
-                      <input type="number" min="0.05" step="0.05" value={num.glyphScale}
-                        onChange={(e) => setNumField('glyphScale', Math.max(0.05, parseFloat(e.target.value) || 0.05))} />
+                      <NumberField min={0.05} step={0.05} live value={num.glyphScale}
+                        onChange={(v) => setNumField('glyphScale', v)} />
                     </label>
                     <label className="scene-field">
                       <span>letter spacing</span>
-                      <input type="number" step="2" value={num.letterSpacing}
-                        onChange={(e) => setNumField('letterSpacing', parseFloat(e.target.value) || 0)} />
+                      <NumberField step={2} live value={num.letterSpacing}
+                        onChange={(v) => setNumField('letterSpacing', v)} />
                     </label>
                     <label className="scene-field">
                       <span>baseline Y</span>
-                      <input type="number" step="2" value={num.baselineOffset}
-                        onChange={(e) => setNumField('baselineOffset', parseFloat(e.target.value) || 0)} />
+                      <NumberField step={2} live value={num.baselineOffset}
+                        onChange={(v) => setNumField('baselineOffset', v)} />
                     </label>
                   </div>
 
@@ -810,8 +833,8 @@ export function WinSequenceWizard({
                     </label>
                     <label className="scene-field">
                       <span>sample value</span>
-                      <input type="number" min="0" step="1" value={previewSample}
-                        onChange={(e) => setPreviewSample(Math.max(0, parseFloat(e.target.value) || 0))} />
+                      <NumberField min={0} step={1} live value={previewSample}
+                        onChange={(v) => setPreviewSample(v)} />
                     </label>
                     <div className="scene-field" style={{ alignSelf: 'flex-end' }}>
                       <span>shows as</span>
@@ -843,8 +866,8 @@ export function WinSequenceWizard({
                   <div className="scene-field-row">
                     <label className="scene-field">
                       <span>wager</span>
-                      <input type="number" min="0" step="0.1" value={num.wager}
-                        onChange={(e) => setNumField('wager', Math.max(0, parseFloat(e.target.value) || 0))} />
+                      <NumberField min={0} step={0.1} live value={num.wager}
+                        onChange={(v) => setNumField('wager', v)} />
                     </label>
                     <div className="scene-field" style={{ alignSelf: 'flex-end' }}>
                       <span>count-up tops out at</span>

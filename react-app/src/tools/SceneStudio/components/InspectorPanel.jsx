@@ -2,7 +2,7 @@
 // when a clip is selected on the timeline, properties of that clip.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { hasPortraitOverride } from '../engine/orientationManager.js';
+import { hasPortraitOverride, resolveTransform } from '../engine/orientationManager.js';
 import { CURVE_PRESETS } from '../engine/sceneModel.js';
 import {
   bakePathToKeyCount,
@@ -23,6 +23,8 @@ import {
 import { ChannelSubplot, ClipGraphEditor } from './ClipGraphEditor.jsx';
 import { CurveEditor, CurveThumbnail } from './CurveEditor.jsx';
 import { DragNumberField } from './DragNumberField.jsx';
+import { ColorPicker } from '../../../components/ColorPicker.jsx';
+import { NumberField } from '../../../components/NumberField.jsx';
 import { SpinnerSection, SpinnerClipSection, spinnerClipDurationAction } from './SpinnerInspectorSections.jsx';
 import { normalizeSpinnerConfig } from '../engine/spinner/spinnerModel.js';
 import { normalizeWinSeqConfig, findWinSeqFlow, winSeqFlowDuration } from '../engine/winseq/winseqModel.js';
@@ -134,6 +136,7 @@ export function InspectorPanel({
   onPatchAsset,
   onEditSpinner,
   onEditWinSeq,
+  onEditSceneSetup,
   onGenerateWinSeqTimelines,
   onGenerateSpinnerTimeline,
   studioMode = 'animate'
@@ -151,9 +154,20 @@ export function InspectorPanel({
     );
   }
 
-  const t = orientation === 'portrait'
-    ? (layer.transforms.portrait ?? layer.transforms.landscape)
-    : layer.transforms.landscape;
+  // Effective base transform for the active orientation. For an inherited
+  // portrait this is the CENTRE-REMAPPED landscape transform (matches what the
+  // viewport renders), so the inspector never disagrees with the canvas.
+  const t = resolveTransform(layer, orientation, scene.stage);
+
+  // x / y are shown relative to the stage CENTRE (0,0 = centre) while the model
+  // keeps a top-left origin — convert on display and on edit. (PLAN_2026-07 M8)
+  // Only top-level layers live in stage space, so only they show x/y relative to
+  // the stage centre. A child's x/y is PARENT-local (0,0 = parent origin) and a
+  // win-number stores a bone-relative offset — both keep a 0,0 origin.
+  const stageDims = scene.stage.orientations[orientation] || { w: 0, h: 0 };
+  const centreOrigin = asset?.type !== 'winnumber' && !layer.parentId;
+  const cx = centreOrigin ? stageDims.w / 2 : 0;
+  const cy = centreOrigin ? stageDims.h / 2 : 0;
 
   const inheriting = orientation === 'portrait' && !hasPortraitOverride(layer);
 
@@ -206,6 +220,19 @@ export function InspectorPanel({
     <div className="scene-panel scene-panel--right">
       <div className="scene-panel-head">inspector</div>
 
+      {/* Scene Setup root re-edit — top of the inspector, setup mode only. */}
+      {asset?.type === 'empty' && asset.sceneSetup && studioMode === 'setup' && onEditSceneSetup && (
+        <button
+          type="button"
+          className="scene-btn scene-btn--primary"
+          style={{ width: '100%', marginBottom: 8 }}
+          onClick={() => onEditSceneSetup(selectedLayerId)}
+          title="Re-open the Scene Setup wizard to change the background / frame / animations, then rebuild this scene"
+        >
+          ✎ edit scene setup
+        </button>
+      )}
+
       {/* Spinner re-edit — top of the inspector, setup mode only. */}
       {asset?.type === 'spinner' && studioMode === 'setup' && onEditSpinner && (
         <button
@@ -224,9 +251,9 @@ export function InspectorPanel({
           className="scene-btn"
           style={{ width: '100%', marginBottom: 8 }}
           onClick={() => onGenerateSpinnerTimeline(selectedLayerId)}
-          title="Create a ready-made timeline with the whole spin (start → spin → stop → present win) for use in the Director"
+          title="Regenerate the full-spin timeline (start → spin → stop → present win) from the current recipe — replaces the one auto-generated for this spinner"
         >
-          ⚙ generate full-spin timeline
+          ↻ regenerate full-spin timeline
         </button>
       )}
 
@@ -248,9 +275,9 @@ export function InspectorPanel({
           className="scene-btn"
           style={{ width: '100%', marginBottom: 8 }}
           onClick={() => onGenerateWinSeqTimelines(selectedLayerId)}
-          title="Create one ready-made timeline per win sequence (small, medium, big …) for use in the Director"
+          title="Regenerate one timeline per win sequence (small, medium, big …) from the current recipe — replaces the ones auto-generated for this object"
         >
-          ⚙ generate win-sequence timelines
+          ↻ regenerate win-sequence timelines
         </button>
       )}
 
@@ -337,14 +364,14 @@ export function InspectorPanel({
         </div>
 
         <TransformField
-          label="x" prop="x" value={disp.x} step={1}
+          label="x" prop="x" value={disp.x - cx} step={1}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
-          onChange={(v) => onPatchTransform(layer.id, { x: v })}
+          onChange={(v) => onPatchTransform(layer.id, { x: v + cx })}
         />
         <TransformField
-          label="y" prop="y" value={disp.y} step={1}
+          label="y" prop="y" value={disp.y - cy} step={1}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
-          onChange={(v) => onPatchTransform(layer.id, { y: v })}
+          onChange={(v) => onPatchTransform(layer.id, { y: v + cy })}
         />
         <TransformField
           label="scale x" prop="scaleX" value={disp.scaleX} step={0.01} min={0.01}
@@ -463,11 +490,7 @@ function ColorField({ label, value, recording, hasChannel, onChange }) {
     <div className="scene-field-row-wrap">
       <label className="scene-field scene-field--inline scene-field--color">
         <span className="scene-field-scrub-handle" title="Pick a tint colour">{label}</span>
-        <input
-          type="color"
-          value={hex}
-          onChange={(e) => onChange(hexToTint(e.target.value))}
-        />
+        <ColorPicker value={hex} onChange={(nextHex) => onChange(hexToTint(nextHex))} title="Pick a tint colour" />
         <em className="scene-field-suffix">{hex.toUpperCase()}</em>
       </label>
       {indicator && (
@@ -512,11 +535,11 @@ function SpineSection({ layer, descriptor, onPatchLayer }) {
       </label>
       <label className="scene-field">
         <span>default mix (s)</span>
-        <input
-          type="number" step={0.05} min={0}
+        <NumberField
+          step={0.05} min={0}
           value={Number((spine.defaultMix || 0).toFixed(3))}
           title="Skeleton-wide mix (crossfade) duration, mirroring Unity's SkeletonDataAsset 'Default Mix'. Used wherever a clip doesn't set its own mix. 0 = hard cuts."
-          onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) setSpine({ defaultMix: n }); }}
+          onChange={(v) => setSpine({ defaultMix: v })}
         />
       </label>
       {skins.length > 1 && (
@@ -699,10 +722,10 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
       {isSpine && (
         <label className="scene-field">
           <span>track</span>
-          <input type="number" step={1} min={0} max={64}
+          <NumberField step={1} min={0} max={64} int
             value={Number.isFinite(Number(clip.track)) ? Math.floor(Number(clip.track)) : 0}
             title="Spine AnimationState track index. Higher number draws on top of (overrides) lower ones; clips on different tracks play together (mix). Decoupled from the timeline row."
-            onChange={(e) => { const n = Number(e.target.value); patchClip({ track: Number.isFinite(n) && n >= 0 ? Math.min(64, Math.floor(n)) : 0 }); }} />
+            onChange={(v) => patchClip({ track: v })} />
         </label>
       )}
 
@@ -809,24 +832,24 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
             onChange={(v) => patchClip({ duration: Math.max(0.05, v), autoFitDuration: false })} />
           <label className="scene-field">
             <span>blend in (s)</span>
-            <input type="number" step={0.01} min={0}
+            <NumberField step={0.01} min={0}
               value={Number((clip.easeIn || 0).toFixed(3))}
               title="Timeline clip blend-in (ease in) duration"
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ easeIn: n }); }} />
+              onChange={(v) => patchClip({ easeIn: v })} />
           </label>
           <label className="scene-field">
             <span>ease out (s)</span>
-            <input type="number" step={0.01} min={0}
+            <NumberField step={0.01} min={0}
               value={Number((clip.easeOut || 0).toFixed(3))}
               title="Timeline clip blend-out (ease out) duration"
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ easeOut: n }); }} />
+              onChange={(v) => patchClip({ easeOut: v })} />
           </label>
           <label className="scene-field">
             <span>clip in (s)</span>
-            <input type="number" step={0.01} min={0}
+            <NumberField step={0.01} min={0}
               value={Number((clip.clipIn || 0).toFixed(3))}
               title="Start the animation this many seconds in (skip the head)"
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ clipIn: n }); }} />
+              onChange={(v) => patchClip({ clipIn: v })} />
           </label>
           <DragNumberField label="speed multiplier" value={speed} step={0.01} min={0.01}
             onChange={(v) => patchClip({ speed: Math.max(0.01, v) })} />
@@ -854,10 +877,10 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           </label>
           <label className="scene-field">
             <span>clip end mix out (s)</span>
-            <input type="number" step={0.01} min={0}
+            <NumberField step={0.01} min={0}
               value={Number((clip.clipEndMixOut || 0).toFixed(3))}
               title="Mix-out duration at the clip's end (Clip End Mix Out Duration)"
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n) && n >= 0) patchClip({ clipEndMixOut: n }); }} />
+              onChange={(v) => patchClip({ clipEndMixOut: v })} />
           </label>
 
           <div className="scene-field-group-sub">Mixing Settings</div>
@@ -892,28 +915,28 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           </label>
           <label className="scene-field">
             <span>event threshold</span>
-            <input type="number" step={0.05} min={0} max={1}
+            <NumberField step={0.05} min={0} max={1}
               value={Number((clip.eventThreshold || 0).toFixed(3))}
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ eventThreshold: Math.min(1, Math.max(0, n)) }); }} />
+              onChange={(v) => patchClip({ eventThreshold: v })} />
           </label>
           <label className="scene-field">
             <span>attachment threshold</span>
-            <input type="number" step={0.05} min={0} max={1}
+            <NumberField step={0.05} min={0} max={1}
               value={Number((clip.attachmentThreshold || 0).toFixed(3))}
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ attachmentThreshold: Math.min(1, Math.max(0, n)) }); }} />
+              onChange={(v) => patchClip({ attachmentThreshold: v })} />
           </label>
           <label className="scene-field">
             <span>draw order threshold</span>
-            <input type="number" step={0.05} min={0} max={1}
+            <NumberField step={0.05} min={0} max={1}
               value={Number((clip.drawOrderThreshold || 0).toFixed(3))}
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ drawOrderThreshold: Math.min(1, Math.max(0, n)) }); }} />
+              onChange={(v) => patchClip({ drawOrderThreshold: v })} />
           </label>
           <label className="scene-field">
             <span>alpha</span>
-            <input type="number" step={0.05} min={0} max={1}
+            <NumberField step={0.05} min={0} max={1}
               value={Number((clip.alpha == null ? 1 : clip.alpha).toFixed(3))}
               title="Track entry alpha (1 = full strength)"
-              onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) patchClip({ alpha: Math.min(1, Math.max(0, n)) }); }} />
+              onChange={(v) => patchClip({ alpha: v })} />
           </label>
         </>
       )}
@@ -1357,13 +1380,13 @@ function PathProgressEditor({ pathChannel, clipDuration, flowTime, clipStart, de
       </div>
       <label className="scene-field scene-field--inline">
         <span>bake fps</span>
-        <input
-          type="number"
+        <NumberField
           min={1}
           max={120}
           step={1}
+          int
           value={bakeFps}
-          onChange={(e) => onChangeBakeFps(e.target.value)}
+          onChange={(v) => onChangeBakeFps(v)}
           title="Samples per second when baking this path to x/y position keys on export"
         />
       </label>
@@ -1460,11 +1483,9 @@ function ChannelBlock({ name, channel, clipDuration, localT, selectedKey, onSele
                   </>
                 ) : isRgb ? (
                   <td colSpan={3}>
-                    <input
-                      type="color"
+                    <ColorPicker
                       value={tintToHex(k.v)}
-                      onChange={(e) => onPatchKeyAt(name, i, { v: hexToTint(e.target.value) })}
-                      className="scene-channel-color"
+                      onChange={(nextHex) => onPatchKeyAt(name, i, { v: hexToTint(nextHex) })}
                       title={`rgb(${Math.round((k.v?.r ?? 1) * 255)}, ${Math.round((k.v?.g ?? 1) * 255)}, ${Math.round((k.v?.b ?? 1) * 255)})`}
                     />
                   </td>

@@ -10,16 +10,15 @@ export function AssetBrowserPanel({
   items,
   onAddItem,
   hasRoot = false,
+  rootHandle = null,
   onPickRoot,
   onPickFolderFallback, // (File[]) => void — called when user picks a folder via webkitdirectory input
+  onRefreshAssets,
+  canRefreshAssets = false,
+  onClearRoot,
   busy = false,
   pickError = null,
-  onDismissPickError,
-  rootDropSupported = false,
-  rootDropHover = false,
-  onRootDragOver,
-  onRootDragLeave,
-  onRootDrop
+  onDismissPickError
 }) {
   const fallbackInputRef = useRef(null);
   // Build a folder tree from the flat list. Each node: { name, path, children:Map, items:[] }.
@@ -63,6 +62,28 @@ export function AssetBrowserPanel({
         )}
       </div>
 
+      {hasRoot && rootHandle && (
+        <div className="scene-workspace-bar" title={rootHandle.name}>
+          <span className="scene-workspace-bar-name">
+            📁 {rootHandle.name}{rootHandle.writable === false ? ' (read-only)' : ''}
+          </span>
+          {onRefreshAssets && (
+            <button
+              className="scene-btn scene-btn--ghost"
+              onClick={onRefreshAssets}
+              disabled={busy || !canRefreshAssets}
+              title="Re-read the project folder from disk (updated Spine + PNG assets) without reloading the page"
+            >🔄</button>
+          )}
+          <button
+            className="scene-btn scene-btn--ghost"
+            onClick={onClearRoot}
+            disabled={busy}
+            title="Close workspace (returns to the start screen)"
+          >✕</button>
+        </div>
+      )}
+
       {!hasRoot && (
         <div className="scene-workspace-cta">
           <div className="scene-workspace-cta-title">No Workspace Loaded</div>
@@ -101,17 +122,6 @@ export function AssetBrowserPanel({
               <button className="scene-btn scene-btn--ghost" onClick={onDismissPickError}>✕</button>
             </div>
           )}
-        </div>
-      )}
-
-      {rootDropSupported && (
-        <div
-          className={'scene-assets-root-drop' + (rootDropHover ? ' active' : '')}
-          onDragOver={onRootDragOver}
-          onDragLeave={onRootDragLeave}
-          onDrop={onRootDrop}
-        >
-          drop workspace folder here to link root
         </div>
       )}
 

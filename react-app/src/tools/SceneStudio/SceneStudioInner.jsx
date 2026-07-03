@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
 import { useRepoBrowser } from '../../context/RepoBrowserContext.jsx';
 import { fetchTree, commitFile, authBlobUrl, runPool, LS_KEY } from '../../utils/repoBrowser.js';
+import { rootZoom } from '../../utils/domZoom.js';
 import { AssetBrowserPanel } from './components/AssetBrowserPanel.jsx';
 import { HierarchyPanel } from './components/HierarchyPanel.jsx';
 import { InspectorPanel } from './components/InspectorPanel.jsx';
@@ -13,6 +14,7 @@ import { SpinnerWizard } from './components/SpinnerWizard.jsx';
 import { normalizeSpinnerConfig, buildSpinnerFullSpinTimeline } from './engine/spinner/spinnerModel.js';
 import { WinSequenceWizard } from './components/WinSequenceWizard.jsx';
 import { normalizeWinSeqConfig, buildWinSeqTimelines } from './engine/winseq/winseqModel.js';
+import { SceneSetupWizard } from './components/SceneSetupWizard.jsx';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { WorkspaceLockOverlay } from './components/WorkspaceLockOverlay.jsx';
 import { RepoWorkspacePicker } from './components/RepoWorkspacePicker.jsx';
@@ -32,6 +34,7 @@ import {
   uid,
   addTimeline,
   addPrebuiltTimelines,
+  regenerateTimelinesForLayer,
   setActiveTimeline,
   renameTimeline,
   removeTimeline,
@@ -324,6 +327,11 @@ export default function SceneStudioInner() {
   // When set, the win-sequence wizard runs in edit mode against an existing
   // winseq object: { layerId, assetId, config, name, skeleton }
   const [editWinSeqTarget, setEditWinSeqTarget] = useState(null);
+  const [showSceneSetupWizard, setShowSceneSetupWizard] = useState(false);
+  // Edit mode for the Scene Setup wizard: { layerId, config } from a root object.
+  const [editSceneSetupTarget, setEditSceneSetupTarget] = useState(null);
+  const editSceneSetupTargetRef = useRef(null);
+  editSceneSetupTargetRef.current = editSceneSetupTarget;
   // Live wizard preview: while a wizard is open it owns the scene-view render —
   // it pushes a synthetic preview scene + a transport clock here (mirrors the
   // scenario `directPreview` swap). Cleared when the wizard closes.
@@ -352,7 +360,35 @@ export default function SceneStudioInner() {
   const [flowState, setFlowState] = useState(() => createInitialFlowState());
   const [rootDropHover, setRootDropHover] = useState(false);
   const [pickError, setPickError] = useState(null);
-  const [livePreview, setLivePreview] = useState(true);
+  // Layers created by a wizard that still need their timelines auto-generated.
+  // Win-seq generation needs the object's animation durations, which arrive
+  // asynchronously after the Pixi build — so we queue the layer and fire once
+  // the descriptor is ready (spinner needs no durations and fires next tick).
+  const pendingAutoGenRef = useRef(new Set());
+  const [autoGenNonce, setAutoGenNonce] = useState(0);
+  // Live preview is always on now (the toolbar toggle was removed) — Spine
+  // animations and video play continuously in the viewport.
+  const livePreview = true;
+  // Gizmo visibility toggle (viewport overlay): hides the origin pivot cross +
+  // the transform selection box/handles for a clean, uncluttered preview.
+  const [showGizmo, setShowGizmo] = useState(true);
+  // Easy mode (?easy=1 in the URL): a stripped-down surface for onboarding —
+  // hides advanced/rarely-needed controls (direct mode, keyframe-ease picker,
+  // Unity export) without changing any behaviour. Read once; URL is stable.
+  const easyMode = useMemo(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      // Accept ?easy, ?easy=1, ?easy=true — anything but an explicit off value.
+      // NB: Scene Studio must already be the active tool, so the full URL is
+      // e.g. ?tool=scenestudio&easy=1 (not ?easy=1 on its own).
+      return p.has('easy') && !['0', 'false', 'no'].includes((p.get('easy') || '').toLowerCase());
+    } catch { return false; }
+  }, []);
+  // ?debug=1 turns on viewport gizmo diagnostics (routed to the app log).
+  const sceneDebug = useMemo(() => {
+    try { return new URLSearchParams(window.location.search).has('debug'); }
+    catch { return false; }
+  }, []);
   const [overlayMode, setOverlayMode] = useState('above');
   // Default tangent mode stamped onto NEWLY created keyframes (P4). Existing
   // keys keep their own mode. Read through a ref by the imperative auto-key
@@ -373,6 +409,12 @@ export default function SceneStudioInner() {
   const [studioMode, setStudioMode] = useState('setup');
   const studioModeRef = useRef(studioMode);
   studioModeRef.current = studioMode;
+  // While the video-export dialog is open, playback must not advance: the
+  // exporter drives the viewport frame-by-frame at native res, and any
+  // state-driven tick (flow / scenario) would run a competing applyFlowAtTime +
+  // render into the live view — the "flicker fight" (see PLAN_2026-07 B1).
+  const exportDialogOpenRef = useRef(false);
+  exportDialogOpenRef.current = showWebMExport;
 
   // ── Resizable panels (drag-to-resize, persisted) ──────────────────────
   const [leftW, setLeftW] = useState(() => readStoredSize(PANEL_SIZES.left));
@@ -394,7 +436,9 @@ export default function SceneStudioInner() {
     const startPos = axis === 'x' ? e.clientX : e.clientY;
     const onMove = (ev) => {
       const pos = axis === 'x' ? ev.clientX : ev.clientY;
-      set(Math.max(min, Math.min(max, base + sign * (pos - startPos))));
+      // Panel sizes are layout px; the pointer delta is in ui-scale-zoomed px.
+      const z = rootZoom();
+      set(Math.max(min, Math.min(max, base + sign * (pos - startPos) / z)));
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
@@ -787,6 +831,11 @@ export default function SceneStudioInner() {
     const loop = (now) => {
       const dt = Math.max(0, (now - last) / 1000);
       last = now;
+      // Freeze all playback while the export dialog owns the viewport.
+      if (exportDialogOpenRef.current) {
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       if (studioModeRef.current === 'direct') {
         setScenarioPlayhead((prev) => {
           if (!prev.playing) return prev;
@@ -810,6 +859,15 @@ export default function SceneStudioInner() {
       setFlowState((prev) => flowResolveSignal(prev, signal));
     }
   }, [flowState.emitted]);
+
+  // Opening the export dialog pauses any running playback (both the flow/
+  // timeline interpreter and the direct-mode scenario), so the exporter is the
+  // sole driver of the viewport. Pause (not stop) keeps the playhead intact.
+  useEffect(() => {
+    if (!showWebMExport) return;
+    setFlowState((prev) => (prev.playing ? flowPause(prev) : prev));
+    setScenarioPlayhead((prev) => (prev.playing ? { ...prev, playing: false } : prev));
+  }, [showWebMExport]);
 
   // ── Dynamic timeline length ──────────────────────────────────────────
   // Unless the user pinned the length manually (stage.manualDuration), the
@@ -927,6 +985,8 @@ export default function SceneStudioInner() {
       };
     });
     setSelectedLayerId(newLayerId);
+    pendingAutoGenRef.current.add(newLayerId);
+    setAutoGenNonce((n) => n + 1);
     log(`Scene Studio: + spinner "${name}"`, 'ok');
   }, [log]);
 
@@ -1016,6 +1076,8 @@ export default function SceneStudioInner() {
       return { ...prev, assets, layers };
     });
     setSelectedLayerId(newLayerId);
+    pendingAutoGenRef.current.add(newLayerId);
+    setAutoGenNonce((n) => n + 1);
     log(`Scene Studio: + win sequences "${name}"`, 'ok');
   }, [log]);
 
@@ -1051,8 +1113,9 @@ export default function SceneStudioInner() {
     const durations = assetDescriptors[asset.id]?.animationDurations || {};
     const built = buildWinSeqTimelines(layerId, config, durations);
     if (!built.length) { log('No win-sequence flows to generate timelines from', 'warn'); return; }
-    setScene((prev) => addPrebuiltTimelines(prev, built));
-    log(`Scene Studio: generated ${built.length} win-sequence timeline${built.length === 1 ? '' : 's'}`, 'ok');
+    // Regenerate: replace any timelines previously generated for this layer.
+    setScene((prev) => regenerateTimelinesForLayer(prev, layerId, built));
+    log(`Scene Studio: regenerated ${built.length} win-sequence timeline${built.length === 1 ? '' : 's'}`, 'ok');
   }, [assetDescriptors, log, setScene]);
 
   // Generate a single full-spin timeline (start → spin → stop → presentWin).
@@ -1063,9 +1126,37 @@ export default function SceneStudioInner() {
     const asset = cur.assets.find((a) => a.id === layer.assetId);
     if (!asset || asset.type !== 'spinner') return;
     const built = buildSpinnerFullSpinTimeline(layerId, normalizeSpinnerConfig(asset.spinner));
-    setScene((prev) => addPrebuiltTimelines(prev, [built]));
-    log('Scene Studio: generated full-spin timeline', 'ok');
+    // Regenerate: replace any timeline previously generated for this layer.
+    setScene((prev) => regenerateTimelinesForLayer(prev, layerId, [built]));
+    log('Scene Studio: regenerated full-spin timeline', 'ok');
   }, [log, setScene]);
+
+  // Drain the wizard auto-generate queue: for each freshly-created spinner /
+  // win-seq layer, generate its timelines once the inputs are ready. Spinners
+  // fire immediately; win-seq waits for the asset's animation durations to
+  // arrive (empty → step lengths would be wrong).
+  useEffect(() => {
+    if (!pendingAutoGenRef.current.size) return;
+    const cur = sceneRef.current;
+    for (const layerId of [...pendingAutoGenRef.current]) {
+      const layer = cur.layers.find((l) => l.id === layerId);
+      const asset = layer && cur.assets.find((a) => a.id === layer.assetId);
+      if (!layer || !asset) { pendingAutoGenRef.current.delete(layerId); continue; }
+      if (asset.type === 'spinner') {
+        pendingAutoGenRef.current.delete(layerId);
+        handleGenerateSpinnerTimeline(layerId);
+      } else if (asset.type === 'winseq') {
+        const durs = assetDescriptors[asset.id]?.animationDurations;
+        if (durs && Object.keys(durs).length) {
+          pendingAutoGenRef.current.delete(layerId);
+          handleGenerateWinSeqTimelines(layerId);
+        }
+        // else: keep queued; the assetDescriptors update re-runs this effect.
+      } else {
+        pendingAutoGenRef.current.delete(layerId);
+      }
+    }
+  }, [autoGenNonce, assetDescriptors, handleGenerateSpinnerTimeline, handleGenerateWinSeqTimelines]);
 
   // Apply a wizard rebuild onto the existing winseq asset (and rename its layer).
   const handleUpdateWinSeq = useCallback((target, { name, winseqConfig, skeleton }) => {
@@ -1117,12 +1208,164 @@ export default function SceneStudioInner() {
   const handleAddSpinner = useCallback(() => {
     setStudioMode('setup'); studioModeRef.current = 'setup';
     setShowWinSeqWizard(false); setEditWinSeqTarget(null); setEditSpinnerTarget(null);
+    setShowSceneSetupWizard(false);
     setShowSpinnerWizard(true);
   }, []);
   const handleAddWinSeq = useCallback(() => {
     setStudioMode('setup'); studioModeRef.current = 'setup';
     setShowSpinnerWizard(false); setEditSpinnerTarget(null); setEditWinSeqTarget(null);
+    setShowSceneSetupWizard(false);
     setShowWinSeqWizard(true);
+  }, []);
+  const handleAddSceneSetup = useCallback(() => {
+    setStudioMode('setup'); studioModeRef.current = 'setup';
+    setShowSpinnerWizard(false); setEditSpinnerTarget(null);
+    setShowWinSeqWizard(false); setEditWinSeqTarget(null);
+    setEditSceneSetupTarget(null);
+    setShowSceneSetupWizard(true);
+  }, []);
+
+  // Add an empty static placeholder — a solid white square PNG (data URL) so it
+  // reuses the normal png pipeline: transform (scale to any size) + tint (colour)
+  // work out of the box. The user can swap it for a real asset later.
+  const handleAddEmptyStatic = useCallback(() => {
+    if (studioModeRef.current !== 'setup') { setStudioMode('setup'); studioModeRef.current = 'setup'; }
+    let src;
+    try {
+      const c = document.createElement('canvas');
+      c.width = 200; c.height = 200;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 200, 200);
+      src = c.toDataURL('image/png');
+    } catch { return; }
+    const newLayerId = uid('L');
+    setScene((prev) => {
+      const asset = { id: uid('a'), type: 'png', src, meta: { originalName: 'Static' } };
+      const canvasId = prev.activeCanvasId || prev.canvases[0].id;
+      const transforms = defaultTransformsForNewLayer(prev.stage);
+      return {
+        ...prev,
+        assets: [...prev.assets, asset],
+        layers: [...prev.layers, {
+          id: newLayerId, name: 'Static', assetId: asset.id, canvasId, parentId: null,
+          visible: true, blend: 'normal',
+          transforms: { landscape: { ...transforms.landscape }, portrait: null },
+        }],
+      };
+    });
+    setSelectedLayerId(newLayerId);
+    log('Scene Studio: + static square', 'ok');
+  }, [log]);
+
+  // Build a parented scene skeleton from the Scene Setup wizard.
+  //   root (empty, stores the setup config for re-entry)
+  //   └─ background (static ?? bg-anim)
+  //      ├─ background anim (only if a static bg exists)
+  //      ├─ logo
+  //      └─ machine frame (static ?? machine-anim)
+  //         └─ machine frame anim (only if a static frame exists)
+  // Each enabled game mode (Free Spins / Bonus / Pick&Click) gets the same
+  // sub-tree under its own hidden empty group.
+  const handleCreateSceneSetup = useCallback(({ name, modes, setup }) => {
+    const editTarget = editSceneSetupTargetRef.current;
+    setShowSceneSetupWizard(false);
+    setEditSceneSetupTarget(null);
+    if (!modes?.base) return;
+    let rootLayerId = null;
+    setScene((prev) => {
+      // Re-enter: drop the previous root object and its whole subtree first.
+      let baseAssets = prev.assets;
+      let baseLayers = prev.layers;
+      if (editTarget) {
+        const remove = new Set([editTarget.layerId]);
+        for (let changed = true; changed;) {
+          changed = false;
+          for (const l of baseLayers) {
+            if (l.parentId && remove.has(l.parentId) && !remove.has(l.id)) { remove.add(l.id); changed = true; }
+          }
+        }
+        const removedAssets = new Set(baseLayers.filter((l) => remove.has(l.id)).map((l) => l.assetId));
+        baseLayers = baseLayers.filter((l) => !remove.has(l.id));
+        baseAssets = baseAssets.filter((a) => !removedAssets.has(a.id));
+      }
+      const canvasId = prev.activeCanvasId || prev.canvases[0].id;
+      const def = defaultTransformsForNewLayer(prev.stage);
+      const assets = [];
+      const layers = [];
+      // add(spec, name, parentId, visible) → new layerId. spec.empty for a group.
+      const add = (spec, layerName, parentId, visible) => {
+        const assetId = uid('a');
+        if (spec.empty) {
+          assets.push({ id: assetId, type: 'empty', ...(spec.setup ? { sceneSetup: spec.setup } : {}), meta: { originalName: layerName } });
+        } else if (spec.kind === 'spine') {
+          assets.push({ id: assetId, type: 'spine', src: spec.src, atlas: spec.atlas, texture: spec.texture, meta: { originalName: layerName } });
+        } else {
+          assets.push({ id: assetId, type: 'png', src: spec.src, meta: { originalName: layerName } });
+        }
+        const layerId = uid('L');
+        // Root is centred on the stage; children sit at their parent's ORIGIN
+        // (parent-local 0,0), so the whole group stacks centred instead of each
+        // node being offset by half the stage.
+        const landscape = parentId
+          ? { x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0, anchor: [0.5, 0.5], alpha: 1, tint: { r: 1, g: 1, b: 1 } }
+          : { ...def.landscape };
+        layers.push({
+          id: layerId, name: layerName, assetId, canvasId, parentId: parentId || null,
+          visible, blend: 'normal',
+          transforms: { landscape, portrait: null },
+          ...(spec.kind === 'spine' ? { spine: { defaultAnimation: null, loop: true, skin: null } } : {}),
+        });
+        return layerId;
+      };
+      // Build one background→machine sub-tree under `parentId`. Z-order
+      // (bottom→top): background, bg-anim, machine frame, machine anim, LOGO on
+      // top. All children are visible:true — a hidden mode is toggled via its
+      // top parent alone (Pixi hides the whole subtree), so enabling that parent
+      // reveals everything at once.
+      const buildGroup = (roles, parentId) => {
+        if (!roles) return;
+        const bgSpec = roles.background || roles.backgroundAnim;
+        const bgNodeId = bgSpec
+          ? add(bgSpec, bgSpec === roles.background ? 'Background' : 'Background Anim', parentId, true)
+          : parentId;
+        if (roles.background && roles.backgroundAnim) add(roles.backgroundAnim, 'Background Anim', bgNodeId, true);
+        const machineSpec = roles.machineFrame || roles.machineAnim;
+        if (machineSpec) {
+          const machineNodeId = add(machineSpec, machineSpec === roles.machineFrame ? 'Machine Frame' : 'Machine Frame Anim', bgNodeId, true);
+          if (roles.machineFrame && roles.machineAnim) add(roles.machineAnim, 'Machine Frame Anim', machineNodeId, true);
+        }
+        if (roles.logo) add(roles.logo, 'Logo', bgNodeId, true); // logo last → on top
+      };
+
+      rootLayerId = add({ empty: true, setup }, name || 'Scene', null, true);
+      buildGroup(modes.base, rootLayerId);
+      const featureLabels = { freespins: 'Free Spins', bonus: 'Bonus Game', pick: 'Pick & Click' };
+      for (const key of ['freespins', 'bonus', 'pick']) {
+        const roles = modes[key];
+        if (!roles || !Object.values(roles).some(Boolean)) continue;
+        // Only the mode's top parent is hidden; its children stay visible so
+        // toggling the parent reveals the whole mode at once.
+        const groupId = add({ empty: true }, featureLabels[key], rootLayerId, false);
+        buildGroup(roles, groupId);
+      }
+      return { ...prev, assets: [...baseAssets, ...assets], layers: [...baseLayers, ...layers] };
+    });
+    if (rootLayerId) setSelectedLayerId(rootLayerId);
+    log(`Scene Studio: scene setup "${name}"`, 'ok');
+  }, [log]);
+
+  // Re-open the Scene Setup wizard pre-filled from an existing root object.
+  const handleEditSceneSetup = useCallback((layerId) => {
+    const cur = sceneRef.current;
+    const layer = cur.layers.find((l) => l.id === layerId);
+    const asset = layer && cur.assets.find((a) => a.id === layer.assetId);
+    if (!asset || asset.type !== 'empty' || !asset.sceneSetup) return;
+    setStudioMode('setup'); studioModeRef.current = 'setup';
+    setShowSpinnerWizard(false); setEditSpinnerTarget(null);
+    setShowWinSeqWizard(false); setEditWinSeqTarget(null);
+    setEditSceneSetupTarget({ layerId, config: asset.sceneSetup });
+    setShowSceneSetupWizard(true);
   }, []);
 
   // Swap a layer's animated object to an existing scene asset (keeps clips).
@@ -1181,7 +1424,7 @@ export default function SceneStudioInner() {
       setScene((prev) => ({
         ...prev,
         layers: prev.layers.map((l) =>
-          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch) : l
+          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch, prev.stage) : l
         )
       }));
       return;
@@ -1364,7 +1607,7 @@ export default function SceneStudioInner() {
       setScene((prev) => ({
         ...prev,
         layers: prev.layers.map((l) =>
-          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch) : l
+          l.id === layerId ? patchTransform(l, prev.stage.activeOrientation, patch, prev.stage) : l
         )
       }));
       return;
@@ -2327,7 +2570,7 @@ export default function SceneStudioInner() {
   // own transport clock. When no preview scene is pushed yet we render a blank
   // stage so the real scene never flashes underneath.
   const blankPreviewScene = useMemo(() => createEmptyScene('Wizard preview'), []);
-  const wizardActive = showSpinnerWizard || !!editSpinnerTarget || showWinSeqWizard || !!editWinSeqTarget;
+  const wizardActive = showSpinnerWizard || !!editSpinnerTarget || showWinSeqWizard || !!editWinSeqTarget || showSceneSetupWizard;
   useEffect(() => {
     if (!wizardActive) { setWizardPreviewScene(null); setWizardPreviewTime(0); }
   }, [wizardActive]);
@@ -3202,12 +3445,6 @@ export default function SceneStudioInner() {
       <StudioToolbar
         scene={scene}
         onRename={handleRename}
-        rootHandle={rootHandle}
-        onPickRoot={handlePickRoot}
-        onPickFolderFallback={handlePickFolderFallback}
-        onClearRoot={handleClearRoot}
-        onRefreshAssets={handleRefreshAssets}
-        canRefreshAssets={!!rootHandle}
         onSave={handleSave}
         onLoad={handleLoad}
         canCommit={!!rootHandle?.repoMeta?.repo?.canWrite}
@@ -3223,16 +3460,10 @@ export default function SceneStudioInner() {
         onSetOverlayMode={setOverlayMode}
         defaultEase={defaultEase}
         onSetDefaultEase={setDefaultEase}
-        livePreview={livePreview}
-        onToggleLivePreview={() => setLivePreview((v) => !v)}
         studioMode={studioMode}
         onSetStudioMode={handleSetStudioMode}
+        easyMode={easyMode}
         busy={busy}
-        rootDropSupported
-        rootDropHover={rootDropHover}
-        onRootDragOver={handleRootDragOver}
-        onRootDragLeave={handleRootDragLeave}
-        onRootDrop={handleRootDrop}
         onUndo={undo}
         onRedo={redo}
         canUndo={historyDepth.undo > 0}
@@ -3310,37 +3541,19 @@ export default function SceneStudioInner() {
                 onReorder={handleReorder}
                 onRenameScene={handleRename}
               />
-              <div className="scene-panel scene-wizards-panel">
-                <div className="scene-panel-head">🪄 wizards</div>
-                <div className="scene-wizards-panel-body">
-                  <button
-                    className="scene-btn scene-wizard-launch"
-                    onClick={handleAddSpinner}
-                    disabled={busy}
-                    title="Add a Spinner (slot reel machine) object via the setup wizard"
-                  >🎰 Spinner</button>
-                  <button
-                    className="scene-btn scene-wizard-launch"
-                    onClick={handleAddWinSeq}
-                    disabled={busy}
-                    title="Add a Win-Sequence object (chained win-tier animations) via the setup wizard"
-                  >🏆 Win Sequences</button>
-                </div>
-              </div>
               <AssetBrowserPanel
                 items={assetItems}
                 onAddItem={addAssetItemFromBrowser}
                 hasRoot={!!rootHandle}
+                rootHandle={rootHandle}
                 onPickRoot={handlePickRoot}
                 onPickFolderFallback={handlePickFolderFallback}
+                onRefreshAssets={handleRefreshAssets}
+                canRefreshAssets={!!rootHandle}
+                onClearRoot={handleClearRoot}
                 busy={busy}
                 pickError={pickError}
                 onDismissPickError={() => setPickError(null)}
-                rootDropSupported
-                rootDropHover={rootDropHover}
-                onRootDragOver={handleRootDragOver}
-                onRootDragLeave={handleRootDragLeave}
-                onRootDrop={handleRootDrop}
               />
             </>
           )}
@@ -3349,7 +3562,9 @@ export default function SceneStudioInner() {
 
         <div
           ref={centerStackRef}
-          className={'scene-center-stack' + (!wizardActive && studioMode !== 'setup' ? '' : ' scene-center-stack--no-timeline')}
+          className={'scene-center-stack'
+            + ((!wizardActive && studioMode !== 'setup') ? '' : ' scene-center-stack--no-timeline')
+            + ((!wizardActive && studioMode === 'setup') ? ' scene-center-stack--toolkit' : '')}
           style={(!wizardActive && studioMode !== 'setup') ? { gridTemplateRows: `1fr ${timelineH}px` } : undefined}
         >
           {(!wizardActive && studioMode !== 'setup') && (
@@ -3368,6 +3583,14 @@ export default function SceneStudioInner() {
             />
           )}
           <div ref={dropRef} className="scene-viewport-wrap">
+            <button
+              className={'scene-fullscreen-btn scene-gizmo-toggle-btn' + (showGizmo ? '' : ' is-off')}
+              onClick={() => setShowGizmo((v) => !v)}
+              title={showGizmo ? 'Hide gizmo (pivot cross + transform handles)' : 'Show gizmo'}
+              aria-label={showGizmo ? 'Hide gizmo' : 'Show gizmo'}
+            >
+              {showGizmo ? '✥' : '⊘'}
+            </button>
             <button
               className="scene-fullscreen-btn"
               onClick={toggleFullscreen}
@@ -3399,6 +3622,8 @@ export default function SceneStudioInner() {
                 onViewportClick={() => handleFlowAction('clickResume')}
                 onSeekToKey={(t) => handleFlowAction('seek', t)}
                 onPathEdit={handlePathEdit}
+                onDiag={sceneDebug ? ((msg) => { console.log('[SceneStudio]', msg); log(msg, 'info'); }) : null}
+                showGizmo={showGizmo}
               />
             </PixiErrorBoundary>
             {!wizardActive && scene.layers.length === 0 && (
@@ -3409,6 +3634,39 @@ export default function SceneStudioInner() {
               </div>
             )}
           </div>
+
+          {/* Toolkit — creation bar at the BOTTOM (where the timeline sits in
+              animate), setup-only. Taller row with larger wizard buttons. */}
+          {(!wizardActive && studioMode === 'setup') && (
+            <div className="scene-toolkit-bar">
+              <span className="scene-toolkit-bar-label">🧰 toolkit</span>
+              <button
+                className="scene-btn scene-toolkit-launch"
+                onClick={handleAddSceneSetup}
+                disabled={busy}
+                title="Build a scene from base elements (background, machine frame, animation) + optional Free Spins / Bonus / Pick&Click"
+              >🎬 Scene Setup</button>
+              <button
+                className="scene-btn scene-toolkit-launch"
+                onClick={handleAddSpinner}
+                disabled={busy}
+                title="Add a Spinner (slot reel machine) object via the setup wizard"
+              >🎰 Spinner</button>
+              <button
+                className="scene-btn scene-toolkit-launch"
+                onClick={handleAddWinSeq}
+                disabled={busy}
+                title="Add a Win-Sequence object (chained win-tier animations) via the setup wizard"
+              >🏆 Win Sequences</button>
+              <button
+                className="scene-btn scene-toolkit-launch"
+                onClick={handleAddEmptyStatic}
+                disabled={busy}
+                title="Add an empty static object — a plain square you can scale, position and tint (colour)"
+              >◻ Static</button>
+              <span className="scene-toolkit-bar-hint">click / drop assets from the workspace to add statics</span>
+            </div>
+          )}
 
           {!wizardActive && studioMode === 'animate' && (
           <TimelinePanel
@@ -3521,6 +3779,18 @@ export default function SceneStudioInner() {
                 }
               />
             )}
+            {showSceneSetupWizard && (
+              <SceneSetupWizard
+                key={editSceneSetupTarget ? `edit-${editSceneSetupTarget.layerId}` : 'create'}
+                embedded
+                scene={scene}
+                assetItems={assetItems}
+                existingConfig={editSceneSetupTarget?.config || null}
+                onPreviewScene={setWizardPreviewScene}
+                onClose={() => { setShowSceneSetupWizard(false); setEditSceneSetupTarget(null); }}
+                onCreate={handleCreateSceneSetup}
+              />
+            )}
           </div>
         ) : studioMode === 'direct' ? (
           <ScenarioInspectorSections
@@ -3559,6 +3829,7 @@ export default function SceneStudioInner() {
             onPatchAsset={handlePatchAsset}
             onEditSpinner={handleEditSpinner}
             onEditWinSeq={handleEditWinSeq}
+            onEditSceneSetup={handleEditSceneSetup}
             onGenerateWinSeqTimelines={handleGenerateWinSeqTimelines}
             onGenerateSpinnerTimeline={handleGenerateSpinnerTimeline}
             studioMode={studioMode}
@@ -3575,6 +3846,10 @@ export default function SceneStudioInner() {
             busy={busy}
             pickError={pickError}
             onDismissPickError={() => setPickError(null)}
+            rootDropHover={rootDropHover}
+            onRootDragOver={handleRootDragOver}
+            onRootDragLeave={handleRootDragLeave}
+            onRootDrop={handleRootDrop}
           />
         )}
       </div>
@@ -3601,16 +3876,6 @@ export default function SceneStudioInner() {
                 Skip — load on demand
               </button>
             </div>
-          </div>
-        </div>
-      )}
-      {rootDropHover && (
-        <div className="scene-root-drop-overlay">
-          <div className="scene-root-drop-card">
-            <div className="scene-root-drop-title">
-              {rootHandle ? 'Drop project folder to replace root' : 'Drop project folder to link root'}
-            </div>
-            <div className="scene-root-drop-sub">Drop on toolbar slot or Assets panel</div>
           </div>
         </div>
       )}

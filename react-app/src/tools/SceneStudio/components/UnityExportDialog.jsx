@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_UNITY_SETTINGS, exportUnityPackage } from '../unity/exportUnityPackage.js';
+import { NumberField } from '../../../components/NumberField.jsx';
 
 const LS_KEY = 'ygg-toolkit:scene-unity-export:v1';
 
@@ -136,8 +137,8 @@ export function UnityExportDialog({ scene, rootHandle, sceneBasePath, onClose, l
 
         {!ui && (
           <Row label="Pixels per unit">
-            <input className="scene-toolbar-name" style={{ width: 90 }} type="number" min="1"
-              value={settings.pixelsPerUnit} onChange={(e) => set('pixelsPerUnit')(Number(e.target.value) || 100)} />
+            <NumberField className="scene-toolbar-name" style={{ width: 90 }} min={1} fallback={100}
+              value={settings.pixelsPerUnit} onChange={(v) => set('pixelsPerUnit')(v)} />
           </Row>
         )}
 

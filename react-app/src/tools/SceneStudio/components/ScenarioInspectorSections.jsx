@@ -16,6 +16,7 @@ import {
   TRANSITION_MODES,
   TRANSITION_CHANNELS
 } from '../engine/scenarioModel.js';
+import { NumberField } from '../../../components/NumberField.jsx';
 
 const fmt = (s) => `${Math.round((s || 0) * 100) / 100}s`;
 
@@ -135,18 +136,18 @@ function NodeSection({ node, project, onSetNodeLabel, onSetNodeEntry, onAddOutpu
       <div className="ss-insp-subhead">Entry options</div>
       <label className="ss-insp-field">
         <span>Speed ×</span>
-        <input
-          type="number" step="0.1" min="0.1" className="ss-insp-input ss-insp-input--num"
+        <NumberField
+          step={0.1} min={0.1} className="ss-insp-input ss-insp-input--num"
           value={entry.speed}
-          onChange={(e) => onSetNodeEntry?.(node.id, { speed: Number(e.target.value) })}
+          onChange={(v) => onSetNodeEntry?.(node.id, { speed: v })}
         />
       </label>
       <label className="ss-insp-field">
         <span>Start offset (s)</span>
-        <input
-          type="number" step="0.1" min="0" className="ss-insp-input ss-insp-input--num"
+        <NumberField
+          step={0.1} min={0} className="ss-insp-input ss-insp-input--num"
           value={entry.startOffset}
-          onChange={(e) => onSetNodeEntry?.(node.id, { startOffset: Number(e.target.value) })}
+          onChange={(v) => onSetNodeEntry?.(node.id, { startOffset: v })}
         />
       </label>
       <label className="ss-insp-check">
@@ -202,10 +203,10 @@ function EdgeSection({ scenario, edge, onSetEdgeTransition, onDeleteEdge }) {
         <>
           <label className="ss-insp-field">
             <span>Mix duration (s)</span>
-            <input
-              type="number" step="0.05" min="0" className="ss-insp-input ss-insp-input--num"
+            <NumberField
+              step={0.05} min={0} className="ss-insp-input ss-insp-input--num"
               value={t.mixDuration}
-              onChange={(e) => onSetEdgeTransition?.(edge.id, { mixDuration: Number(e.target.value) })}
+              onChange={(v) => onSetEdgeTransition?.(edge.id, { mixDuration: v })}
             />
           </label>
           <div className="ss-insp-subhead">Blend channels</div>

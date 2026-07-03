@@ -234,6 +234,11 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   background: rgba(8, 10, 14, 0.6);
   backdrop-filter: blur(2px);
 }
+.scene-workspace-lock--drop {
+  background: rgba(79, 158, 255, 0.14);
+  outline: 2px dashed var(--accent, #4f9eff);
+  outline-offset: -10px;
+}
 .scene-workspace-lock-panel {
   display: flex;
   flex-direction: column;
@@ -291,12 +296,11 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 
 .scene-left-stack {
   display: grid;
-  /* Hierarchy on top (1fr), wizards (auto — sized to its buttons), Assets/
-     folders below (capped to ~45% so its scroll stays usable). minmax with a
-     hard `1fr` floor on the top row prevents the asset tree from pushing the
-     viewport taller — the asset row maxes at 45% of stack height and its
-     `overflow-y:auto` scrolls anything beyond that. */
-  grid-template-rows: 1fr auto minmax(120px, 45%);
+  /* Two rows now the Toolkit moved out to the horizontal bar: Hierarchy on top
+     (1fr — gets the majority) and the Workspace/asset tree below, capped to 40%
+     of the stack height (< 50% as required) with its own `overflow-y:auto` so a
+     long folder list scrolls inside that cap instead of eating the hierarchy. */
+  grid-template-rows: 1fr minmax(120px, 40%);
   min-height: 0;
   border-right: 1px solid var(--border, #2e3340);
 }
@@ -321,6 +325,12 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   font-size: 12px;
   padding: 7px 10px;
 }
+.scene-toolkit-hint {
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-2, #6a7288);
+  padding: 2px 2px 0;
+}
 
 .scene-center-stack {
   display: grid;
@@ -332,6 +342,42 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 /* Setup mode hides the timeline — let the viewport fill the whole column. */
 .scene-center-stack--no-timeline {
   grid-template-rows: 1fr;
+}
+/* Setup mode with the horizontal toolkit bar BELOW the viewport (where the
+   timeline sits in animate). Viewport fills, toolkit is an auto-height row. */
+.scene-center-stack--toolkit {
+  grid-template-rows: 1fr auto;
+}
+
+/* Horizontal Toolkit bar — below the scene view, setup-only. Taller row with
+   larger wizard buttons. */
+.scene-toolkit-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px;
+  background: var(--bg-1, #13151a);
+  border-top: 1px solid var(--border, #2e3340);
+  flex-wrap: wrap;
+}
+.scene-toolkit-bar-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2, #6a7288);
+  margin-right: 2px;
+}
+.scene-toolkit-launch {
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 22px;
+}
+.scene-toolkit-bar-hint {
+  font-size: 11px;
+  color: var(--text-2, #6a7288);
+  margin-left: auto;
+  max-width: 220px;
+  text-align: right;
 }
 
 /* ── Panels ──────────────────────────────────────────────────────────── */
@@ -361,6 +407,26 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   justify-content: space-between;
   gap: 6px;
 }
+/* Linked-workspace bar in the left Assets panel (folder name + reload + close).
+   Moved here from the top toolbar. */
+.scene-workspace-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border, #2e3340);
+  background: var(--bg-2, #171b22);
+}
+.scene-workspace-bar-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-1, #a8afc0);
+}
+.scene-workspace-bar .scene-btn { padding: 2px 7px; }
 .scene-asset-count {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10px;
@@ -1005,6 +1071,13 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   opacity: 1;
   background: rgba(30, 34, 42, 0.92);
 }
+/* Gizmo toggle sits just left of the fullscreen button. */
+.scene-gizmo-toggle-btn { right: 46px; }
+.scene-gizmo-toggle-btn.is-off {
+  opacity: 1;
+  color: var(--accent, #4f9eff);
+  border-color: var(--accent, #4f9eff);
+}
 
 .scene-viewport-empty {
   position: absolute;
@@ -1095,7 +1168,7 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
    (transport), right (keyframe tools + length + fps). */
 .scene-timeline-left { flex: 0 0 auto; }
 .scene-timeline-center { flex: 0 0 auto; justify-content: center; }
-.scene-timeline-right { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; }
+.scene-timeline-right { flex: 1 1 auto; flex-wrap: nowrap; justify-content: flex-end; min-width: 0; }
 .scene-timeline-length {
   display: flex;
   align-items: center;
@@ -2706,6 +2779,26 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 .spinner-wizard-body {
   flex: 1;
   overflow-y: auto;
+}
+
+/* Scene Setup wizard — sections stack with padded fields (no per-field
+   .spinner-wizard-section wrapper). */
+.scene-setup-wizard .spinner-wizard-body > .scene-field,
+.scene-setup-wizard .spinner-wizard-body > .scene-spinner-meta {
+  padding: 10px 16px 0;
+}
+.scene-setup-section {
+  padding: 10px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border, #2e3340);
+}
+.scene-setup-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
 .spinner-wizard-section {

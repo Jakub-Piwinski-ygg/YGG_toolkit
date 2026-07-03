@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { pickWebmMime, pickVideoMime } from '../engine/webmExport.js';
+import { ColorPicker } from '../../../components/ColorPicker.jsx';
 
 const LS_KEY = 'ygg-toolkit:scene-webm-export:v2';
 
@@ -219,7 +220,7 @@ export function WebMExportDialog({ scene, viewportRef, sources, makeFrameProvide
         </Row>
 
         <Row label="Background" title="Output is opaque — choose the fill behind transparent areas">
-          <input type="color" value={bg} onChange={(e) => setBg(e.target.value)} disabled={busy} style={{ width: 48, height: 28, padding: 0, border: 'none', background: 'none' }} />
+          <ColorPicker value={bg} onChange={setBg} disabled={busy} title="Background fill" />
         </Row>
 
         <div style={{ fontSize: 11, color: 'var(--muted, #8a93a3)', margin: '10px 0' }}>

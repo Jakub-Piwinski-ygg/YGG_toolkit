@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { NumberField } from '../components/NumberField.jsx';
+import { ColorPicker } from '../components/ColorPicker.jsx';
 
 export const fontPreviewMeta = {
   id: 'fontpreview',
@@ -155,35 +157,31 @@ export function FontPreviewTool() {
       <div className="fp-controls-row">
         <div className="field">
           <label>Letter Size (px)</label>
-          <input type="number" min="1" max="2048" value={size} onChange={(e) => setSize(+e.target.value || 1)} />
+          <NumberField live min={1} max={2048} value={size} fallback={1} onChange={(v) => setSize(v)} />
         </div>
         <div className="field">
           <label>Character Offset</label>
-          <input type="number" step="0.5" value={offset} onChange={(e) => setOffset(+e.target.value || 0)} />
+          <NumberField live step={0.5} value={offset} onChange={(v) => setOffset(v)} />
         </div>
         <div className="field">
           <label>Canvas Width (px)</label>
-          <input type="number" min="64" max="4096" value={canvasW} onChange={(e) => setCanvasW(+e.target.value || 64)} />
+          <NumberField min={64} max={4096} value={canvasW} fallback={64} onChange={(v) => setCanvasW(v)} />
         </div>
       </div>
 
       <div className="fp-gradient-row">
         <div className="fp-color-field">
           <label>Background — Top</label>
-          <div className="fp-color-swatch" style={{ position: 'relative' }}>
-            <div className="fp-color-dot" style={{ background: bgTop }} />
+          <div className="fp-color-swatch">
+            <ColorPicker value={bgTop} onChange={setBgTop} title="Background — Top" />
             <span className="fp-color-val">{bgTop}</span>
-            <input type="color" value={bgTop} onChange={(e) => setBgTop(e.target.value)}
-              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
           </div>
         </div>
         <div className="fp-color-field">
           <label>Background — Bottom</label>
-          <div className="fp-color-swatch" style={{ position: 'relative' }}>
-            <div className="fp-color-dot" style={{ background: bgBot }} />
+          <div className="fp-color-swatch">
+            <ColorPicker value={bgBot} onChange={setBgBot} title="Background — Bottom" />
             <span className="fp-color-val">{bgBot}</span>
-            <input type="color" value={bgBot} onChange={(e) => setBgBot(e.target.value)}
-              style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', width: '100%', height: '100%' }} />
           </div>
         </div>
       </div>
@@ -193,8 +191,8 @@ export function FontPreviewTool() {
           <span>Letter sequence</span>
           <div className="fp-length-row">
             <label>Length</label>
-            <input type="number" min="1" max="32" value={length}
-              onChange={(e) => setLength(Math.max(1, Math.min(32, +e.target.value || 1)))} />
+            <NumberField live min={1} max={32} value={length} fallback={1}
+              onChange={(v) => setLength(v)} />
           </div>
         </div>
         <div className="fp-letter-list">

@@ -2,6 +2,7 @@ import { AppProvider } from './context/AppContext.jsx';
 import { RepoBrowserProvider } from './context/RepoBrowserContext.jsx';
 import { UnityExportProvider } from './context/UnityExportContext.jsx';
 import { useMagick } from './hooks/useMagick.js';
+import { useUiScale } from './hooks/useUiScale.js';
 import { Header } from './components/Header.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ToolPanel } from './components/ToolPanel.jsx';
@@ -41,6 +42,7 @@ function MainArea() {
 
 function Shell() {
   useMagick();
+  useUiScale();
   const { currentCategory } = useApp();
   const showSidebar = SIDEBAR_CATEGORIES.has(currentCategory);
   return (

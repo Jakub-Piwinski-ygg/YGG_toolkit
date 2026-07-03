@@ -24,8 +24,8 @@ import {
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 8;
 const ZOOM_STEP = 1.1;
-const HANDLE_HIT_PX = 12; // screen-pixel radius for handle hit-test
-const ROTATE_HIT_PX = 22; // screen-pixel ring just outside a corner = rotate zone
+const HANDLE_HIT_PX = 15; // screen-pixel radius for handle hit-test
+const ROTATE_HIT_PX = 30; // screen-pixel ring just outside a corner = rotate zone
 const SNAP_PX = 7;
 const ROTATE_SNAP = Math.PI / 12; // 15° increments when Shift is held
 
@@ -70,8 +70,21 @@ export function attachViewportController(opts) {
     getMotionKeyDots,
     onSeekToKey,
     getPathHandles,
-    onPathEdit
+    onPathEdit,
+    onInteractingChange,
+    onDiag,
+    getGizmoEnabled
   } = opts;
+
+  // When the gizmo is hidden, its handles/rotate ring aren't drawn — so they
+  // must not be grabbable either (no invisible hit zones). Select + body-drag
+  // stay available.
+  const gizmoOn = () => (getGizmoEnabled ? getGizmoEnabled() !== false : true);
+
+  // Notify React when a direct manipulation (drag / resize / rotate / path
+  // edit) starts or ends, so playback's per-frame syncTransforms can stand
+  // down and stop stomping the in-progress gesture (see PLAN_2026-07 B3).
+  const setInteracting = (v) => { try { onInteractingChange?.(v); } catch { /* ignore */ } };
 
   let panning = false;
   let panStart = { x: 0, y: 0 };
@@ -115,6 +128,7 @@ export function attachViewportController(opts) {
   const worldDistPerScreenPx = () => 1 / viewport.scale.x;
 
   const hitTestHandle = (world) => {
+    if (!gizmoOn()) return null;
     const id = getSelectedLayerId();
     if (!id) return null;
     const obj = getHandles().get(id);
@@ -128,6 +142,19 @@ export function attachViewportController(opts) {
     return null;
   };
 
+  // Effective visibility: an object hidden by an ANCESTOR (e.g. a disabled
+  // Scene-Setup mode group) still has its own `.visible === true`, so we must
+  // walk up to the content root. Prevents selecting invisible / proxy-hidden
+  // objects by clicking where they'd be.
+  const isEffectivelyVisible = (obj) => {
+    let cur = obj;
+    while (cur && cur !== content) {
+      if (!cur.visible) return false;
+      cur = cur.parent;
+    }
+    return true;
+  };
+
   const hitTestSprite = (world) => {
     const handles = getHandles();
     const entries = Array.from(handles.entries());
@@ -135,7 +162,7 @@ export function attachViewportController(opts) {
     // is preferred when overlapping.
     for (let i = entries.length - 1; i >= 0; i--) {
       const [id, obj] = entries[i];
-      if (!obj.visible) continue;
+      if (!isEffectivelyVisible(obj)) continue;
       const hp = getHandlePositions(obj, content);
       if (!hp) continue;
       const { left, top, right, bottom } = hp.bounds;
@@ -149,6 +176,7 @@ export function attachViewportController(opts) {
   // Rotate zone: a ring just outside a corner, where the pointer is NOT inside
   // the object body and NOT on a resize handle. Returns the corner name or null.
   const hitTestRotate = (world) => {
+    if (!gizmoOn()) return null;
     const id = getSelectedLayerId();
     if (!id) return null;
     const obj = getHandles().get(id);
@@ -306,6 +334,27 @@ export function attachViewportController(opts) {
 
     const world = screenToWorld(e.clientX, e.clientY);
 
+    // ?debug=1 diagnostics: report exactly what a click resolves to so the
+    // "can move but not scale/rotate" case becomes nameable — selection id,
+    // Pixi zoom, whether the handle / rotate / sprite tests matched, and the
+    // nearest handle distance vs the hit threshold (all in world units).
+    if (onDiag) {
+      const selId = getSelectedLayerId();
+      const selObj = selId ? getHandles().get(selId) : null;
+      const hp = selObj ? getHandlePositions(selObj, content) : null;
+      let nearest = 'no-handles';
+      if (hp) {
+        let bd = Infinity, bn = '';
+        for (const n of HANDLE_NAMES) {
+          const p = hp[n];
+          const d = Math.hypot(world.x - p.x, world.y - p.y);
+          if (d < bd) { bd = d; bn = n; }
+        }
+        nearest = `${bn}@${bd.toFixed(1)} r=${(HANDLE_HIT_PX * worldDistPerScreenPx()).toFixed(1)}`;
+      }
+      onDiag(`gizmo: sel=${selId || '—'} zoom=${viewport.scale.x.toFixed(2)} handle=${!!hitTestHandle(world)} rotate=${!!hitTestRotate(world)} sprite=${hitTestSprite(world) || '—'} nearest=${nearest}`);
+    }
+
     // First check for a handle of the currently selected sprite
     const handleName = hitTestHandle(world);
     if (handleName) {
@@ -334,6 +383,7 @@ export function attachViewportController(opts) {
         startScaleY: obj.scale.y
       };
       canvas.style.cursor = HANDLE_CURSORS[handleName];
+      setInteracting(true);
       startRaf();
       return;
     }
@@ -345,17 +395,18 @@ export function attachViewportController(opts) {
       const obj = getHandles().get(id);
       const m = getObjectMetrics(obj);
       if (!obj || !m) return;
-      const left0 = -m.baseW * m.ax;
-      const top0 = -m.baseH * m.ay;
-      const cx = left0 + m.baseW / 2;
-      const cy = top0 + m.baseH / 2;
-      rotateCenterLocal = { x: cx, y: cy };
-      rotatePivot = localToContent(obj, cx, cy, content);
+      // Rotate around the object's ORIGIN (local 0,0 = the anchor / displayed
+      // pivot cross), not the bbox geometric centre. For anchor-0.5 sprites they
+      // coincide, but Spine / win-sequence bounds aren't centred on the origin,
+      // so the bbox centre drifted away from the shown pivot.
+      rotateCenterLocal = { x: 0, y: 0 };
+      rotatePivot = localToContent(obj, 0, 0, content);
       rotateStartAngle = Math.atan2(world.y - rotatePivot.y, world.x - rotatePivot.x);
       rotateStartRotation = obj.rotation || 0;
       rotating = true;
       rotateLayerId = id;
       canvas.style.cursor = ROTATE_CURSOR;
+      setInteracting(true);
       startRaf();
       return;
     }
@@ -375,6 +426,7 @@ export function attachViewportController(opts) {
         pathDragging = true;
         pathDrag = { kind: best.kind, index: best.index };
         canvas.style.cursor = 'grabbing';
+        setInteracting(true);
         startRaf();
         return;
       }
@@ -398,7 +450,7 @@ export function attachViewportController(opts) {
     const selectedId = getSelectedLayerId();
     const selectedObj = selectedId ? getHandles().get(selectedId) : null;
     let hit;
-    if (selectedObj && selectedObj.visible && pointInsideObject(selectedObj, world.x, world.y, content)) {
+    if (selectedObj && isEffectivelyVisible(selectedObj) && pointInsideObject(selectedObj, world.x, world.y, content)) {
       hit = selectedId;
     } else {
       hit = hitTestSprite(world);
@@ -414,6 +466,7 @@ export function attachViewportController(opts) {
       dragOffset = { x: (obj?.x ?? 0) - p.x, y: (obj?.y ?? 0) - p.y };
       dragStart = { x: obj?.x ?? 0, y: obj?.y ?? 0 };
       canvas.style.cursor = 'move';
+      setInteracting(true);
       startRaf();
     }
   };
@@ -509,6 +562,7 @@ export function attachViewportController(opts) {
       pathDragging = false;
       pathDrag = null;
       canvas.style.cursor = '';
+      setInteracting(false);
       stopRaf();
     }
     if (rotating && e.button === 0) {
@@ -522,6 +576,7 @@ export function attachViewportController(opts) {
       rotateCenterLocal = null;
       setInteractionGuides?.([]);
       canvas.style.cursor = '';
+      setInteracting(false);
       stopRaf();
     }
     if (resizing && e.button === 0) {
@@ -540,6 +595,7 @@ export function attachViewportController(opts) {
       resizeStart = null;
       setInteractionGuides?.([]);
       canvas.style.cursor = '';
+      setInteracting(false);
       stopRaf();
     }
     if (dragging && e.button === 0) {
@@ -551,6 +607,7 @@ export function attachViewportController(opts) {
       dragSnapTargets = null;
       setInteractionGuides?.([]);
       canvas.style.cursor = '';
+      setInteracting(false);
       stopRaf();
     }
   };

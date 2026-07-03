@@ -127,7 +127,7 @@ in the Unity delivery layout + a reusable config JSON.
 | Tool | Good (top 3) | Bad / wanted (top 3) |
 |---|---|---|
 | **Converter** (339 L) | video frame extraction (time/index/range); quality+lossless controls; good progress labels | no frame scrubber/preview; seek reliability epsilon-fragile; output labeling unclear for multi-frame |
-| **Atlas Packer** (183 L) | grid+tile modes; pre-scale w/ filters; size caps + logging | **no JSON metadata output for engines** (top wanted); no bin-packing; silently clips overflow sprites |
+| **Atlas Packer** | grid+tile+**winfont** modes; pre-scale w/ filters; size caps + logging; winfont auto-maps individually-delivered char sprites to the Scene Studio win-number layout (8×256px cells) w/ manual override + row-trim | **no JSON metadata output for engines** (top wanted); no bin-packing; silently clips overflow sprites (grid/tile) |
 | **Outline** (196 L) | true morphological outline (outside/center/inside); 3 kernels; canvas-expand; **batch** | 6+ sequential Magick calls (slow); own morphology mask chain; no preview |
 | **Gradient Map** (290 L) | 8 presets; cubic interpolation; 4 luma formulas; drag-stop editor; **batch** | no custom-preset import/export; overlapping-stop edge cases; gestures undocumented |
 | **Blur** (141 L) | bidirectional; edge feather; angle slider; **batch**; shared `makeFeatherMask()` | **white edge halo on straight-alpha PNGs** (transparent RGB bleeds through `-motion-blur`; needs premultiply-around-blur fix — see Known bugs); 5 sequential Magick calls; no direction preview |
@@ -196,6 +196,13 @@ no LRU/TTL eviction.
 ---
 
 ## PRIORITY RANKING (Jira-style)
+
+> [!important] New batch 2026-07-02 → **`PLAN_2026-07.md`** (repo root)
+> A fresh user backlog (3 bugs, 10 small/medium, 2 large — mostly Scene Studio)
+> was mapped to code and staged there. Headline bugs: video export fights the
+> flow/scenario RAF loop; number inputs clamp mid-typing (app-wide);
+> `layer.blend` is stored+editable but never applied to Pixi. That plan
+> supersedes the ranking below as the active work queue.
 
 ### P0 — ✅ CLEARED (all shipped as of 2026-06-14)
 1. ~~**Scene Studio Phase 4 web export**~~ — **DONE**. WebM **SHIPPED 2026-06-14** (deterministic, native-res, opaque; `engine/webmExport.js`). **Hero-frame PNG + PNG sequence — DROPPED 2026-06-14 (not wanted; WebM + Unity package cover the need).** The **Unity `.unitypackage` export works** (shipped + import-verified; per-timeline path test-covered). ~~Pixi v8 crash~~ — **FIXED 2026-06-14** (`pixiApp.js` `Assets.load()`; error boundary kept as failsafe). ~~Phase 4.2 Unity package export~~ — **SHIPPED 2026-06-04..12** (`SceneStudio/unity/`: `.unitypackage` with `.meta` files, Unity Timeline translation, SkeletonGraphic prefab, generated C# player + `YggSpinner.cs`). ~~**Spinner Unity phase 2**~~ — **SHIPPED + import-verified 2026-06-13**: baked reel hierarchy, `YggSpinnerTrack` control track that scrubs in edit mode, Spine clip parity round 1, opt-in Timeline auto-build, web overlay wiring. ~~**Spinner Unity phase 3**~~ — **SHIPPED 2026-06-13**: removed procedural scale-punch; symbol land/win **Spine** overlay pipeline; per-symbol timing offset; spinner clip "set duration" buttons; Spine clip parity round 2; atlas/texture self-heal (`repairSceneSpineAssets`); mix bug fixed (version-robust `ApplySpineClipTemplate` + forced clip ease); inspector regrouped to Unity layout. ~~**Spinner Unity phase 4**~~ — **SHIPPED 2026-06-14**: land/win Spine overlays BAKED into prefab `Fx` (autowired + bound, not runtime-spawned); single shared-atlas export (one draw call); static/blur hidden behind playing overlay. ~~**Spinner Unity phase 5**~~ — **SHIPPED 2026-06-14** (verified against code; 58 SceneStudio tests green incl. explicit §A/§B/§C cases): **(A)** `presentWin` clip after stopSpin w/ per-reel win delay — `SPINNER_ACTIONS`/`spinnerModel.js`, evaluator override `spinnerEval.js:278`, inspector UI `SpinnerInspectorSections.jsx:237`, bake + C# mirror; **(B)** native 1:1 symbols + single machine mask (per-reel masks removed, no FitScale, Fx outside mask) — `spinnerRuntime.js:79-110`, `csharp.js:1561-1885`; **(C)** runtime `SetResultBoard`/`Spin()`/`Spin(board)` injection API — `csharp.js:1425-1438`. **Sole remaining caveat: a live Unity-import sanity check** (baked `Anim_*` overlays playing/positioning on land/win; web overlays after atlas self-heal) — code + tests complete, never confirmed in-engine.

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { freshBytes, getImageDimensions } from '../utils/image.js';
 import { makeBatchRun } from '../utils/batch.js';
+import { ColorPicker } from '../components/ColorPicker.jsx';
 
 export const outlineMeta = {
   id: 'outline',
@@ -150,9 +151,8 @@ export function OutlineTool() {
         <div className="field">
           <label>Outline colour</label>
           <div className="color-swatch">
-            <div className="color-dot" style={{ background: color }} />
+            <ColorPicker value={color} onChange={setColor} title="Outline colour" />
             <span className="color-hex">{color}</span>
-            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
           </div>
         </div>
       </div>

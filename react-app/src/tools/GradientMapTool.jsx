@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { canvasToBlob } from '../utils/image.js';
 import { makeBatchRun } from '../utils/batch.js';
+import { ColorPicker } from '../components/ColorPicker.jsx';
 
 export const gradientMapMeta = {
   id: 'gradientmap',
@@ -73,7 +74,6 @@ export function GradientMapTool() {
 
   const barRef = useRef(null);
   const canvasRef = useRef(null);
-  const colorPickerRef = useRef(null);
 
   const settingsRef = useRef({ stops, lumMode, alphaMode });
   settingsRef.current = { stops, lumMode, alphaMode };
@@ -238,21 +238,13 @@ export function GradientMapTool() {
       </div>
 
       <div className="gm-controls">
-        <div className="gm-color-edit" onClick={() => colorPickerRef.current?.click()}>
-          <div className="gm-color-dot-lg" style={{ background: active?.color || '#000' }} />
+        <div className="gm-color-edit">
+          <ColorPicker value={active?.color || '#000000'} onChange={changeColor} title="Stop colour" />
           <span className="gm-color-hex">{active?.color || '#000000'}</span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#444', marginLeft: '.15rem' }}>
             {active ? `${(active.pos * 100).toFixed(0)}%` : '0%'}
           </span>
         </div>
-        <input
-          ref={colorPickerRef}
-          type="color"
-          value={active?.color || '#000000'}
-          style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }}
-          onInput={(e) => changeColor(e.target.value)}
-          onChange={(e) => changeColor(e.target.value)}
-        />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '.58rem', color: '#555' }}>{stops.length} stops</span>
         <button
           className="btn"

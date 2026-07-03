@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import { useApp } from '../context/AppContext.jsx';
 import { triggerDownload } from '../utils/download.js';
+import { NumberField } from '../components/NumberField.jsx';
 
 export const assetLibraryMeta = {
   id: 'assetlibrary',
@@ -620,15 +621,15 @@ function Lightbox({ asset, license, onClose, seqPreviewFps, onSeqPreviewFpsChang
               <div className="al-speed-wrap">
                 <label className="al-speed-label" htmlFor={speedInputId}>Preview speed</label>
                 <div className="al-speed-row">
-                  <input
+                  <NumberField
                     id={speedInputId}
                     className="al-speed-input"
-                    type="number"
                     min={MIN_SEQ_FPS}
                     max={MAX_SEQ_FPS}
-                    step="0.1"
+                    step={0.1}
                     value={previewFps}
-                    onChange={(e) => onSeqPreviewFpsChange(e.target.value)}
+                    fallback={MIN_SEQ_FPS}
+                    onChange={(v) => onSeqPreviewFpsChange(v)}
                   />
                   <span className="al-speed-unit">fps</span>
                 </div>
@@ -916,28 +917,29 @@ export function AssetLibraryTool() {
         {hasSequence && (
           <div className="al-seq-speed">
             <span className="al-seq-speed-label">Preview speed</span>
-            <input
+            <NumberField
               className="al-seq-speed-input"
-              type="number"
               min={MIN_SEQ_FPS}
               max={MAX_SEQ_FPS}
-              step="0.1"
+              step={0.1}
               value={seqPreviewFps}
-              onChange={(e) => setSeqPreviewFps(clampSeqFps(Number(e.target.value)))}
+              fallback={MIN_SEQ_FPS}
+              onChange={(v) => setSeqPreviewFps(v)}
             />
             <span className="al-seq-speed-unit">fps</span>
           </div>
         )}
         <div className="al-seq-speed">
           <span className="al-seq-speed-label">Columns</span>
-          <input
+          <NumberField
+            int
             className="al-seq-speed-input"
-            type="number"
             min={MIN_COLS}
             max={MAX_COLS}
-            step="1"
+            step={1}
             value={gridCols}
-            onChange={(e) => setGridCols(clampCols(Number(e.target.value)))}
+            fallback={MIN_COLS}
+            onChange={(v) => setGridCols(v)}
           />
         </div>
         <button className="btn" type="button" onClick={loadAll} title="Reload manifest">↻</button>
