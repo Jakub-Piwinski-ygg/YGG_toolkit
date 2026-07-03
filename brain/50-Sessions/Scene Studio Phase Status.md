@@ -3,7 +3,7 @@ type: session
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-07-03
+updated: 2026-07-04
 lang: en
 source: react-app/SCENE_STUDIO_PHASE_STATUS.md
 tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, tracks]
@@ -14,6 +14,99 @@ tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, t
 > [!info] Translated from Polish
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
+
+## Direct QoL round 2 (2026-07-04) — plan in `react-app/SCENE_STUDIO_QOL_PLAN.md`
+
+A fresh re-verification pass found several regressions/gaps had survived the
+2026-07-03 session; a new plan (T1–T12) codified the fixes, executed in the
+plan's own priority order. 10 of 12 themes shipped as bug fixes with tests;
+T7/T8's remaining pieces are UX/feature design work, deliberately deferred
+to a session with browser-based visual iteration (confirmed with the user
+after two rounds of scoping questions — see below).
+
+- **T2 — crossfade channel isolation**: unmasked transform channels now hold
+  the outgoing (A) pose for the whole crossfade window instead of snapping
+  to the incoming (B) pose at f=0 — this is what made an alpha-only
+  crossfade move objects. Also fixed `baseTransform` duplicating orientation
+  logic instead of routing through `orientationManager.resolveTransform`,
+  which caused a portrait-mode pose mismatch between the blend and the live
+  editor.
+- **T1 — hold-by-default for new edges**: `connect()` now stamps an explicit
+  `hold` transition on freshly-created scenario edges instead of `null`
+  (which read as `cut`) — the pose-carry machinery built in the prior
+  session never engaged on a brand-new edge until the artist manually
+  flipped its mode. Legacy edges with no transition payload still cut, by
+  design (`transitionDefaults()` unchanged).
+- **T4 — scrub determinism + scoped visibility**: Spine objects run with
+  `autoUpdate=false`; a truly-idle default animation (no clip ever targets
+  its track) only ever advanced through the live-preview ticker during real
+  playback, so pausing/scrubbing froze it non-deterministically. New phase
+  in `applySpineMultiTrack` drives it explicitly, looped from t=0. Separately
+  — after two rounds of scoping with the user, since a literal blanket rule
+  would hide every un-keyframed static PNG/spine layer — spinner and
+  win-sequence objects with zero clips ever authored now gate to alpha 0
+  outside setup mode (mode-group visibility deliberately left to T6).
+- **T6 — mode-group alpha propagation**: the real bug wasn't Pixi's
+  container-alpha cascade (already correct) but a missing dispatch branch —
+  `applyFlowAtTime` never ran clip-channel application for `asset.type ===
+  'empty'` layers (the Scene Setup root + Free Spins/Bonus/Pick&Click
+  groups), so the generated "\<Mode\> Idle" timelines' alpha keys never
+  actually took effect outside the one-off editor sync.
+- **T5 — eye visibility model**: the hierarchy checkbox is now an open/
+  closed eye; composes as `effectiveAlpha = min(inspectorAlpha, eyeAlpha)`
+  instead of a hard `visible=false` (which used to freeze a hidden object's
+  animation entirely — a real bug, not just semantics). Per the user's
+  decision, a closed eye now serializes into Unity export as alpha=0 on the
+  SpriteRenderer/CanvasGroup, not `GameObject.SetActive(false)`. World-mode
+  ancestor-alpha propagation for SpriteRenderer children is flagged as a
+  follow-up, not guessed at blind.
+- **T3 — timeline drag past a neighbor**: reworked into intent → resolved
+  placement → commit. A move-drag now tracks the pointer freely (no more
+  wall-clamp anchored at the drag's origin) and the non-overlap invariant is
+  resolved once, at drop, via a new iterative de-penetration algorithm
+  (`engine/timelineDragResolve.js`, unit tested — the first version of the
+  algorithm was a silent no-op, caught by 3 failing tests before ever
+  shipping).
+- **T12 — reusable spin re-roll**: one seeded-outcome path
+  (`targetBoardForClip` + a new `rerollSeed`) now serves three surfaces —
+  the director node, a NEW outcome-threshold selector on timeline spinner
+  clips, and the wizard's test-spin preview.
+- **T10 — preview-only wager**: the win-timeline inspector gets a wager
+  override that only affects live rendering (never the authored config)
+  until explicitly applied, scoped to the specific win-sequence asset it was
+  set for.
+- **T11 — WebM "watch the render"**: turned out to be a UI bug, not a
+  missing feature — `exportVideo()` already renders onto the live editor
+  canvas; the export dialog's fullscreen opaque overlay was just burying it.
+  New default-ON toggle shrinks the dialog to a small corner HUD during
+  export instead.
+- **T9 — win-number font detection**: auto-pick now verifies a name-matched
+  candidate is actually 2048px wide (8 cols × 256px) before binding, instead
+  of grabbing the first name match blind; failures surface an "unverified"
+  badge instead of guessing wrong.
+- **T7 (1 of 4 sub-items) — symbol candidate confidence**: most of "tighten
+  the heuristics" already existed (folder-structure detection, UI/bg/machine
+  exclusion); added the missing confidence threshold so a merely-weak
+  positive score doesn't silently qualify for bulk auto-fill.
+- **T8 (the parts not blocked on T7) — wizard shell**: the wizard panel is
+  now resizable like every other panel (was the one hardcoded-width
+  exception); fixed Scene Setup wizard rendering as a fixed-520px modal card
+  instead of filling the dock (missing `embedded` class — same bug pattern
+  as the divergence T8 called out).
+
+Remaining, explicitly deferred as UX/feature design (not bug fixes): T7's
+asset-selection-first step reorder, the animations-only pipeline with
+auto-blur-generation, and post-win "hold last pose"; T8's "animation-setup
+step expands to fill the panel" (blocked on that same unbuilt pipeline).
+
+**Verification note**: engine-layer changes (scenarioModel/Blend/Timeline,
+spinnerModel/Eval, flowInterpreter, winNumberModel, symbolMatch,
+timelineDragResolve) have full unit-test coverage — 132 engine + 27 Unity
+tests, zero regressions. Pixi/Spine runtime changes (pixiApp.js,
+spinnerRuntime.js, winNumberRuntime.js) and pure UI/layout changes
+(TimelinePanel, WebMExportDialog, wizard components) have **no test
+harness** — verified via a clean build + structural code review only. Live
+browser verification is still outstanding for all of it.
 
 ## Direct: hold/crossfade pose carry + spin outcomes + transport QoL — COMPLETE ✅ (2026-07-03)
 
