@@ -62,15 +62,30 @@ w kolejności z §3 planu.
   zgasić się samą sobie). Wizualna weryfikacja w przeglądarce z prawdziwym
   assetem Spine — TODO, nie wykonana w tej sesji.
   Plik: `engine/pixiApp.js` (`applySpineMultiTrack`).
-- **T4 (część 2/2) — kontrakt widoczności "setup pose" — WSTRZYMANE,
-  potrzebna decyzja użytkownika.** Patrz notatka w
-  `SCENE_STUDIO_QOL_PLAN.md` §1 poz. 5 / §2 T4: proponowana reguła
-  ("obiekt bez aktywnego klipu w animate = niewidoczny, chyba że coś go
-  klucza") wprost odwraca udokumentowaną regułę z `SCENE_STUDIO.md` §19.2
-  ("Visibility is layer.visible only — outside any clip the layer renders at
-  its base pose"). Zmiana defaultowej widoczności dla KAŻDEJO niekluczowanego
-  layera w animate mode ma zbyt duży blast radius, żeby zgadywać bez
-  potwierdzenia — patrz pytanie zadane w sesji.
+- **T4 (część 2/2) — kontrakt widoczności "setup pose", zakres:
+  spinner/winseq — UKOŃCZONE ✅.** Dwa pytania do użytkownika w tej sesji
+  ustaliły zakres: reguła z planu ("brak aktywnego klipu w animate/direct →
+  alpha 0") dosłownie zastosowana do KAŻDEGO typu layera zgasiłaby każdy
+  statyczny PNG/spine w tle, którego nikt nigdy nie skluczował (typowy
+  przypadek w większości scen) — to odwróciłoby udokumentowaną regułę z
+  `SCENE_STUDIO.md` §19.2 dla zwykłych obiektów. Zawężone do dokładnie tego,
+  co opisuje problem #5 planu: **spinner** (bez żadnego autorowanego klipu
+  spinu) i **winseq** (bez żadnego autorowanego flow) renderują się teraz z
+  `alpha = 0` w animate/direct, jeśli żaden ich track nie wystartował klipu do
+  czasu `t` — `layerHasDrivingClip` (nowy, czysty helper w
+  `engine/flowInterpreter.js`, 4 testy). Carry-in board (Direct hold/crossfade,
+  T1) nadal liczy się jako "driven" nawet gdy lokalny timeline segmentu nie ma
+  własnego klipu. Baked crossfade blend (`buildBlendedScene`, T1/T2) ma pusty
+  `flow.tracks` z założenia — oflagowany `scene.__isBakedBlend` i zwolniony z
+  bramki, inaczej każdy spinner/winseq znikałby w oknie miksu. Zwykłe PNG/
+  spine/video **zachowują dotychczasową regułę** (niesklucza pozycja = base
+  pose widoczna) — bez zmiany workflow dla statycznych dekoracji.
+  Część reguły dot. **grup trybów** (base/bonus/freespins/pick) świadomie
+  odłożona do T6 — to ten sam mechanizm alpha-propagation, plan sam sugeruje
+  robić kompozycję alfy raz, nie fragmentarycznie.
+  Pliki: `engine/flowInterpreter.js` (+ nowy `flowInterpreter.test.mjs`),
+  `engine/pixiApp.js` (spinner/winseq branch w `applyFlowAtTime`),
+  `engine/scenarioBlend.js` (`__isBakedBlend` flag + test).
 
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 

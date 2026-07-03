@@ -130,4 +130,5 @@ test('buildBlendedScene bakes a mid-crossfade tint into the active orientation p
   const baked = scene.layers[0].transforms.landscape.tint;
   assert.deepEqual(baked, { r: 0.5, g: 0.5, b: 0.5 }, 'black→white halfway = grey');
   assert.equal(scene.flow.tracks.length, 0, 'baked scene has an empty flow');
+  assert.equal(scene.__isBakedBlend, true, 'flagged so pixiApp\'s T4 driven-alpha gate exempts it (0 tracks ≠ undriven here)');
 });
