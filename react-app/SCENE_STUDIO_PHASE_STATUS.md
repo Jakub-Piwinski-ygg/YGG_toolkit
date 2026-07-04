@@ -322,6 +322,39 @@ w kolejności z §3 planu.
   T7 (3/4); nie ma czego naprawiać, dopóki ten krok nie istnieje.
   Pliki: `SceneStudioInner.jsx`, `components/SceneSetupWizard.jsx`.
 
+## Poprawki po testach użytkownika (2026-07-04, po sesji T1–T9)
+
+Dwa realne bugi zgłoszone po ręcznym przetestowaniu poprzedniej sesji:
+
+- **Spinner/winseq znów ZAWSZE widoczne (cofnięcie części T4).** Zaimplementowana
+  wcześniej reguła „brak klipu → alpha 0 w animate/direct" była błędną
+  interpretacją wyjątku z planu — w praktyce **kasowała planszę spinnera w
+  Director za każdym razem, gdy węzeł jeszcze nie zaczął spinu** (typowy stan:
+  węzeł wejściowy przed pierwszym stopSpin). Użytkownik jednoznacznie
+  potwierdził po teście: spinner/winseq mają być **wyjątkiem od JAKIEJKOLWIEK
+  reguły „niesterowany = niewidoczny"** — zawsze pokazują realną planszę
+  (initial/carried/wylądowaną), we WSZYSTKICH trybach, bez wyjątku. Usunięte:
+  bramka alfy w `applyFlowAtTime` dla `spinner`/`winseq`, martwy już
+  `layerHasDrivingClip` (`engine/flowInterpreter.js` + jego plik testowy —
+  usunięte, nieużywane nigdzie indziej), flaga `__isBakedBlend`
+  (`scenarioBlend.js`, istniała wyłącznie dla tej bramki).
+- **Spine w setup mode naprawdę animuje idle, nie tylko na scrubie.** Osobny,
+  nieprzetestowany wcześniej bug: `applyFlowAtTime` (gdzie siedział Phase C.5,
+  fix na deterministyczny idle-loop) **nigdy nie jest wołane w trybie setup**
+  — jedyny mechanizm animujący Spine'a w ogóle to `PixiViewport`'owa pętla
+  `drive()` (realny `obj.update(dtSec)` co klatkę), bramkowana warunkiem
+  `runtime.playing !== false` — a w setup `flowState.playing` domyślnie jest
+  `false` (nie ma czego „grać"), więc spine zamrażał się na pozie z buildu.
+  Naprawa: `drive()` tika Spine'y bez warunku play/hold, kiedy
+  `studioMode === 'setup'` — setup pokazuje żywy, zapętlony podgląd domyślnej
+  animacji niezależnie od stanu odtwarzania timeline'u (który w setup i tak
+  nie istnieje).
+
+Pliki: `engine/pixiApp.js`, `components/PixiViewport.jsx`,
+`engine/scenarioBlend.js` (+ test), `engine/flowInterpreter.js` (usunięcie
+`layerHasDrivingClip` + jego pliku testowego). 128 testów silnika (było 132 —
+4 usunięte razem z martwym kodem), 27 unity, zero regresji.
+
 ## Direct: hold/crossfade pose carry + outcome spinów + QoL transportu — UKOŃCZONE ✅ (2026-07-03)
 
 Duża sesja QoL wg punch-listy użytkownika (10 punktów + zgłoszony bug hold/crossfade).

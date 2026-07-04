@@ -16,7 +16,7 @@ import { Application, Assets, Container, Graphics, Sprite, Texture } from 'pixi.
 import { resolveTransform } from './orientationManager.js';
 import { resolveAssetUrl } from './persist.js';
 import { buildLayerTree, tracksForLayer } from './sceneModel.js';
-import { clipAt, lastClipAt, remapClipTime, layerHasDrivingClip } from './flowInterpreter.js';
+import { clipAt, lastClipAt, remapClipTime } from './flowInterpreter.js';
 import { CHANNEL_DEFS, CHANNEL_NAMES, channelFirstKeyTime, clipLocalSeconds, evalChannel, isPathChannel } from './animation/keyframes.js';
 import { resolvePointHandles } from './animation/pathSpline.js';
 import { Spine } from '@esotericsoftware/spine-pixi-v8';
@@ -1102,10 +1102,6 @@ export function applyFlowAtTime(handles, scene, t) {
   const runtimePlaying = runtime.playing !== false;
   const runtimeHeld = !!runtime.hold;
   const orientation = scene.stage.activeOrientation;
-  // T2/T1's crossfade blend bakes a static pose into an intentionally EMPTY
-  // flow (buildBlendedScene) — tracksForLayer would read 0 tracks for every
-  // layer there, so the T4 driven-alpha gate below must not run against it.
-  const bakedBlend = scene.__isBakedBlend === true;
 
   for (const layer of scene.layers) {
     const obj = handles.get(layer.id);
@@ -1146,13 +1142,11 @@ export function applyFlowAtTime(handles, scene, t) {
       // Per-node spin outcome override (Direct mode) — null → authored result.
       applySpinnerAtTime(obj, layer, tracks, t, carryBoard, scene.__spinnerOutcome || null, scene.__spinnerOutcomeReroll || 0);
       applyPngChannels(obj, layer, tracks, t, orientation);
-      // T4 visibility contract (scoped to spinner/winseq/mode-groups, see
-      // SCENE_STUDIO_QOL_PLAN.md §2 T4): a spinner nobody ever authored a
-      // spin clip for shows only its idle placeholder board forever — hide it
-      // in animate/direct instead of bleeding a setup-only decoration into an
-      // unrelated timeline. A carried-in board (Direct hold/crossfade) still
-      // counts as driven even with no LOCAL clip on this segment's timeline.
-      if (!bakedBlend && !carryBoard && !layerHasDrivingClip(tracks, t)) obj.alpha = 0;
+      // Spinner is an explicit EXCEPTION to any "undriven = invisible" rule —
+      // it always shows a real board (initial, carried-in, or landed), in
+      // every mode. A previous pass here hid it whenever no clip drove it,
+      // which broke the common "director node before its spin clip starts"
+      // case: the reels should show the idle board, not vanish.
       gateEyeAlpha();
       continue;
     }
@@ -1160,9 +1154,8 @@ export function applyFlowAtTime(handles, scene, t) {
     if (asset.type === 'winseq' && obj.__winseq) {
       applyWinSeqAtTime(obj, layer, tracks, t);
       applyPngChannels(obj, layer, tracks, t, orientation);
-      // T4 visibility contract: a win sequence with no flow ever authored
-      // shows only its biggest-win idle placeholder — hide it outside setup.
-      if (!bakedBlend && !layerHasDrivingClip(tracks, t)) obj.alpha = 0;
+      // Same exception as spinner above — a win sequence always shows its
+      // idle/biggest-win pose rather than vanishing when undriven.
       gateEyeAlpha();
       continue;
     }

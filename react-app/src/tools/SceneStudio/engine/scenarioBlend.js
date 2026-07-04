@@ -140,10 +140,6 @@ export function buildBlendedScene(sceneData, assets, outTracks, outT, inTracks, 
     ...sceneData,
     assets: assets || [],
     layers,
-    // Flags this as a baked blend (empty flow, transform-channels-only) for
-    // pixiApp's T4 driven-alpha gate — without it every spinner/winseq would
-    // read as "never driven" (0 tracks) and vanish during every crossfade.
-    __isBakedBlend: true,
     flow: deriveFlowGraph({ tracks: [], markers: [], nodes: [], edges: [] })
   };
 }

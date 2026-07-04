@@ -217,7 +217,13 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
           const runtime = sceneRef.current?.flow?.runtime || {};
           const runtimePlaying = runtime.playing !== false;
           const runtimeHeld = !!runtime.hold;
-          if (livePreviewRef.current && runtimePlaying && !runtimeHeld) {
+          // Setup mode has no "flow" to play/pause — flowState.playing
+          // defaults false there, so the play/hold gate below (meant for
+          // animate/direct scrubbing) always blocked ticking and a spine's
+          // default/idle animation sat frozen on its build-time bind pose.
+          // Setup wants a live, looping preview regardless of that state.
+          const isSetup = studioModeRef.current === 'setup';
+          if (livePreviewRef.current && (isSetup || (runtimePlaying && !runtimeHeld))) {
             // Tick every spine instance manually so we don't depend on the
             // shared-ticker subscription. NOTE: pixi-spine-v8's
             // `spine.update(dt)` expects SECONDS (it's just a thin wrapper

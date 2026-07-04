@@ -216,19 +216,6 @@ export function flowResolveSignal(state, signal) {
   return { ...state, signalsSeen: seen };
 }
 
-/**
- * Has ANY track ever started a clip by time `t`? (T4 visibility contract,
- * scoped to spinner/winseq/mode-group layers — see SCENE_STUDIO_QOL_PLAN.md
- * §2 T4 / T6.) A spinner or win sequence with zero clips ever authored on any
- * of its tracks sits at its idle default (initial board / biggest-win idle)
- * forever, bleeding a setup-only placeholder into unrelated timelines. Uses
- * `lastClipAt` (not `clipAt`) so a layer stays "driven" through the
- * Unity-Timeline-style post-clip hold, not just while literally mid-clip.
- */
-export function layerHasDrivingClip(tracks, t) {
-  return (tracks || []).some((tr) => lastClipAt(tr, t) != null);
-}
-
 export function activeClips(scene, time) {
   const out = new Map();
   for (const tr of scene.flow?.tracks || []) {
