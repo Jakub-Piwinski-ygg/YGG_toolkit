@@ -15,6 +15,69 @@ tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, t
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
 
+## T7 (2–4/4): animations-only spinner symbol pipeline (2026-07-04)
+
+After hands-on testing, the user clarified T7 further: the spinner wizard should
+default to an **animations-only workflow** (skip static art), with the idle/resting
+pose being the landing animation's first frame (win as fallback), and a symbol
+**holding its last computed pose** after a win instead of reverting to a static.
+
+- **Model** (`engine/spinner/spinnerModel.js`): new **explicit** `symbol.animOnly` flag
+  (default `false`). Deliberately NOT inferred from a missing `assetId` — an
+  in-progress symbol (static not picked yet) or a test fixture that simply never set
+  one must not silently opt into hold-forever win timing. Caught by 3 failing
+  regression tests before commit (existing duration-test fixtures have no `assetId`
+  for reasons unrelated to this feature — exactly the case `animOnly` as an explicit
+  flag is meant to avoid).
+- **Evaluator** (`engine/spinner/spinnerEval.js`): `isAnimOnlySymbol()` removes the
+  upper bound on the win window for flagged symbols (`winEnd = Infinity`) — `cellState`
+  stays `'win'` until that reel spins again. Spine's own non-looping clamp (or looping
+  wrap) does the actual "hold" or "loop at rest" — no new pose-freezing mechanism
+  needed.
+- **Runtime** (`engine/spinner/spinnerRuntime.js`): `bakeSpinePoseTexture` builds a
+  temporary Spine instance via the existing overlay factory, poses it at frame 0, and
+  captures a REAL texture via `renderer.generateTexture()` (+ a `BlurFilter`-based blur
+  variant) into the same texture map static PNGs use — zero changes to the per-frame
+  render loop. A live, continuously-updating Spine per idle cell was considered and
+  rejected: the land/win overlay pool is deliberately capped (~12 instances, for
+  render cost) and idle cells routinely outnumber that on any real board — baking to a
+  texture is the only approach that scales to "every resting cell."
+- **Wizard**: new `autoFillFromAnimations` is now the primary/first auto-fill action
+  (one symbol per Spine rig, static art attached only as an optional name-match),
+  auto-runs on a fresh wizard once Spine assets are found — same auto-suggest pattern
+  as the win-sequence wizard's font auto-pick.
+- **Known gap, not guessed at**: the Unity exporter already passes a `null` static GUID
+  through cleanly, but `YggSpinner.cs` has no equivalent bake-from-pose or
+  hold-last-pose logic — an `animOnly` symbol will preview correctly on web but likely
+  show no resting texture in a Unity build. Needs a dedicated C# session.
+
+3 new tests, 131 engine + 27 Unity total, no regressions.
+
+## Bug fixes from hands-on testing (2026-07-04, after the T1–T9 pass)
+
+Two real regressions found by testing the session below in the actual app:
+
+- **Spinner/win-sequence are ALWAYS visible again.** The T4 scoped-visibility rule
+  ("no clip authored → alpha 0 in animate/direct") was the wrong call in practice: it
+  blanked the spinner's board in Director every time a node hadn't started spinning
+  yet — the ordinary "before the first stopSpin" state. Confirmed with the user:
+  spinner/win-sequence are an exception to ANY undriven-is-invisible rule — they
+  always show a real board/pose (initial, carried-in, or landed) in every mode, full
+  stop. Removed the alpha gate, the now-dead `layerHasDrivingClip` helper + its test
+  file, and the `__isBakedBlend` flag that existed only to exempt crossfade blends
+  from that gate.
+- **Setup mode now actually animates Spine idle poses.** Separate bug: Spine objects
+  sat frozen on their build-time bind pose in setup mode. The deterministic idle-loop
+  fix from T4 lives in `applyFlowAtTime`, which never runs in setup mode — the only
+  thing that ever ticks Spine is `PixiViewport`'s `drive()` loop via real-time
+  `obj.update(dtSec)`, gated on `runtime.playing !== false`. Setup mode's
+  `flowState.playing` defaults `false` (there's no flow to play there), so that gate
+  always blocked ticking. `drive()` now ticks Spine unconditionally in setup mode — a
+  live, looping idle preview regardless of playback state, which doesn't meaningfully
+  exist in setup anyway.
+
+128 engine tests (4 fewer — removed with the dead code), 27 Unity, no regressions.
+
 ## Direct QoL round 2 (2026-07-04) — plan in `react-app/SCENE_STUDIO_QOL_PLAN.md`
 
 A fresh re-verification pass found several regressions/gaps had survived the

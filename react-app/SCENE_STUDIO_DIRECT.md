@@ -338,7 +338,7 @@ want to blend. We reserve this on the **edge** so it describes the *hand-off*:
 
 ```jsonc
 "transition": {
-  "mode": "cut" | "crossfade" | "hold",   // cut = snap (default)
+  "mode": "cut" | "crossfade" | "hold",   // cut = snap; hold = default for NEW edges (2026-07-04, T1)
   "mixDuration": 0.3,                       // seconds of overlap
   "channels": {                             // per-layer / per-channel opt-in
     "*": true,                              // blend everything, OR…
@@ -359,6 +359,18 @@ the layers' base transforms; the incoming timeline's own keys still win), and
 still snaps to the incoming timeline's authored state. Limitation: crossfade
 blends container transform channels only — spine/spinner/winseq *animation
 state* is frozen during the overlap window.
+
+**Fixed (2026-07-04, T1/T2):** `connect()` (`engine/scenarioModel.js`) now
+stamps an explicit `hold` transition on freshly-created edges instead of
+`null` — a brand-new edge previously read as `cut` (via
+`transitionDefaults()`, which still governs the read-fallback for legacy
+edges with no transition payload at all, so old scenes are unaffected), so
+the pose-carry machinery above never actually engaged until an artist
+manually flipped the edge's mode. Separately, `blendTransforms`
+(`engine/scenarioBlend.js`) had unmasked/non-opted-in channels **snap to the
+incoming (B) timeline** instead of holding the outgoing (A) one — meaning an
+alpha-only crossfade still visibly moved/rescaled the object the instant the
+overlap began. Unmasked channels now hold A for the whole overlap window.
 
 The node inspector also reserves room for **entry options** (per-node speed
 multiplier, "wait for click before continuing", start offset) — all optional

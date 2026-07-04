@@ -21,9 +21,14 @@ tags: [design, scene-studio, scenario, node-graph, pixi]
 > pose, crossfade blends from it; cut still snaps), **per-node spin outcome
 > overrides** (no/small/big/wild win, name-based symbol tiers, boards carried
 > downstream), chained ＋ node spawn with a focus tween, ⏮ + mode-aware Space
-> transport, playing-segment scrubber highlight. See
-> [[Session 2026-07-03 Scene Studio Direct QoL]]. P5 (auto-arrange, minimap,
-> Unity scenario export incl. outcome-generator parity) pending.
+> transport, playing-segment scrubber highlight. **2026-07-04 follow-up
+> fixes**: `connect()` defaults NEW edges to `hold` (was `cut`, so pose carry
+> never actually engaged until manually flipped — legacy edges unaffected);
+> `blendTransforms` holds the outgoing pose on unmasked channels instead of
+> snapping to the incoming one (an alpha-only crossfade was visibly moving
+> objects). See [[Scene Studio Phase Status]] for the full T1–T12 QoL pass.
+> P5 (auto-arrange, minimap, Unity scenario export incl. outcome-generator
+> parity) pending.
 
 ## TL;DR
 

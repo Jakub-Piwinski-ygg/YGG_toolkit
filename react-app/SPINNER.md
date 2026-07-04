@@ -180,7 +180,17 @@ asset.spinner = {
   rev,                          // bumped on structural edits → Pixi rebuild
   symbols: [{ id, name, assetId, blurAssetId,
               landAnim: {kind:'spine'|'pop'|'none', assetId?, anim?},
-              winAnim:  {kind:'spine'|'pop'|'none', assetId?, anim?} }],
+              winAnim:  {kind:'spine'|'pop'|'none', assetId?, anim?},
+              animOnly  // (2026-07-04, T7) explicit flag — no static PNG;
+                        // idle/resting texture is BAKED from landAnim's (or
+                        // winAnim's) first frame at build time
+                        // (spinnerRuntime.bakeSpinePoseTexture), and the
+                        // symbol holds its last computed win pose at rest
+                        // instead of reverting to a static. Deliberately
+                        // explicit, not inferred from `!assetId` — an
+                        // in-progress symbol (static not picked yet) must
+                        // not silently opt into hold-forever win timing.
+            }],
   grid:   { reels, rows, cellW, cellH, spacingX, spacingY },
   strips: [[symbolId, …] per reel],     // persisted explicitly, length ~24–32
   initialBoard: [[symbolId per row] per reel],   // guaranteed non-winning
@@ -204,11 +214,38 @@ clip.spinner = {  // action-specific, all optional
   // spin:      spinSpeed?, rampEase?
   // stopSpin:  targetBoard?[][], stopEase?, perReelStopDelay?[],
   //            bounce?{curve,amplitude,durationFrac}, matchEntrySpeed? (default true),
-  //            boardSeed?   // seeded random non-winning board stamped at creation
+  //            boardSeed?,  // seeded random non-winning board stamped at creation
+  //            outcome?,    // (2026-07-04, T12) 'noWin'|'smallWin'|'bigWin'|'wildWin' —
+  //                         // the clip's OWN authored result threshold; a Direct-mode
+  //                         // per-node override still wins over this when present
+  //            rerollSeed?  // (T12) bumped by "re-roll result" — folds into the
+  //                         // outcome board's seed so re-rolling within the same
+  //                         // threshold produces a different board
 }
 ```
 
 `loop / speed / curve / mixDuration` are ignored and hidden for spinner clips.
+
+**Direct-mode per-node override** (scenario node `entry`, not the clip): `spinOutcome` +
+`spinOutcomeReroll` (T12) — same outcome/reroll pair, but set on the director graph node
+instead of a specific clip; wins over the clip's own `outcome` when not `'default'`. All
+three surfaces (director node, timeline clip, spinner wizard test-spin preview) resolve
+through the one shared seeded-outcome path in `spinnerModel.targetBoardForClip`.
+
+**Animations-only symbols** (2026-07-04, T7): a symbol with `animOnly: true` skips static
+art rendering entirely. Its idle/resting appearance is a texture baked once, at Pixi
+build time, from a temporary Spine instance posed at `landAnim`'s (or `winAnim`'s) first
+frame and captured via `renderer.generateTexture()` — inserted into the same texture map
+ordinary static PNGs use, so the per-frame render loop needs no special case. A live,
+continuously-updating Spine per idle cell was considered and rejected: the land/win
+overlay pool is deliberately capped (~12 instances, for per-instance Spine render cost)
+and idle cells routinely outnumber that on any real board. After a win presentation, an
+`animOnly` symbol's window has no upper bound (`spinnerEval.isAnimOnlySymbol`) — it holds
+the win animation's last computed pose (non-looping) or keeps looping it (looping) at
+rest, until the reel spins again. **Known gap**: the Unity exporter passes a `null`
+static GUID through cleanly for these symbols, but `YggSpinner.cs` has no equivalent
+bake-from-pose or hold-last-pose logic yet — web preview and a Unity build will diverge
+for `animOnly` symbols until that's built.
 
 ## §4 Editor UX
 

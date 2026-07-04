@@ -3,7 +3,7 @@ type: design
 tool: Spinner
 category: 🎬 Scene Studio
 status: shipped
-updated: 2026-06-14
+updated: 2026-07-04
 source: react-app/SPINNER.md
 tags: [design, scene-studio, spinner, slot]
 ---
@@ -38,5 +38,14 @@ Studio via `TOOL_ALIASES`).
 - **Runtime API** — `YggSpinner.SetResultBoard(string[][])` + `Spin()` for backend
   result injection (§6 of SPINNER.md).
 - **`presentWin` clip** — controls *when* winning symbols animate, with per-reel stagger.
+- **Animations-only symbols** (2026-07-04) — a symbol can skip static art entirely
+  (`animOnly: true`): its idle texture is baked from the landing/win Spine animation's
+  first frame at build time, and it holds its last computed pose after a win instead of
+  reverting to a static. Web-only so far — `YggSpinner.cs` has no Unity-side equivalent
+  yet (§3 of SPINNER.md).
+- **Reusable spin re-roll** (2026-07-04) — one seeded-outcome path
+  (`spinnerModel.targetBoardForClip`) serves the director node, a timeline clip's own
+  outcome selector, and the wizard's test-spin preview; "re-roll" bumps a seed so the
+  same threshold lands a different board.
 
 Related: [[Scene Studio]] · [[Scene Studio Design]]
