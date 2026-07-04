@@ -122,7 +122,15 @@ function normalizeSymbol(s) {
     assetId: s.assetId || null,
     blurAssetId: s.blurAssetId || null,
     landAnim: anim(s.landAnim),
-    winAnim: anim(s.winAnim)
+    winAnim: anim(s.winAnim),
+    // T7: explicit "animations-only" marker — a symbol with no static PNG
+    // whose idle texture is instead baked from its land/win animation's
+    // first frame (spinnerRuntime.bakeSpinePoseTexture), and which holds its
+    // last computed win pose at rest instead of reverting to a static.
+    // Deliberately explicit rather than inferred from `!assetId`: an
+    // in-progress symbol (static not picked YET) or a test fixture that
+    // simply never set one must NOT silently opt into hold-forever timing.
+    animOnly: s.animOnly === true
   };
 }
 

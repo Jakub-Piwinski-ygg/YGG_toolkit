@@ -430,6 +430,14 @@ export function evaluateSpinner(config, resolved, t) {
     const d = symMap.get(id)?.landAnim?.duration;
     return d > 0 ? d : events.landAnimDuration;
   };
+  // T7: a symbol explicitly marked animations-only (see spinnerModel's
+  // normalizeSymbol) has nothing to "revert to" once its win presentation
+  // ends — it holds the win animation's last computed pose (or keeps looping
+  // it, if authored to loop) at rest instead of snapping back to a static
+  // texture. Everything else keeps the existing snap-back-after-winDuration
+  // behavior, INCLUDING a symbol that simply hasn't had a static picked yet —
+  // `animOnly` must be set explicitly, not inferred from a missing assetId.
+  const isAnimOnlySymbol = (id) => symMap.get(id)?.animOnly === true;
 
   for (let r = 0; r < R; r++) {
     const seg = segmentAt(resolved.segments[r], t);
@@ -462,9 +470,12 @@ export function evaluateSpinner(config, resolved, t) {
         const winStart = stop.winStartByReel ? stop.winStartByReel[r] : stop.winStartAt;
         // Window length is the WINNING SYMBOL's real win-anim length (fallback
         // events.winAnimDuration) — different symbols hold 'win' for different
-        // amounts of time, never cut to a fixed default.
+        // amounts of time, never cut to a fixed default. An animations-only
+        // symbol has no window end at all — it holds/loops at rest until the
+        // next spin (speed > EPS_V, above) takes cellState back to 'spinning'.
+        const winEnd = isAnimOnlySymbol(symbolId) ? Infinity : winStart + winDurOf(symbolId);
         const inWin = t >= winStart
-          && t < winStart + winDurOf(symbolId)
+          && t < winEnd
           && stop.winCells.some((c) => c.reel === r && c.row === j);
         if (inWin) {
           cellState = 'win';

@@ -262,7 +262,7 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
     // rebuild. Building it lets the cheap-path visibility toggle work live.
     const asset = scene.assets.find((a) => a.id === layer.assetId);
     if (!asset) return;
-    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations, blobUrls);
+    const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations, blobUrls, app);
     if (!obj) return;
     // T5 (eye visibility model): `visible` stays true — a closed eye is an
     // alpha-0 gate (applied by the syncTransforms/applyFlowAtTime pass that
@@ -364,7 +364,7 @@ function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath, urlSink = nul
   };
 }
 
-async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null, onSpinnerAnimDurations = null, urlSink = null) {
+async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, scene = null, onSpinnerAnimDurations = null, urlSink = null, app = null) {
   // Record every blob: URL minted for this layer so the previous build
   // generation can be revoked/unloaded when the next build goes live.
   const rec = (r) => { if (urlSink && r?.url && r.url.startsWith('blob:')) urlSink.add(r.url); return r; };
@@ -378,6 +378,10 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
         resolveAssetUrl: async (src, rh, bp) => rec(await resolveAssetUrl(src, rh, bp)),
         loadTexture: loadTextureFromUrl,
         createSpineContainer: makeSpineOverlayFactory(scene, rootHandle, sceneBasePath, urlSink),
+        // T7: bakes a static idle/blur texture from a spine pose for
+        // "animations-only" symbols (no static PNG authored) — see
+        // bakeSpinePoseTexture below.
+        renderer: app?.renderer || null,
         // Persist resolved per-symbol Spine durations back to the model so the
         // inspector's clip-length button and the Unity bake see real lengths.
         onSpinnerAnimDurations: onSpinnerAnimDurations

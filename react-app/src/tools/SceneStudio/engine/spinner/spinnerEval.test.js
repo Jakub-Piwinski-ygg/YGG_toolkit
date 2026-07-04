@@ -402,6 +402,42 @@ test('unknown duration (0) falls back to events.winAnimDuration', () => {
   assert.notEqual(evaluateSpinner(cfg, resolved, ws + 2.5).reels[wc.reel].cells.find((c) => c.gridRow === wc.row).state, 'win');
 });
 
+// ── T7: animations-only symbols hold their win pose at rest ─────────────
+
+test('normalizeSymbol: animOnly defaults false and is NOT inferred from a missing assetId', () => {
+  const cfg = makeDurConfig('a', 1); // makeDurConfig's symbols have no assetId at all
+  const sym = cfg.symbols.find((s) => s.id === 'a');
+  assert.equal(sym.assetId, null);
+  assert.equal(sym.animOnly, false, 'missing assetId alone must not imply animOnly');
+});
+
+test('normalizeSymbol: animOnly true is preserved', () => {
+  const cfg = makeDurConfig('a', 1);
+  const raw = { ...cfg.symbols.find((s) => s.id === 'a'), animOnly: true };
+  const cfg2 = normalizeSpinnerConfig({ ...cfg, symbols: cfg.symbols.map((s) => (s.id === 'a' ? raw : s)) });
+  assert.equal(cfg2.symbols.find((s) => s.id === 'a').animOnly, true);
+});
+
+test('T7: an animOnly symbol holds "win" state indefinitely (no snap-back), an ordinary symbol still reverts', () => {
+  const cfg = makeDurConfig('a', 1);
+  cfg.symbols = cfg.symbols.map((s) => (s.id === 'a' ? { ...s, animOnly: true } : s));
+  const target = [
+    ['a', 'b', 'c'], ['d', 'a', 'e'], ['f', 'e', 'a'], ['b', 'c', 'd'], ['e', 'f', 'b']
+  ];
+  const resolved = resolveSpinnerTrack(cfg, standardTrack({ stop: { targetBoard: target } }));
+  const wc = resolved.stops[0].winCells[0];
+  const ws = resolved.stops[0].winStartByReel[wc.reel];
+  const cellAt = (t) => evaluateSpinner(cfg, resolved, t).reels[wc.reel].cells.find((c) => c.gridRow === wc.row);
+  assert.equal(cellAt(ws + 1.2).state, 'win', 'still win well past the authored 1s duration');
+  assert.equal(cellAt(ws + 999).state, 'win', 'still win arbitrarily far in the future — this is the "hold last pose" contract');
+  // Sanity: an ordinary (non-animOnly) symbol in the SAME config/time window
+  // still reverts normally — this fix must not be a blanket change.
+  const cfgOrdinary = makeDurConfig('a', 1); // fresh copy, animOnly left false
+  const resolvedOrdinary = resolveSpinnerTrack(cfgOrdinary, standardTrack({ stop: { targetBoard: target } }));
+  const cellOrdinary = evaluateSpinner(cfgOrdinary, resolvedOrdinary, ws + 1.2).reels[wc.reel].cells.find((c) => c.gridRow === wc.row);
+  assert.notEqual(cellOrdinary.state, 'win', 'a non-animOnly symbol still snaps back after its win duration');
+});
+
 test('spinnerPresentWinDuration = maxReelDelay + longest win across mixed-length symbols', () => {
   const cfg = normalizeSpinnerConfig({
     symbols: [

@@ -20,9 +20,44 @@
 //             blurSprite      ← alpha = blurMix crossfade
 //     fx Container            ← land/win overlays — OUTSIDE the mask (overflow)
 
-import { Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { BlurFilter, Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { normalizeSpinnerConfig } from './spinnerModel.js';
 import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey, pickSpinnerActionTrack } from './spinnerEval.js';
+
+/**
+ * T7 (animations-only symbols): bake a static texture from a spine pose at
+ * `animName`'s first frame, so a symbol authored with ONLY land/win Spine
+ * animations (no static PNG) still gets a real resting-cell texture instead
+ * of the near-invisible `Texture.WHITE` fallback. Reuses the existing
+ * `createSpineContainer` overlay factory rather than a bespoke spine build —
+ * poses it at t=0, snapshots it, then throws the temporary instance away.
+ * A live-updating Spine per idle cell was considered and rejected: the
+ * overlay pool is deliberately capped (≤12 instances, see buildSpinnerObject
+ * below) to bound Spine's per-instance render cost, and idle cells vastly
+ * outnumber that cap on any board with more than a couple of reels — baking
+ * to a texture is the only approach that scales to "every resting cell".
+ */
+async function bakeSpinePoseTexture(deps, assetId, animName, loop) {
+  if (!deps.renderer || !deps.createSpineContainer) return null;
+  let inst = null;
+  try {
+    inst = await deps.createSpineContainer(assetId, animName, loop);
+    if (!inst) return null;
+    inst.setTrackTime(0); // first frame = the idle/resting pose
+    const sharp = deps.renderer.generateTexture(inst.container);
+    let blurred = null;
+    try {
+      inst.container.filters = [new BlurFilter({ strength: 8 })];
+      blurred = deps.renderer.generateTexture(inst.container);
+    } catch { /* blur variant is best-effort — sharp texture still works */ }
+    return { sharp, blurred };
+  } catch (e) {
+    console.warn('[SceneStudio] spinner idle-pose bake failed', assetId, animName, e);
+    return null;
+  } finally {
+    try { inst?.container?.destroy({ children: true }); } catch { /* ignore */ }
+  }
+}
 
 // §B: symbols render at native 1:1 (a 220px symbol stays 220px, overflowing
 // its cell). No fit-shrink — keep scale 1; the single machine mask clips the
@@ -67,6 +102,20 @@ export async function buildSpinnerObject(asset, layer, deps) {
     const tex = await load(sym.assetId);
     const blurTex = await load(sym.blurAssetId);
     textures.set(sym.id, { tex: tex || Texture.WHITE, blurTex: blurTex || tex || Texture.WHITE });
+  }
+
+  // T7: "animations-only" symbols — no static PNG authored, but a land/win
+  // Spine animation exists — get their idle/resting texture baked from that
+  // animation's first frame (landAnim preferred, winAnim as fallback) instead
+  // of sitting on the near-invisible Texture.WHITE default above.
+  for (const sym of config.symbols) {
+    if (sym.assetId) continue; // has a real static — nothing to bake
+    const animConf = sym.landAnim?.kind === 'spine' ? sym.landAnim
+      : sym.winAnim?.kind === 'spine' ? sym.winAnim
+      : null;
+    if (!animConf?.assetId || !animConf?.anim) continue; // no anim either — stays Texture.WHITE
+    const baked = await bakeSpinePoseTexture(deps, animConf.assetId, animConf.anim, animConf.loop !== false);
+    if (baked?.sharp) textures.set(sym.id, { tex: baked.sharp, blurTex: baked.blurred || baked.sharp });
   }
 
   const root = new Container();

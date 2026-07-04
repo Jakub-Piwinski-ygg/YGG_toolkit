@@ -158,6 +158,22 @@ function findSpineForSymbol(symName, spinePool) {
   return best;
 }
 
+/** T7: the inverse of findSpineForSymbol — an OPTIONAL static PNG match for a
+ * symbol discovered from its animation, when the animations-only pipeline is
+ * the entry point. Returns null (not an error) when there simply isn't one —
+ * that's the expected, common case for an animations-only symbol. */
+function findStaticForSymbol(symName, pngPool) {
+  if (!symName || !pngPool.length) return null;
+  let best = null;
+  let bestScore = 0;
+  for (const a of pngPool) {
+    if (isBlurVariant(a)) continue;
+    const score = spineMatchScore(symName, assetBaseName(a));
+    if (score > bestScore) { bestScore = score; best = a; }
+  }
+  return best;
+}
+
 // ── Structure-driven detection ───────────────────────────────────────────────
 //
 // The canonical Yggdrasil layout the wizard targets:
@@ -535,6 +551,56 @@ export function SpinnerWizard({
     );
     setSymbols(built);
   };
+
+  // T7: animations-only pipeline, now the DEFAULT/primary auto-fill — one
+  // symbol per Spine rig (the common "one file per symbol, land+win anims
+  // inside it" convention), with a static PNG attached only as an OPTIONAL
+  // enrichment when one happens to match by name. Skips static-art rendering
+  // for symbols entirely: the resting/idle texture is baked at build time
+  // from the land (or win) animation's first frame — see
+  // spinnerRuntime.bakeSpinePoseTexture — and post-win the symbol holds its
+  // last computed pose instead of needing a static to revert to.
+  const autoFillFromAnimations = async () => {
+    if (!animSearchPool.length) return;
+    const built = await Promise.all(
+      animSearchPool.map(async (spineA) => {
+        const symName = assetBaseName(spineA);
+        const anims = await resolveAnimsFor(symName, spineA);
+        if (!anims.landAnim?.anim && !anims.winAnim?.anim) return null; // this rig has neither — not a symbol
+        const staticA = findStaticForSymbol(symName, allPngAssets);
+        const blurAsset = staticA ? findBlurPair(staticA, blurSearchPool) : null;
+        return {
+          id: uid('sym'),
+          name: symName,
+          assetId: staticA?.id || null,
+          blurAssetId: blurAsset?.id || null,
+          // A matching static was found anyway (mixed project) — treat this
+          // symbol as an ordinary static one; only mark animOnly when there
+          // really is no static art, so hold-last-pose timing (spinnerEval's
+          // isAnimOnlySymbol) only ever applies to symbols that mean it.
+          animOnly: !staticA,
+          ...anims,
+        };
+      })
+    );
+    const filled = built.filter(Boolean);
+    if (filled.length) setSymbols(filled);
+  };
+
+  // T7: auto-run the animations-first fill on a FRESH wizard, once, the
+  // moment Spine assets are available — same "auto-suggest, let the artist
+  // override" pattern as WinSequenceWizard's font auto-pick. Never touches
+  // an edit-mode wizard (existing symbols) or one the artist has already
+  // populated (manually or via a previous auto-fill).
+  const symbolsAutoFilledRef = useRef(false);
+  useEffect(() => {
+    if (isEdit || symbolsAutoFilledRef.current) return;
+    const untouched = symbols.every((s) => !s.assetId && !s.landAnim?.anim && !s.winAnim?.anim);
+    if (!untouched || !animSearchPool.length) return;
+    symbolsAutoFilledRef.current = true;
+    autoFillFromAnimations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animSearchPool.length, isEdit]);
 
   // ── Auto-match blur counterparts ──────────────────────────────────────────
   const autoMatchBlur = () => {
@@ -968,7 +1034,20 @@ export function SpinnerWizard({
                     </div>
                   )}
 
+                  {/* T7: animations-first is the DEFAULT/primary workflow — one symbol
+                      per Spine rig, static art optional. "fill from assets" (statics)
+                      is the secondary/legacy path, demoted to a ghost button. */}
                   <div className="spinner-wizard-auto-row">
+                    {animSearchPool.length > 0 && (
+                      <button
+                        type="button"
+                        className="scene-btn scene-btn--primary"
+                        onClick={autoFillFromAnimations}
+                        title={`Create symbol(s) from ${animSearchPool.length} Spine rig(s) — land/win animations only, no static art required. A matching static PNG (if any) is attached automatically.`}
+                      >
+                        ⬇ fill from animations ({animSearchPool.length})
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="scene-btn scene-btn--ghost"
@@ -981,7 +1060,7 @@ export function SpinnerWizard({
                           : `Create ${candidates.length} symbol(s) from matching assets`
                       }
                     >
-                      ⬇ {structure && !assetFilter.trim() ? `fill from ${structure.rootLabel}` : 'fill from assets'} ({candidates.length})
+                      ⬇ {structure && !assetFilter.trim() ? `fill from ${structure.rootLabel} statics` : 'fill from static assets'} ({candidates.length})
                     </button>
                     <button type="button" className="scene-btn scene-btn--ghost" onClick={autoMatchBlur}
                       title="Find blur counterparts by filename suffix or Blur subfolder">

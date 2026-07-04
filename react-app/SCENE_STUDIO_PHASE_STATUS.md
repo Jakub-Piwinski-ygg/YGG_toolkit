@@ -322,6 +322,78 @@ w kolejności z §3 planu.
   T7 (3/4); nie ma czego naprawiać, dopóki ten krok nie istnieje.
   Pliki: `SceneStudioInner.jsx`, `components/SceneSetupWizard.jsx`.
 
+## T7 (2–4/4) — pipeline animations-only dla symboli spinnera (2026-07-04)
+
+Po teście poprzedniej sesji użytkownik doprecyzował: kreator ma domyślnie
+proponować **animacje jako główny workflow** (pomijając statyczny art), z
+idle/landing pozą = pierwsza klatka animacji landing (fallback win), a po
+prezentacji wygranej symbol **trzyma ostatnią policzoną pozę** zamiast
+wracać do statyku. Zaimplementowane:
+
+- **Model (`engine/spinner/spinnerModel.js`)**: nowe, **jawne** pole
+  `symbol.animOnly` (domyślnie `false`). Celowo NIE wywnioskowane z braku
+  `assetId` — symbol bez statyku w trakcie authoringu (albo istniejący
+  fixture testowy) nie może po cichu włączyć timingu „trzymaj wygraną w
+  nieskończoność". Złapane przez 3 padające testy regresji przed commitem
+  (`makeDurConfig`'s fixture'y nie mają `assetId` z powodów niepowiązanych z
+  T7 — dokładnie ten przypadek, którego `animOnly` jako jawna flaga ma
+  unikać).
+- **Ewaluator (`engine/spinner/spinnerEval.js`)**: `isAnimOnlySymbol(id)` po
+  `symMap.get(id).animOnly === true` — dla takich symboli okno „win" nie ma
+  górnej granicy (`winEnd = Infinity`), więc `cellState` zostaje `'win'`, aż
+  ten reel znów zacznie się kręcić (`speed > EPS_V`, warunek już istniejący).
+  Spine z `loop:false` naturalnie zamraża się na ostatniej klatce (wbudowane
+  zachowanie AnimationState), `loop:true` po prostu pętli się w spoczynku —
+  oba wyniki są poprawną interpretacją „trzymaj policzoną pozę".
+- **Runtime (`engine/spinner/spinnerRuntime.js`)**: `bakeSpinePoseTexture` —
+  dla symbolu bez `assetId`, ale z rozwiązywalną animacją land/win typu
+  `spine`, buduje TYMCZASOWY obiekt Spine (przez istniejącą fabrykę
+  `createSpineContainer`), pozuje go na klatce 0, i **piecze prawdziwą
+  teksturę** przez `renderer.generateTexture()` (+ wariant blur przez
+  `pixi.js`'s `BlurFilter`) — wstawioną do TEJ SAMEJ mapy `textures`, którą
+  normalnie wypełniają statyczne PNG-i. Zero zmian w pętli per-klatkowej:
+  `cell.staticSprite.texture = texPair.tex` po prostu dostaje upieczoną
+  teksturę zamiast załadowanego PNG-a.
+  **Świadomie odrzucona alternatywa**: żywy, stale-aktualizowany obiekt Spine
+  per komórka idle. Pula nakładek land/win jest CELOWO ograniczona (≤12
+  instancji — koszt renderowania Spine per-instancję), a komórek w spoczynku
+  na typowej planszy jest więcej niż 12 — pieczenie do tekstury to jedyne
+  podejście skalujące się do „każda spoczywająca komórka".
+- **Kreator (`components/SpinnerWizard.jsx`)**: nowa `autoFillFromAnimations`
+  — jeden symbol na plik Spine (konwencja „jeden rig = land+win w środku"),
+  statyk dobierany PO NAZWIE jako opcjonalne wzbogacenie
+  (`findStaticForSymbol`, odwrotność istniejącego `findSpineForSymbol`).
+  To nowy, **PIERWSZY/primary** przycisk w kroku Symbols (statyki zdegradowane
+  do drugiego, ghost-button). **Auto-uruchamia się przy otwarciu świeżego
+  kreatora** (bez `existingConfig`, bez ręcznie dotkniętych symboli), gdy
+  wykryto assety Spine — ten sam wzorzec „auto-suggest, pozwól nadpisać" co
+  auto-pick fontu w `WinSequenceWizard`.
+  **Nie zrobione z T7**: literalna zamiana kolejności kroków (Grid↔Symbols) —
+  użytkownik po doprecyzowaniu skupił się na DOMYŚLNYM PIPELINE, nie na
+  numeracji kroków, więc to zostało tak jak jest; „auto-generate blur" z
+  oryginalnego opisu planu zaimplementowane jako prosty `BlurFilter` z
+  pixi.js (nie pełny pipeline ImageMagick app'u, jak w innych Art Tools) —
+  wystarczające do podglądu web, gorszej jakości niż ręcznie robiony blur.
+- **⚠ ZNANA LUKA — parytet Unity**: eksporter Unity (`unity/exportUnityPackage.js`)
+  już gracefully obsługuje `sym.assetId === null` (`staticGuid: null`), więc
+  export się NIE wywali — ale strona C# (`YggSpinner.cs`) nie ma odpowiednika
+  „upiecz teksturę z pozy Spine'a" ani „trzymaj ostatnią pozę po wygranej" —
+  symbol animations-only pokaże się poprawnie w web preview, ale w Unity
+  runtime prawdopodobnie nie będzie miał żadnej statycznej tekstury spoczynkowej
+  w ogóle. Wymaga osobnej sesji nad C#, świadomie nie zgadywane na ślepo.
+
+3 nowe testy w `spinnerEval.test.js` (`animOnly` default/preserved + hold-win
+behavior kontrastowany z symbolem zwykłym w tym samym configu). 131 testów
+silnika, 27 unity, zero regresji. Brak harnessu dla `bakeSpinePoseTexture`
+(Pixi renderer, `generateTexture`, `BlurFilter`) — zweryfikowane wyłącznie
+przez `npm run build` i przegląd strukturalny; **wizualna weryfikacja w
+przeglądarce (czy pieczona tekstura się poprawnie centruje/skaluje względem
+komórki) — TODO, nie wykonana w tej sesji.**
+
+Pliki: `engine/spinner/spinnerModel.js`, `engine/spinner/spinnerEval.js` (+
+test), `engine/spinner/spinnerRuntime.js`, `engine/pixiApp.js` (przekazanie
+`renderer` do `buildSpinnerObject`), `components/SpinnerWizard.jsx`.
+
 ## Poprawki po testach użytkownika (2026-07-04, po sesji T1–T9)
 
 Dwa realne bugi zgłoszone po ręcznym przetestowaniu poprzedniej sesji:
