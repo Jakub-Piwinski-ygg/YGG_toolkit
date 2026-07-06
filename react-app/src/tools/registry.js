@@ -8,8 +8,6 @@ import { GreyToAlphaTool, greyToAlphaMeta } from './GreyToAlphaTool.jsx';
 import { GradientMapTool, gradientMapMeta } from './GradientMapTool.jsx';
 import { OutlineTool, outlineMeta } from './OutlineTool.jsx';
 import { AtlasPackerTool, atlasMeta } from './AtlasPackerTool.jsx';
-import { PaylinesTool, paylinesMeta } from './PaylinesTool.jsx';
-import { FontPreviewTool, fontPreviewMeta } from './FontPreviewTool.jsx';
 import { RepoContentBrowserTool, repoContentBrowserMeta } from './RepoContentBrowserTool.jsx';
 import { AssetCheckerTool, assetCheckerMeta } from './AssetChecker/AssetCheckerTool.jsx';
 import { ProjectScaffoldTool, projectScaffoldMeta } from './ProjectScaffoldTool.jsx';
@@ -29,9 +27,7 @@ const ART = [
   { meta: greyToAlphaMeta, Component: GreyToAlphaTool },
   { meta: gradientMapMeta, Component: GradientMapTool },
   { meta: outlineMeta, Component: OutlineTool },
-  { meta: atlasMeta, Component: AtlasPackerTool },
-  { meta: paylinesMeta, Component: PaylinesTool },
-  { meta: fontPreviewMeta, Component: FontPreviewTool }
+  { meta: atlasMeta, Component: AtlasPackerTool }
 ];
 
 const REVIEW = [
