@@ -59,11 +59,11 @@ import { blurRenderedCanvas } from './spinnerBlur.js';
  * the caller anchor the sprite at the origin fraction instead, so idle ↔
  * land/win lines up on the same point the Spine data was authored around.
  */
-export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop) {
+export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop, skin = null) {
   if (!deps.renderer || !deps.createSpineContainer) return null;
   let inst = null;
   try {
-    inst = await deps.createSpineContainer(assetId, animName, loop);
+    inst = await deps.createSpineContainer(assetId, animName, loop, skin);
     if (!inst) return null;
     inst.setTrackTime(0); // first frame = the idle/resting pose
     // Same bounds computation generateTexture uses internally to crop —
@@ -206,7 +206,7 @@ export async function buildSpinnerObject(asset, layer, deps) {
     if (!animConf?.assetId || !animConf?.anim) continue; // no anim either — stays Texture.WHITE
     const existing = textures.get(sym.id);
     const hasPersistedBlur = !!sym.blurAssetId && existing?.blurTex && existing.blurTex !== Texture.WHITE;
-    const baked = await bakeSpinePoseSharpTexture(deps, animConf.assetId, animConf.anim, animConf.loop !== false);
+    const baked = await bakeSpinePoseSharpTexture(deps, animConf.assetId, animConf.anim, animConf.loop !== false, sym.skin || null);
     if (!baked?.sharp) continue;
     // Sharp texture stands in for the idle/resting slot immediately — the
     // scene can render right now. A persisted blur asset (if any) is used
@@ -281,7 +281,7 @@ export async function buildSpinnerObject(asset, layer, deps) {
   const symbolMap = new Map(config.symbols.map((s) => [s.id, s]));
 
   // Spine overlay pool — pre-built containers for land/win Spine animations.
-  // deps.createSpineContainer(assetId, animName, loop) → {container, setTrackTime(t), duration} | null
+  // deps.createSpineContainer(assetId, animName, loop, skin) → {container, setTrackTime(t), duration} | null
   const spinePool = new Map();
   const createSpine = deps.createSpineContainer || null;
   // Real per-symbol Spine durations (seconds), learned while building the pool.
@@ -295,8 +295,9 @@ export async function buildSpinnerObject(asset, layer, deps) {
       for (const animConf of [sym.landAnim, sym.winAnim]) {
         if (!animConf || animConf.kind !== 'spine') continue;
         const loop = animConf.loop !== false;
-        const key = `${animConf.assetId}:${animConf.anim}:${loop ? '1' : '0'}`;
-        if (!specs.has(key)) specs.set(key, { assetId: animConf.assetId, anim: animConf.anim, loop });
+        const skin = sym.skin || '';
+        const key = `${animConf.assetId}:${animConf.anim}:${loop ? '1' : '0'}:${skin}`;
+        if (!specs.has(key)) specs.set(key, { assetId: animConf.assetId, anim: animConf.anim, loop, skin });
       }
     }
     const poolCount = Math.min(reels * rows, 12);
@@ -304,7 +305,7 @@ export async function buildSpinnerObject(asset, layer, deps) {
       const instances = [];
       let dur = 0;
       for (let i = 0; i < poolCount; i++) {
-        const inst = await createSpine(spec.assetId, spec.anim, spec.loop);
+        const inst = await createSpine(spec.assetId, spec.anim, spec.loop, spec.skin || null);
         if (!inst) break;
         if (inst.duration > 0) dur = inst.duration;
         inst.container.visible = false;
@@ -320,7 +321,7 @@ export async function buildSpinnerObject(asset, layer, deps) {
     for (const sym of config.symbols) {
       let win = 0, land = 0;
       const animKey = (a) => (a && a.kind === 'spine'
-        ? `${a.assetId}:${a.anim}:${a.loop !== false ? '1' : '0'}` : null);
+        ? `${a.assetId}:${a.anim}:${a.loop !== false ? '1' : '0'}:${sym.skin || ''}` : null);
       const wk = animKey(sym.winAnim);
       const lk = animKey(sym.landAnim);
       if (wk && animDur.has(wk)) { win = animDur.get(wk); sym.winAnim.duration = win; }
@@ -504,7 +505,7 @@ export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, out
         const off = Number(animConf.offset) || 0;
         const localT = data.stateT - off;
         if (localT >= 0) {
-          const spKey = `${animConf.assetId}:${animConf.anim}:${loop ? '1' : '0'}`;
+          const spKey = `${animConf.assetId}:${animConf.anim}:${loop ? '1' : '0'}:${sym?.skin || ''}`;
           const cellY = -H / 2 + (data.gridRow + dispFrac) * pitchY + cellH / 2;
           overlayShown = useSpineOverlay(spinePool, spKey, cellCenterX, cellY, localT, symbolScale ?? 1);
         }

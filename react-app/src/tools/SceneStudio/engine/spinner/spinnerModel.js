@@ -126,6 +126,9 @@ function normalizeSymbol(s) {
     name: typeof s.name === 'string' ? s.name : String(s.id),
     assetId: s.assetId || null,
     blurAssetId: s.blurAssetId || null,
+    // Optional default Spine skin for this symbol (used by both land + win
+    // overlays and by anim-only pose bakes).
+    skin: typeof s.skin === 'string' && s.skin ? s.skin : null,
     landAnim: anim(s.landAnim),
     winAnim: anim(s.winAnim),
     // T7: explicit "animations-only" marker — a symbol with no static PNG

@@ -115,7 +115,13 @@ function uid(prefix = 's') {
 }
 
 function defaultSymbol(n) {
-  return { id: uid('sym'), name: `sym${n + 1}`, assetId: null, blurAssetId: null, landAnim: null, winAnim: null };
+  return { id: uid('sym'), name: `sym${n + 1}`, assetId: null, blurAssetId: null, landAnim: null, winAnim: null, skin: null };
+}
+
+function preferredDefaultSkin(skins) {
+  if (!Array.isArray(skins) || skins.length === 0) return null;
+  const byLower = new Map(skins.map((s) => [String(s).toLowerCase(), s]));
+  return byLower.get('base') || byLower.get('default') || null;
 }
 
 // assetBaseName / assetPathSegments / symbolScore / isConfidentSymbolMatch
@@ -538,18 +544,33 @@ export function SpinnerWizard({
   // findSpineForSymbol matches by name, so unrelated spines don't leak in).
   const animSearchPool = structure?.anims?.length ? structure.anims : allSpineAssets;
 
-  // ── Spine animation lists (read from the actual .json files) ─────────────
-  // assetId → string[] (animation names) | null (file unreadable).
-  const spineAnimsCacheRef = useRef(new Map());
+  // ── Spine metadata (animations + skins) from the actual .json files ──────
+  // assetId → { animations: string[]|null, skins: string[] }.
+  const spineMetaCacheRef = useRef(new Map());
+  const [spineSkinsById, setSpineSkinsById] = useState({});
   // "Refresh assets" re-reads files from disk — drop cached anim-name lists so
   // edited spine .json files re-parse.
-  useEffect(() => { spineAnimsCacheRef.current.clear(); }, [refreshNonce]);
+  useEffect(() => {
+    spineMetaCacheRef.current.clear();
+    setSpineSkinsById({});
+  }, [refreshNonce]);
 
-  const loadSpineAnims = useCallback(async (spineAsset) => {
+  const parseSpineSkins = (doc) => {
+    const skins = doc?.skins;
+    if (Array.isArray(skins)) {
+      return skins
+        .map((s) => (typeof s === 'string' ? s : s?.name))
+        .filter((s) => typeof s === 'string' && s);
+    }
+    if (skins && typeof skins === 'object') return Object.keys(skins).filter(Boolean);
+    return [];
+  };
+
+  const loadSpineMeta = useCallback(async (spineAsset) => {
     if (!spineAsset) return null;
-    const cache = spineAnimsCacheRef.current;
+    const cache = spineMetaCacheRef.current;
     if (cache.has(spineAsset.id)) return cache.get(spineAsset.id);
-    let names = null;
+    let meta = { animations: null, skins: [] };
     try {
       const src = String(spineAsset.src || '');
       let text = null;
@@ -558,16 +579,36 @@ export function SpinnerWizard({
         const file = await resolveAssetFile(src, rootHandle);
         if (file) text = await file.text();
       }
-      if (text) names = Object.keys(JSON.parse(text).animations || {});
+      if (text) {
+        const doc = JSON.parse(text);
+        meta = {
+          animations: Object.keys(doc.animations || {}),
+          skins: parseSpineSkins(doc),
+        };
+      }
     } catch { /* unreadable → keep null, callers fall back to name guess */ }
-    cache.set(spineAsset.id, names);
-    return names;
+    cache.set(spineAsset.id, meta);
+    if (meta.skins.length) {
+      setSpineSkinsById((prev) => {
+        const prevVal = prev[spineAsset.id] || [];
+        if (prevVal.length === meta.skins.length && prevVal.every((v, i) => v === meta.skins[i])) return prev;
+        return { ...prev, [spineAsset.id]: meta.skins };
+      });
+    }
+    return meta;
   }, [rootHandle]);
+
+  useEffect(() => {
+    if (!allSpineAssets.length) return;
+    Promise.all(allSpineAssets.map((a) => loadSpineMeta(a)));
+  }, [allSpineAssets, loadSpineMeta]);
 
   /** land/win entries for a symbol: real anim names when readable, guess otherwise. */
   const resolveAnimsFor = useCallback(async (symName, spineA) => {
     if (!spineA) return { landAnim: null, winAnim: null };
-    const names = await loadSpineAnims(spineA);
+    const meta = await loadSpineMeta(spineA);
+    const names = meta?.animations ?? null;
+    const skin = preferredDefaultSkin(meta?.skins);
     const entry = (kind) => {
       const picked = names ? pickAnimName(names, kind, symName) : null;
       // File unreadable → legacy guess; readable but no match → leave empty
@@ -575,8 +616,8 @@ export function SpinnerWizard({
       const anim = picked ?? (names ? '' : `${symName}_${kind}`);
       return { kind: 'spine', assetId: spineA.id, anim };
     };
-    return { landAnim: entry('land'), winAnim: entry('win') };
-  }, [loadSpineAnims]);
+    return { landAnim: entry('land'), winAnim: entry('win'), skin };
+  }, [loadSpineMeta]);
 
   // ── Auto-fill symbols ─────────────────────────────────────────────────────
   const autoFillFromAssets = async () => {
@@ -593,6 +634,7 @@ export function SpinnerWizard({
           name: symName,
           assetId: a.id,
           blurAssetId: blurAsset?.id || null,
+          skin: anims.skin || null,
           ...anims,
         };
       })
@@ -622,6 +664,7 @@ export function SpinnerWizard({
           name: symName,
           assetId: staticA?.id || null,
           blurAssetId: blurAsset?.id || null,
+          skin: anims.skin || null,
           // A matching static was found anyway (mixed project) — treat this
           // symbol as an ordinary static one; only mark animOnly when there
           // really is no static art, so hold-last-pose timing (spinnerEval's
@@ -703,17 +746,23 @@ export function SpinnerWizard({
     if (!assetId) return;
     const spineA = allSpineAssets.find((a) => a.id === assetId);
     const symName = symbols.find((s) => s.id === symId)?.name || '';
-    loadSpineAnims(spineA).then((names) => {
+    loadSpineMeta(spineA).then((meta) => {
+      const names = meta?.animations ?? null;
       const picked = names ? pickAnimName(names, kind, symName) : null;
       const anim = picked ?? (names ? '' : `${symName}_${kind}`);
-      if (!anim) return;
+      const skin = preferredDefaultSkin(meta?.skins);
+      if (!anim && !skin) return;
       setSymbols((prev) =>
         prev.map((s) => {
           if (s.id !== symId) return s;
           const cur = s[field];
           // Bail if the user re-picked or typed a name in the meantime.
           if (!cur || cur.assetId !== assetId || cur.anim) return s;
-          return { ...s, [field]: { ...cur, anim } };
+          return {
+            ...s,
+            skin: s.skin || skin || null,
+            [field]: { ...cur, anim }
+          };
         })
       );
     });
@@ -812,7 +861,7 @@ export function SpinnerWizard({
       await new Promise(requestAnimationFrame); // let the progress update (and Pixi) paint first
       const animConf = poseAnimConfFor(sym);
       try {
-        const blob = await onBakeSpinePose(animConf.assetId, animConf.anim, animConf.loop !== false, blur.sigma, blur.feather);
+        const blob = await onBakeSpinePose(animConf.assetId, animConf.anim, animConf.loop !== false, sym.skin || null, blur.sigma, blur.feather);
         if (!blob) throw new Error('idle-pose render returned nothing');
         const blobUrl = URL.createObjectURL(blob);
         const blurId  = uid('gen');
@@ -835,6 +884,27 @@ export function SpinnerWizard({
   const symbolsWithStatic = symbols.filter((s) => s.assetId).length;
   const poseBakeSymbols = validSymbols.filter((s) => !s.assetId && poseAnimConfFor(s));
   const poseBlurNeeding = poseBakeSymbols.filter((s) => !s.blurAssetId).length;
+  const skinOptionsForSymbol = (sym) => {
+    const ids = [sym.landAnim?.assetId, sym.winAnim?.assetId].filter(Boolean);
+    if (!ids.length) return [];
+    return [...new Set(ids.flatMap((id) => spineSkinsById[id] || []))];
+  };
+
+  // Fill default symbol skin when metadata lands later (or after reassignment),
+  // but never override an explicit user pick.
+  useEffect(() => {
+    setSymbols((prev) => {
+      let changed = false;
+      const next = prev.map((sym) => {
+        if (sym.skin) return sym;
+        const skin = preferredDefaultSkin(skinOptionsForSymbol(sym));
+        if (!skin) return sym;
+        changed = true;
+        return { ...sym, skin };
+      });
+      return changed ? next : prev;
+    });
+  }, [spineSkinsById]);
 
   // ── BoardGridEditor preview config ────────────────────────────────────────
   const previewConfig = { grid: { reels, rows, cellW, cellH, spacingX, spacingY, symbolScale }, symbols: validSymbols };
@@ -888,7 +958,7 @@ export function SpinnerWizard({
   // slider drags update the preview immediately AND keep the object stable
   // during a test spin (no texture reload → no blank/blur flash).
   const contentHash = useMemo(() => hash32(JSON.stringify({
-    s: validSymbols.map((s) => [s.id, s.assetId, s.blurAssetId, s.landAnim, s.winAnim]),
+    s: validSymbols.map((s) => [s.id, s.assetId, s.blurAssetId, s.skin || null, s.landAnim, s.winAnim]),
     g: { reels, rows },
   })) || 1, [symbols, reels, rows]);
   const [bakedStruct, setBakedStruct] = useState(() => ({
@@ -1342,6 +1412,26 @@ export function SpinnerWizard({
 
                     {allSpineAssets.length > 0 && (
                       <div className="spinner-sym-anim-row">
+                        {(() => {
+                          const skinOptions = skinOptionsForSymbol(sym);
+                          return (
+                            <>
+                              <span className="spinner-sym-anim-label">skin</span>
+                              <select
+                                className="spinner-sym-asset spinner-sym-asset--sm"
+                                value={sym.skin || ''}
+                                onChange={(e) => patchSymbol(i, { skin: e.target.value || null })}
+                                disabled={!skinOptions.length}
+                                title="Default Spine skin for this symbol"
+                              >
+                                <option value="">— default skin —</option>
+                                {skinOptions.map((skin) => (
+                                  <option key={skin} value={skin}>{skin}</option>
+                                ))}
+                              </select>
+                            </>
+                          );
+                        })()}
                         <span className="spinner-sym-anim-label">land</span>
                         <select
                           className="spinner-sym-asset spinner-sym-asset--sm"

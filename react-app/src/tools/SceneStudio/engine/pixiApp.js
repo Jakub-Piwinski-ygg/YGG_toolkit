@@ -341,12 +341,15 @@ export function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath, urlSin
     }
     return dataCache.get(assetId);
   };
-  return async function createSpineContainer(assetId, animName, loop) {
+  return async function createSpineContainer(assetId, animName, loop, skin = null) {
     const skeletonData = await skeletonDataFor(assetId);
     const animData = skeletonData ? skeletonData.findAnimation(animName) : null;
     if (!skeletonData || !animData) return null;
     try {
       const spine = new Spine(skeletonData);
+      if (typeof skin === 'string' && skin) {
+        try { spine.skeleton.setSkinByName(skin); spine.skeleton.setupPoseSlots(); } catch { /* skin missing */ }
+      }
       spine.state.setAnimation(0, animName, !!loop);
       try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
       return {

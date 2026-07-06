@@ -465,20 +465,22 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
                 blurSize: size2(bInfo)
               };
             });
-            const animOf = (an, kind, symId) => {
+            const animOf = (an, kind, symId, skin = '') => {
               if (!an || an.kind !== 'spine' || !an.assetId || !an.anim) return null;
               const aInfo = assetInfo.get(an.assetId);
               if (aInfo?.kind !== 'spine' || !aInfo.spineName) return null;
               return {
                 symbolId: symId, kind, spineName: aInfo.spineName,
                 anim: an.anim, loop: an.loop !== false,
+                skin,
                 offset: Number.isFinite(Number(an.offset)) ? Number(an.offset) : 0
               };
             };
             const animBindings = [];
             for (const sym of (spinnerAsset?.spinner?.symbols || [])) {
-              const l = animOf(sym.landAnim, 'land', sym.id); if (l) animBindings.push(l);
-              const w = animOf(sym.winAnim, 'win', sym.id); if (w) animBindings.push(w);
+              const skin = sym.skin || '';
+              const l = animOf(sym.landAnim, 'land', sym.id, skin); if (l) animBindings.push(l);
+              const w = animOf(sym.winAnim, 'win', sym.id, skin); if (w) animBindings.push(w);
             }
             const reelCount = normalizeSpinnerConfig(spinnerAsset?.spinner)?.grid?.reels || 0;
             for (let r = 0; r < reelCount; r++) {
@@ -489,7 +491,7 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
                   layerId: layer.id,
                   visible: true,
                   spineData: b.spineName,
-                  spineSkin: '',
+                  spineSkin: b.skin || '',
                   spineAnim: '',
                   spineLoop: false,
                   spineHasCues: true

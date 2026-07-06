@@ -4135,8 +4135,8 @@ export default function SceneStudioInner() {
                 onPreviewScene={setWizardPreviewScene}
                 onPreviewTime={setWizardPreviewTime}
                 previewControlsRef={wizardPreviewControlsRef}
-                onBakeSpinePose={(assetId, animName, loop, sigma, feather) =>
-                  pixiViewportRef.current?.bakeSpinePosePng(assetId, animName, loop, sigma, feather)}
+                onBakeSpinePose={(assetId, animName, loop, skin, sigma, feather) =>
+                  pixiViewportRef.current?.bakeSpinePosePng(assetId, animName, loop, skin, sigma, feather)}
                 onClose={() => { setShowSpinnerWizard(false); setEditSpinnerTarget(null); }}
                 onCreate={
                   editSpinnerTarget

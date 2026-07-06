@@ -27,7 +27,7 @@ export function spinnerStructuralSig(spinner) {
   if (!spinner) return '-';
   const anim = (a) => (a && a.kind === 'spine' ? `${a.assetId}~${a.anim}~${a.loop !== false ? 1 : 0}` : '-');
   const syms = (spinner.symbols || [])
-    .map((s) => [s.id, s.assetId || '-', s.blurAssetId || '-', anim(s.landAnim), anim(s.winAnim)].join(','))
+    .map((s) => [s.id, s.assetId || '-', s.blurAssetId || '-', s.skin || '-', anim(s.landAnim), anim(s.winAnim)].join(','))
     .join(';');
   const g = spinner.grid || {};
   return `${g.reels}x${g.rows}|${syms}`;

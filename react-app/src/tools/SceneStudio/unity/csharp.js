@@ -1267,6 +1267,7 @@ namespace Ygg.SceneStudio
     {
         public string symbolId, kind, spineName, anim;
         public bool loop = true;
+        public string skin;
         public float offset;
         public UnityEngine.Object skeletonDataAsset;
     }
@@ -1363,7 +1364,7 @@ namespace Ygg.SceneStudio
         // via spine-unity reflection so this compiles without spine-unity. Play
         // mode only (edit-mode scrub never instantiates). All reflection is
         // wrapped so a spine API mismatch degrades to "no overlay", never a crash.
-        class Overlay { public GameObject go; public object state; public string anim; public bool loop; public float offset; }
+        class Overlay { public GameObject go; public object state; public string anim; public bool loop; public float offset; public string skin; }
         Dictionary<string, Overlay> _overlays;
         bool _overlaysBuilt;
         // §3-followup: land/win overlays are baked PER REEL (Fx > Reel_r > Anim_*)
@@ -1707,7 +1708,7 @@ namespace Ygg.SceneStudio
                         }
                     }
                     tr.gameObject.SetActive(false);
-                    _overlays[key] = new Overlay { go = tr.gameObject, state = state, anim = b.anim, loop = b.loop, offset = b.offset };
+                    _overlays[key] = new Overlay { go = tr.gameObject, state = state, anim = b.anim, loop = b.loop, offset = b.offset, skin = b.skin };
                 }
             }
         }
@@ -1763,6 +1764,16 @@ namespace Ygg.SceneStudio
                         stateType.GetMethod("SetAnimation", new[] { typeof(int), typeof(string), typeof(bool) })
                             ?.Invoke(ov.state, new object[] { 0, ov.anim, ov.loop });
                         track = getCurrent?.Invoke(ov.state, new object[] { 0 });
+                    }
+                    if (!string.IsNullOrEmpty(ov.skin))
+                    {
+                        var skelObj = ov.state.GetType().GetProperty("Skeleton")?.GetValue(ov.state);
+                        if (skelObj != null)
+                        {
+                            var skType = skelObj.GetType();
+                            skType.GetMethod("SetSkin", new[] { typeof(string) })?.Invoke(skelObj, new object[] { ov.skin });
+                            skType.GetMethod("SetSlotsToSetupPose")?.Invoke(skelObj, null);
+                        }
                     }
                     track?.GetType().GetProperty("TrackTime")?.SetValue(track, localT);
                 }

@@ -382,6 +382,7 @@ function spinnerYaml(id, goId, scriptGuid, spinner, { ui, ppu, maskSpriteGuid } 
     spineName: ${b.spineName}
     anim: ${b.anim}
     loop: ${b.loop ? 1 : 0}
+    skin: ${b.skin || ''}
     offset: ${f(b.offset || 0)}
     skeletonDataAsset: {fileID: 0}`).join('\n');
   return `${commonHeader(114, id, 'MonoBehaviour')}

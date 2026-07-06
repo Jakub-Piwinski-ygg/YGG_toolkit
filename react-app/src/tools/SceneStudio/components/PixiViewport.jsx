@@ -547,13 +547,13 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
      * @returns {Promise<Blob|null>} blurred PNG blob, or null if the renderer
      *   isn't ready yet or the pose/blur bake failed.
      */
-    async bakeSpinePosePng(assetId, animName, loop, sigma, feather) {
+    async bakeSpinePosePng(assetId, animName, loop, skin, sigma, feather) {
       const app = appRef.current;
       if (!app?.renderer) return null;
       const scene = sceneRef.current;
       const createSpineContainer = makeSpineOverlayFactory(scene, rootHandleRef.current, scene?.projectRoot || null);
       const baked = await bakeSpinePoseSharpTexture(
-        { renderer: app.renderer, createSpineContainer }, assetId, animName, loop
+        { renderer: app.renderer, createSpineContainer }, assetId, animName, loop, skin || null
       );
       if (!baked) return null;
       try {
