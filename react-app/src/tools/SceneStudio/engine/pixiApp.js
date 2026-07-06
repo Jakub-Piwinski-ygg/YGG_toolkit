@@ -21,7 +21,13 @@ import { CHANNEL_DEFS, CHANNEL_NAMES, channelFirstKeyTime, clipLocalSeconds, eva
 import { resolvePointHandles } from './animation/pathSpline.js';
 import { Spine } from '@esotericsoftware/spine-pixi-v8';
 import { buildSpineFromUrls, loadSkeletonData, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
-import { buildSpinnerObject, applySpinnerAtTime } from './spinner/spinnerRuntime.js';
+import { buildSpinnerObject, applySpinnerAtTime, relayoutSpinnerGeometry, setSpinnerCellGizmoVisible } from './spinner/spinnerRuntime.js';
+import { normalizeSpinnerConfig } from './spinner/spinnerModel.js';
+import { spinnerStructuralSig, winseqNumberSig } from './structuralHash.js';
+
+// The rebuild-gate model lives in structuralHash.js (pure, unit-testable);
+// re-exported here so the viewport keeps a single engine entry point.
+export { sceneStructuralHash, sceneStructuralParts, diffStructuralParts, spinnerStructuralSig, winseqNumberSig } from './structuralHash.js';
 import { applyWinSeqAtTime, resetWinSeqState, applyWinSeqSetupPose, winSeqDurationsFromSpine } from './winseq/winseqRuntime.js';
 import { normalizeWinSeqConfig } from './winseq/winseqModel.js';
 import { normalizeWinNumber, isTemplateFont, templateFontUrl } from './winseq/winNumberModel.js';
@@ -264,12 +270,12 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
     if (!asset) return;
     const obj = await buildLayerObject(asset, layer, rootHandle, scene.projectRoot || null, scene, onSpinnerAnimDurations, blobUrls, app);
     if (!obj) return;
-    // T5 (eye visibility model): `visible` stays true — a closed eye is an
-    // alpha-0 gate (applied by the syncTransforms/applyFlowAtTime pass that
-    // runs right after this build), not a hard Pixi hide, so the object's
+    // `visible` stays true — visibility is expressed purely as alpha now
+    // (the syncTransforms/applyFlowAtTime pass right after this build sets the
+    // real alpha from the transform), not a hard Pixi hide, so the object's
     // own runtime state (spine ticking, spinner/winseq tracking) never stops.
     obj.visible = true;
-    obj.alpha = layer.visible !== false ? 1 : 0;
+    obj.alpha = 1;
 
     if ((asset.type === 'spine' || asset.type === 'winseq') && onAssetReady) {
       try { onAssetReady(asset.id, describeSpine(obj)); }
@@ -315,7 +321,7 @@ export async function rebuildScene(app, content, selectionOverlay, scene, select
 // Overlay spines are scrub-driven only: autoUpdate off, no __isSpine mark, so
 // neither the shared ticker nor the live-preview RAF advances them —
 // setTrackTime(t) is the single source of pose truth.
-function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath, urlSink = null) {
+export function makeSpineOverlayFactory(scene, rootHandle, sceneBasePath, urlSink = null) {
   const rec = (r) => { if (urlSink && r?.url && r.url.startsWith('blob:')) urlSink.add(r.url); return r; };
   const dataCache = new Map(); // assetId → Promise<SkeletonData|null>
   const skeletonDataFor = (assetId) => {
@@ -371,7 +377,7 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
   const resolve = async (src) => rec(await resolveAssetUrl(src, rootHandle, sceneBasePath));
   try {
     if (asset.type === 'spinner') {
-      return await buildSpinnerObject(asset, layer, {
+      const obj = await buildSpinnerObject(asset, layer, {
         scene,
         rootHandle,
         sceneBasePath,
@@ -388,6 +394,10 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
           ? (symbols) => onSpinnerAnimDurations(asset.id, symbols)
           : null
       });
+      // Structural sig of the config THIS OBJECT was built from — the
+      // live-patch pass only swaps runtime configs whose structure matches it.
+      if (obj?.__spinner) obj.__spinner.structSig = spinnerStructuralSig(asset.spinner);
+      return obj;
     }
     if (asset.type === 'png') {
       const resolved = await resolve(asset.src);
@@ -427,6 +437,10 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       // at the current frame instead of drifting because the shared ticker
       // kept running.
       spine.__isSpine = true;
+      // Identity guard for the live-patch pass (applyRuntimeConfigs): the
+      // layer.spine object this instance was built with. Defaults edits swap
+      // the reference; the pass re-applies state without a rebuild.
+      spine.__spineCfgRef = layer.spine ?? null;
       try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
       return spine;
     }
@@ -446,7 +460,15 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       snapshotSpineBounds(spine);
       if (!spine.anchor) spine.anchor = { x: 0, y: 0, set() {} };
       try { spine.autoUpdate = false; } catch { /* readonly in some builds */ }
-      spine.__winseq = { config, durations: winSeqDurationsFromSpine(spine) };
+      // rawRef = the asset.winseq object this build normalized; numSig = the
+      // glyph structure it was built with — the live-patch pass
+      // (applyRuntimeConfigs) swaps `config` in place on runtime-only edits.
+      spine.__winseq = {
+        config,
+        durations: winSeqDurationsFromSpine(spine),
+        rawRef: asset.winseq,
+        numSig: winseqNumberSig(asset.winseq)
+      };
       spine.__wsCache = { anim: null, loop: null };
       // Show the setup default pose so a freshly-built object is visible for
       // positioning in setup mode; animate mode's applyWinSeqAtTime overrides.
@@ -482,7 +504,11 @@ async function buildLayerObject(asset, layer, rootHandle, sceneBasePath = null, 
       // Best-effort autoplay — browser may block until first user gesture.
       try { await vid.play(); } catch { /* user-gesture required */ }
       const texture = Texture.from(vid);
-      return new Sprite(texture);
+      const sprite = new Sprite(texture);
+      // Identity guard for the live-patch pass — loop/mute edits patch the
+      // element directly instead of rebuilding the scene.
+      sprite.__videoCfgRef = layer.video ?? null;
+      return sprite;
     }
   } catch (e) {
     console.warn('[SceneStudio] failed to build layer', asset?.type, e);
@@ -927,17 +953,15 @@ export function syncTransforms(app, handles, scene) {
   for (const layer of scene.layers) {
     const obj = handles.get(layer.id);
     if (!obj || obj.destroyed) continue;
-    // T5 (eye visibility model): the hierarchy eye toggle composes with the
-    // inspector alpha as effectiveAlpha = min(inspectorAlpha, eyeAlpha)
-    // instead of a hard Pixi `visible=false` — closing the eye never
-    // overwrites the authored inspector alpha, and the object stays fully in
-    // the runtime (alpha 0 already skips Pixi's render pass).
+    // Unified visibility model: `transform.alpha` is the SINGLE source of
+    // truth for opacity AND visibility. The hierarchy eye is just an alpha
+    // 0/1 shortcut now — there's no separate `layer.visible` gate. We never
+    // hard-hide via Pixi `visible` (alpha 0 already skips the render pass and
+    // keeps the object live in the runtime).
     obj.visible = true;
-    const eyeOpen = layer.visible !== false;
     // Win-number layers are driven entirely by applyWinNumberAtTime (bone
-    // follow + user offset composed each frame) — don't fight it here,
-    // just apply the eye gate.
-    if (assetTypeById.get(layer.assetId) === 'winnumber') { if (!eyeOpen) obj.alpha = 0; continue; }
+    // follow + user offset composed each frame) — don't fight it here.
+    if (assetTypeById.get(layer.assetId) === 'winnumber') continue;
     const t = resolveTransform(layer, orientation, scene.stage);
     obj.x = t.x;
     obj.y = t.y;
@@ -946,8 +970,7 @@ export function syncTransforms(app, handles, scene) {
     if (obj.anchor?.set && t.anchor) obj.anchor.set(t.anchor[0] ?? 0.5, t.anchor[1] ?? 0.5);
     // Alpha + tint (Round 4). Defaults sit in normalizeTransform so older
     // scenes loading without these fields still get sensible values.
-    const inspectorAlpha = typeof t.alpha === 'number' ? Math.max(0, Math.min(1, t.alpha)) : 1;
-    obj.alpha = eyeOpen ? inspectorAlpha : 0;
+    obj.alpha = typeof t.alpha === 'number' ? Math.max(0, Math.min(1, t.alpha)) : 1;
     const tint = t.tint || { r: 1, g: 1, b: 1 };
     const r = Math.max(0, Math.min(255, Math.round((tint.r ?? 1) * 255)));
     const g = Math.max(0, Math.min(255, Math.round((tint.g ?? 1) * 255)));
@@ -959,45 +982,174 @@ export function syncTransforms(app, handles, scene) {
 }
 
 /**
- * Build a structural hash of a scene — everything that, when changed,
- * requires us to tear down and rebuild the Pixi scene graph. Pure
- * transform / visibility / blend changes don't bump the hash; those go
- * through the cheap syncTransforms path.
+ * Live-patch pass for RUNTIME config edits — fields that previously forced a
+ * full rebuild but are either consumed per-frame from the scene or trivially
+ * re-appliable on the already-built objects:
+ *   - layer.spine → default animation / loop / skin re-applied (defaultMix is
+ *     already re-read every frame by applySpineMultiTrack)
+ *   - layer.video → loop / muted set straight on the HTMLVideoElement
+ *   - asset.spinner → config swap + resolve-key invalidation (timing / blur /
+ *     strips / board / events / … re-resolve on the next applySpinnerAtTime)
+ *   - asset.winseq → config swap (tier mapping / setupPose) + anim-cache reset
+ *
+ * Structural fields still rebuild: a swap is SKIPPED when the structural
+ * signature differs (that edit already bumped sceneStructuralHash — the queued
+ * rebuildScene owns it; patching a mismatched grid onto live reel views would
+ * crash the cell loop).
+ *
+ * Reference-identity guards (scene state is immutable — every edit creates a
+ * new config object) keep this pass O(layers) with zero work when nothing
+ * changed. In setup mode the pass re-poses the patched object itself (no flow
+ * pass runs there); in animate/direct the same effect run's applyFlowAtTime
+ * picks the new config up. Returns the number of objects patched.
  */
-export function sceneStructuralHash(scene) {
-  const parts = [];
-  for (const c of scene.canvases || []) parts.push('c:', c.id, c.visible ? '1' : '0');
-  parts.push('|a|');
-  for (const a of scene.assets) {
-    parts.push(a.id, a.type, a.src?.slice?.(0, 32) || '');
-    // Spine atlas/texture are part of the structure: when the self-heal recovers
-    // a missing atlas+texture, the object must rebuild (e.g. so a spinner's
-    // land/win overlay pool re-loads with the now-valid skeleton). Without this,
-    // the repaired references would never reach the Pixi build.
-    if (a.type === 'spine') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '');
-    // Win-sequence objects are Spine-backed too — atlas/texture are structural,
-    // and `rev` bumps on wizard re-runs (tier mapping / enabled set changed).
-    if (a.type === 'winseq') parts.push(a.atlas?.slice?.(0, 24) || '', a.texture?.slice?.(0, 24) || '', 'rev', String(a.winseq?.rev ?? 1), 'num', a.winseq?.number?.fontSrc?.slice?.(0, 24) || '-');
-    // Win-number objects rebuild from their parent winseq's number config — the
-    // parent ref is structural so a re-parent / parent swap rebuilds the glyphs.
-    if (a.type === 'winnumber') parts.push('parent', a.parentAssetId || '-');
-    // Spinner structural edits bump `rev` (wizard re-runs) — clip/timing
-    // edits stay on the cheap apply path via the resolve-key memo.
-    if (a.type === 'spinner') parts.push('rev', String(a.spinner?.rev ?? 1));
+export function applyRuntimeConfigs(handles, scene, studioMode) {
+  if (!handles || !scene) return 0;
+  // Fast path: the cheap-path effect re-runs every playback tick (flowTime),
+  // but the scene object only gets a new identity on an actual edit.
+  if (handles.__rtcScene === scene) return 0;
+  let patched = 0;
+  const spinnerGizmoLayerId = scene.flow?.runtime?.spinnerCellGizmoLayerId || null;
+  const assetById = new Map((scene.assets || []).map((a) => [a.id, a]));
+  const resetSlots = (skeleton) => {
+    (skeleton.setupPoseSlots || skeleton.setSlotsToSetupPose)?.call(skeleton);
+  };
+  for (const layer of scene.layers) {
+    const obj = handles.get(layer.id);
+    if (!obj || obj.destroyed) continue;
+    const asset = assetById.get(layer.assetId);
+    if (!asset) continue;
+
+    if (asset.type === 'spine' && obj.state && obj.skeleton) {
+      const cfg = layer.spine ?? null;
+      const prev = obj.__spineCfgRef ?? null;
+      if (prev === cfg) continue;
+      obj.__spineCfgRef = cfg;
+      const skinChanged = (prev?.skin ?? null) !== (cfg?.skin ?? null);
+      const poseChanged = skinChanged
+        || (prev?.defaultAnimation ?? null) !== (cfg?.defaultAnimation ?? null)
+        || (prev?.loop ?? true) !== (cfg?.loop ?? true);
+      // defaultMix-only edits are consumed per frame by applySpineMultiTrack —
+      // touching the skeleton here would pop the pose while paused/scrubbing.
+      if (!poseChanged) continue;
+      patched++;
+      try {
+        if (studioMode === 'setup') {
+          // Re-arm the setup preview exactly like build time. applySpineState
+          // skips an empty skin, so revert-to-default needs the explicit reset.
+          if (!cfg?.skin) { obj.skeleton.setSkin(null); resetSlots(obj.skeleton); }
+          applySpineState(obj, {
+            animation: cfg?.defaultAnimation ?? null,
+            loop: cfg?.loop ?? true,
+            skin: cfg?.skin ?? null
+          });
+        } else {
+          // Animate/direct: applySpineMultiTrack owns animation/loop (Phase C.5)
+          // and re-syncs defaultMix per frame — only the skin applies here.
+          if (skinChanged) {
+            if (cfg?.skin) obj.skeleton.setSkinByName(cfg.skin);
+            else obj.skeleton.setSkin(null);
+            resetSlots(obj.skeleton);
+          }
+          // A CLEARED default animation must snap now: Phase C.5 skips a null
+          // anim and Phase D's stale-slot clear uses a 0.1s fade — which never
+          // completes under the paused-scrub `update(0)` refresh, leaving the
+          // old idle pose frozen on screen. Drop the cached __default__ slot
+          // with a 0s empty so the setup pose applies deterministically.
+          const dcache = obj.__flow?.perTrack?.get(0);
+          if (!cfg?.defaultAnimation && dcache?.activeClipId === '__default__') {
+            obj.state.setEmptyAnimation(0, 0);
+            obj.__flow.perTrack.delete(0);
+          }
+        }
+        obj.update?.(0);
+      } catch { /* skin/anim missing — ignore */ }
+      continue;
+    }
+
+    if (asset.type === 'video') {
+      const cfg = layer.video ?? null;
+      if (obj.__videoCfgRef === cfg) continue;
+      obj.__videoCfgRef = cfg;
+      const video = obj.texture?.source?.resource?.source;
+      if (video && video.nodeName?.toLowerCase() === 'video') {
+        patched++;
+        const wasEnded = !!video.ended;
+        video.loop = cfg?.loop !== false;
+        video.muted = cfg?.muted !== false;
+        // The rebuild path restarted playback (build calls vid.play()); a video
+        // that already ENDED stays frozen when loop merely flips true — nudge it.
+        if (video.loop && wasEnded) {
+          try { video.currentTime = 0; video.play().catch(() => {}); } catch { /* gesture required */ }
+        }
+      }
+      continue;
+    }
+
+    if (asset.type === 'spinner' && obj.__spinner) {
+      setSpinnerCellGizmoVisible(obj, layer.id === spinnerGizmoLayerId);
+      const sp = obj.__spinner;
+      if (sp.rawRef === asset.spinner) continue;
+      sp.rawRef = asset.spinner;
+      // Only swap when the incoming structure matches what THIS OBJECT was
+      // built with (sp.structSig, stamped at build) — a grid/symbol change is
+      // racing the queued rebuild; patching it live would desync reelViews.
+      // Comparing against the BUILT sig (not the previous raw config) keeps
+      // the guard sound even if that rebuild fails or is superseded.
+      if (spinnerStructuralSig(asset.spinner) === sp.structSig) {
+        const next = normalizeSpinnerConfig(asset.spinner);
+        if (next) {
+          // Carry over the per-symbol Spine anim durations the build learned
+          // from the overlay pool — they live only in the built config unless
+          // the host persisted them (the wizard preview never does), and they
+          // size the land/win state windows in evaluateSpinner.
+          const prevSym = new Map(sp.config.symbols.map((s) => [s.id, s]));
+          for (const s of next.symbols) {
+            const p = prevSym.get(s.id);
+            if (!p) continue;
+            if (s.winAnim && !(s.winAnim.duration > 0) && p.winAnim?.duration > 0) s.winAnim.duration = p.winAnim.duration;
+            if (s.landAnim && !(s.landAnim.duration > 0) && p.landAnim?.duration > 0) s.landAnim.duration = p.landAnim.duration;
+          }
+          const prevGrid = sp.config.grid;
+          sp.config = next;
+          sp.symbolMap = new Map(next.symbols.map((s) => [s.id, s]));
+          sp.resolveKey = null; // force re-resolve on the next apply
+          // Cell size / spacing are geometry, not topology — resize the built
+          // containers in place (reel/row counts are sig-guarded above).
+          const g = next.grid;
+          if (g.cellW !== prevGrid.cellW || g.cellH !== prevGrid.cellH
+            || g.spacingX !== prevGrid.spacingX || g.spacingY !== prevGrid.spacingY) {
+            try { relayoutSpinnerGeometry(obj); } catch { /* ignore */ }
+          }
+          patched++;
+          if (studioMode === 'setup') {
+            try { applySpinnerAtTime(obj, layer, [], 0); } catch { /* ignore */ }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (asset.type === 'winseq' && obj.__winseq) {
+      const ws = obj.__winseq;
+      if (ws.rawRef === asset.winseq) continue;
+      ws.rawRef = asset.winseq;
+      // Same built-sig guard as the spinner: glyph-structure edits rebuild.
+      if (winseqNumberSig(asset.winseq) === ws.numSig) {
+        const next = normalizeWinSeqConfig(asset.winseq);
+        if (next) {
+          ws.config = next;
+          obj.__wsCache = { anim: null, loop: null };
+          patched++;
+          if (studioMode === 'setup') {
+            try { applyWinSeqSetupPose(obj); } catch { /* ignore */ }
+          }
+        }
+      }
+    }
   }
-  parts.push('|l|');
-  // Layer order + parentage are structural — reorder/reparent must rebuild
-  // the Pixi tree (children physically move between containers).
-  for (const l of scene.layers) {
-    parts.push(
-      l.id, l.assetId,
-      l.canvasId || '-',
-      l.parentId || '-',
-      l.spine ? JSON.stringify(l.spine) : '-',
-      l.video ? JSON.stringify(l.video) : '-'
-    );
-  }
-  return parts.join(':');
+  handles.__rtcScene = scene;
+  return patched;
 }
 
 function validSpeed(clip) {
@@ -1092,9 +1244,9 @@ function resolveMixDuration(obj, layer, track, clip) {
  *    last-wins per property. Tracks without a tween are no-ops.
  *  - Video layers use only the first track; multi-track video is N/A.
  *
- * Visibility is `layer.visible` only — "outside any clip" means the layer
- * renders at its base pose (the inspector's transform fields). This is
- * the source-of-truth rule from §19.2.
+ * Visibility is expressed through `transform.alpha` (0 = hidden) — "outside
+ * any clip" means the layer renders at its base pose (the inspector's
+ * transform fields, alpha included). This is the source-of-truth rule from §19.2.
  *
  * This pass never rebuilds the scene graph. `syncTransforms` runs first
  * and writes base values; this function only overrides for layers where
@@ -1110,18 +1262,12 @@ export function applyFlowAtTime(handles, scene, t) {
   for (const layer of scene.layers) {
     const obj = handles.get(layer.id);
     if (!obj || obj.destroyed) continue;
-    // T5 (eye visibility model): the eye toggle composes with the inspector
-    // alpha as effectiveAlpha = min(inspectorAlpha, eyeAlpha) — it does NOT
-    // hard-hide via Pixi's `visible` anymore. `visible` stays true so this
-    // whole per-type pass still runs (spine keeps ticking, spinner/winseq
-    // keep tracking their own state) while the eye is closed; only the
-    // FINAL composed alpha gates to 0. Previously `obj.visible=false` short-
-    // circuited everything below, so a hidden spine object froze and a
-    // re-opened eye popped back to a stale pose instead of wherever the
-    // timeline actually is now.
+    // Unified visibility model: alpha is the single source of truth. `visible`
+    // stays true so this whole per-type pass still runs (spine keeps ticking,
+    // spinner/winseq keep tracking their own state) even at alpha 0; the alpha
+    // channel (applyPngChannels) + base-pose alpha (syncTransforms) fully
+    // determine opacity/visibility. No separate eye gate anymore.
     obj.visible = true;
-    const eyeOpen = layer.visible !== false;
-    const gateEyeAlpha = () => { if (!eyeOpen) obj.alpha = 0; };
 
     const asset = scene.assets.find((a) => a.id === layer.assetId);
     if (!asset) continue;
@@ -1133,7 +1279,6 @@ export function applyFlowAtTime(handles, scene, t) {
       // Spine container too — same hold / setup-until-first-key behaviour as a
       // PNG, on top of the skeletal animation. Parity across object types.
       applyPngChannels(obj, layer, tracks, t, orientation);
-      gateEyeAlpha();
       continue;
     }
 
@@ -1151,7 +1296,6 @@ export function applyFlowAtTime(handles, scene, t) {
       // every mode. A previous pass here hid it whenever no clip drove it,
       // which broke the common "director node before its spin clip starts"
       // case: the reels should show the idle board, not vanish.
-      gateEyeAlpha();
       continue;
     }
 
@@ -1160,7 +1304,6 @@ export function applyFlowAtTime(handles, scene, t) {
       applyPngChannels(obj, layer, tracks, t, orientation);
       // Same exception as spinner above — a win sequence always shows its
       // idle/biggest-win pose rather than vanishing when undriven.
-      gateEyeAlpha();
       continue;
     }
 
@@ -1188,14 +1331,12 @@ export function applyFlowAtTime(handles, scene, t) {
       const wagerOverride = (typeof wagerPreview?.wager === 'number' && wagerPreview.forAssetId === parentAsset?.id)
         ? wagerPreview.wager : null;
       applyWinNumberAtTime(obj, parentObj, layer, resolveTransform(layer, orientation, scene.stage), sampleOverride, liveNum, colorOverride, wagerOverride);
-      gateEyeAlpha();
       continue;
     }
 
     if (asset.type === 'video' && obj.texture?.source?.resource?.source) {
       applyVideoClip(obj, tracks[0], t, runtimePlaying, runtimeHeld);
       applyPngChannels(obj, layer, tracks, t, orientation);
-      gateEyeAlpha();
       continue;
     }
 
@@ -1218,7 +1359,6 @@ export function applyFlowAtTime(handles, scene, t) {
     if (asset.type === 'empty') {
       applyPngChannels(obj, layer, tracks, t, orientation);
     }
-    gateEyeAlpha();
   }
 }
 

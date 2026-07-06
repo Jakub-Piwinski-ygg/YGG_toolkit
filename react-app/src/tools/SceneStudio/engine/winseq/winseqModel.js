@@ -336,6 +336,7 @@ export function buildWinSeqTimelines(layerId, config, durations = {}) {
   const flows = config?.sequences || [];
   return flows.map((flow) => ({
     name: `win · ${flow.label || flow.tier || flow.id}`,
+    generatedMeta: { source: 'winseq', kind: 'flow', flowId: flow.id },
     tracks: [{
       layerId,
       clips: [{

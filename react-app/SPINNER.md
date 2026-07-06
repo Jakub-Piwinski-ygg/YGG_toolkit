@@ -42,7 +42,8 @@
 > right-side column** and takes over the **scene view** with a live preview
 > (rendered through the main viewport renderer — a synthetic preview scene, like
 > scenario `directPreview`). Opening it auto-switches to **setup mode**; the
-> hierarchy + inspector hide. A new **`timing.minSpinTime`** field (default 1.0s)
+> hierarchy + inspector hide. A new **`timing.minSpinTime`** field (default
+> 0.5s — see 2026-07-04 below)
 > is the duration of `spin` action clips added to the timeline AND drives the
 > wizard's **🎰 test spin** button, which plays the FULL cycle
 > startSpin → spin(minSpinTime) → stopSpin → presentWin (landing a seeded
@@ -52,6 +53,128 @@
 > timing/blur sliders doesn't thrash the renderer (§20.10 rapid-rebuild crash).
 > Adding objects to the hierarchy from the workspace is now setup-mode-only
 > (auto-switches). Companion: `react-app/WIN_SEQUENCES.md`.
+
+> **2026-07-04 — wizard polish: step order, faster defaults, symbol scale,
+> negative spacing, outcome-dropdown fix.** The wizard now opens on **Symbols**
+> first, **Grid** second (Timing → Review unchanged) — symbols-first matches
+> what artists actually need to pick before grid dimensions matter. New-spinner
+> timing defaults are snappier: `startDuration` 0.4→0.25s, `spinSpeed` 12→30
+> cells/s, `stopDuration` 0.6→0.35s, `minSpinTime` 1.0→0.5s (existing spinners
+> keep their saved values; only the wizard's defaults for a brand-new spinner
+> change). A new **`grid.symbolScale`** (default 1, range 0.05–10) uniformly
+> scales the rendered art (static/blur/spine) inside each cell independently of
+> cell size — live-patched with no Pixi rebuild, mirrored in the Unity export.
+> **Negative `spacingX`/`spacingY`** are now allowed (clamped so cell+spacing
+> never drops below 1px), so cells can touch or overlap. **Bug fix**: the
+> wizard's test-spin "Result" outcome dropdown (e.g. "no win") was silently
+> ignored — `outcome`/`rerollSeed` were dropped by clip normalization before
+> `targetBoardForClip` ever saw them, and the non-winning-board fallback wasn't
+> wild-aware (a wild-substituted win could leak into a "no win" board). Both
+> fixed; see §3's clip-payload schema and §4.
+
+> **2026-07-04 (follow-up) — real "no win" fix, animOnly blur parity, Result
+> now drives the board directly.** The prior fix above closed a normalization
+> bug but a SEPARATE bug remained: `generateNonWinningBoard`'s greedy fix-up
+> never re-verified its own postcondition, so with few symbols (the wizard's
+> own minimum of 2) crossed with more rows it could exhaust its "safe"
+> replacement pool and silently return a still-winning board (empirically:
+> 40% of re-rolls failed on a 2-symbol/3×5 config). Fixed with a deterministic
+> last-resort guarantee: making one interior reel monochrome in symbol X and
+> the next in a different symbol Y caps every candidate's run below the win
+> threshold regardless of what's on any other reel — works even at 2 symbols.
+> **`animOnly` symbols' blur** (T7) previously used Pixi's generic isotropic
+> `BlurFilter`, visibly different from every other symbol's directional
+> motion-blur — `bakeSpinePoseTexture` now runs the SAME WASM/canvas-fallback
+> directional-blur chain (`spinnerBlur.js`, extracted into reusable
+> `blurCanvasWasm`/`blurCanvasFallback`) against the identical posed frame
+> already used for the sharp/idle bake. **Review step reworked**: picking a
+> Result (or re-rolling) now SYNCHRONOUSLY computes a concrete board and
+> writes it into `initialBoard` — the board editor grid and the live preview
+> at rest update immediately, no need to spin first. `Spin` now carries an
+> explicit `targetBoard` (the board already on screen) instead of
+> `outcome`/`rerollSeed`, so the animation can never land anywhere other than
+> what was just previewed (`buildSpinnerTestClips` gained a 4th `targetBoard`
+> param for this). Manual per-cell edits in the board editor still work and
+> simply stop matching whatever Result label is showing.
+
+> **2026-07-04 (blur UX + panel space)** — blur generation ("⚡ fill missing
+> blurs") is still 100% explicit-click only (it never auto-ran), but each
+> symbol's blur now updates the wizard incrementally with a **progress bar**
+> ("blurring 'x' — 3/14") and yields a frame between symbols instead of
+> looking frozen for the whole batch — true background execution (a Worker)
+> isn't used because the shared WASM chain writes fixed temp filenames also
+> used by every other ImageMagick call in the app, so it has to stay
+> sequential regardless. The sigma/feather sliders are no longer hidden once
+> nothing is "missing" — a new **"↻ regenerate all"** button lets you tune
+> them and re-blur every symbol on demand. The wizard panel's default width
+> grew 460→620px and the per-symbol preview thumbnails grew 44→76px (were a
+> fixed size regardless of how wide the panel got, leaving most of a resized
+> panel blank).
+
+> **2026-07-04 (animOnly blur perf regression fix + real settings)** — the
+> round above's "regenerate all"/sigma-feather panel only appears for symbols
+> with a static PNG, which does nothing for an animations-only symbol set —
+> and worse, the earlier directional-blur fix for `animOnly` symbols
+> (`bakeSpinePoseTexture`) had turned a cheap Pixi filter into a **5-step
+> WASM ImageMagick chain run synchronously in the middle of scene
+> construction**, so a handful of animOnly symbols could stall the preview
+> for multiple seconds before anything rendered. Both fixed: `blur.sigma`/
+> `blur.feather` are now real, **persisted** config fields (`defaultSpinnerBlur`)
+> shared by both blur mechanisms — the wizard's static-symbol sigma/feather
+> sliders are the SAME control for both, and now show up whenever there's any
+> symbol at all, not just static ones. `bakeSpinePoseTexture` was split: the
+> SHARP texture (cheap, no WASM) is captured and shown immediately so the
+> scene never waits on blur; the actual directional blur is queued onto a
+> single shared, strictly-sequential background queue (`queueBlurBake`) and
+> swapped in once ready, with no caller ever blocking on it. Concurrent WASM
+> calls are still avoided (every ImageMagick call in the app shares fixed temp
+> filenames) — the queue serializes them without making anyone wait.
+
+> **2026-07-04 (two more blur bugs)** — still no visible blur reported after
+> the round above. Found: `generateBlurs` (wizard "fill missing blurs"/
+> "regenerate all") assigned a project-folder-scanned asset's raw filesystem
+> path straight to an `<img>` element's `src` — silently fails to load (a
+> pre-existing bug, not a regression from today), so the progress bar
+> completed with nothing to show. Now resolves it via `resolveAssetFile`, the
+> same path `SymbolThumb`'s own preview already used correctly. Also switched
+> the animOnly blur bake's canvas extraction from the raw, un-parented Spine
+> container (`extract.canvas(inst.container)`) to the already-generated sharp
+> **texture** (`extract.canvas(sharp)`) — more reliable bounds, though
+> unconfirmed as the actual root cause without a browser to check in.
+
+> **2026-07-04 (blur generation speed — downsample before blurring)** — the
+> WASM directional-blur chain's cost scales with pixel count across all 5
+> steps (plus PNG encode/decode between each). Static-symbol blur generation
+> (`spinnerBlur.js`) now downsamples the rendered cell 4x (`BLUR_DOWNSAMPLE`,
+> 16x fewer pixels) before running the chain — sigma/feather scale down
+> proportionally — and returns the blob at that reduced size, with **no
+> re-upsample in the generator**. Display-time compensates instead:
+> `spinnerRuntime.js`'s blur sprite scale is now computed from the ACTUAL
+> texture-size ratio (`tex.width/blurTex.width`) rather than assumed 1:1, so
+> it transparently handles the new smaller blur PNGs, old full-size ones, and
+> animOnly's same-size runtime bake alike. Unity export (`csharp.js`) got the
+> matching fix on both variants — UI sizes the blur `Image` against the
+> *static* sprite's dimensions instead of the blur sprite's own (smaller)
+> ones; World caches a `blurScaleX/Y` ratio per cell and folds it into
+> `bTr.localScale` — without either, a downsampled blur PNG would render
+> visibly smaller than its static counterpart in an exported build.
+
+> **2026-07-04 (the actual root cause — blur never displayed anywhere)** —
+> generated blur was faster after the round above but still never visibly
+> appeared, in the wizard preview, the timeline, or Direct mode alike. Found:
+> `resolveAssetUrl` (`engine/persist.js`) — the ONE shared resolver every
+> asset kind in Scene Studio goes through (spine skel/atlas/texture, plain
+> PNG layers, spinner statics/blur) — only special-cased `data:` URLs.
+> Generated blur PNGs use `URL.createObjectURL(blob)` → a `blob:` URL, which
+> fell through to being treated as a relative project-folder path, never
+> matched anything, and returned `null`. The spinner runtime's `null`-safe
+> fallback (`blurTex || tex || Texture.WHITE`) then silently used the
+> **static texture as the blur texture** — no error anywhere, the blur
+> sprite just showed the exact same unblurred image as its static
+> counterpart. This affected every generated/blob-sourced asset in the app,
+> not just spinner blur. Fixed: `resolveAssetUrl` now recognizes `blob:` and
+> `https?:` as directly-loadable, same as `data:`. New `engine/persist.test.mjs`
+> (3 tests) covers it.
 
 Deterministic slot-machine reel object for Scene Studio ("pixie engine"), replacing
 the old `SlotMachineTool` art tool. Cross-target by design: the core model is a pure
@@ -191,7 +314,13 @@ asset.spinner = {
                         // in-progress symbol (static not picked yet) must
                         // not silently opt into hold-forever win timing.
             }],
-  grid:   { reels, rows, cellW, cellH, spacingX, spacingY },
+  grid:   { reels, rows, cellW, cellH, spacingX, spacingY, symbolScale },
+                                 // spacingX/spacingY: default 0, negative allowed
+                                 // (clamped to keep cell+spacing >= 1px) so cells
+                                 // can touch/overlap. symbolScale: default 1,
+                                 // range 0.05–10 — uniform art scale inside each
+                                 // cell (statics/blur/spine), independent of
+                                 // cell size; live-patched, no relayout.
   strips: [[symbolId, …] per reel],     // persisted explicitly, length ~24–32
   initialBoard: [[symbolId per row] per reel],   // guaranteed non-winning
   seed,                         // mulberry32 seed used by generators
@@ -250,7 +379,9 @@ for `animOnly` symbols until that's built.
 ## §4 Editor UX
 
 > **As-built (2026-06-12):** the wizard shipped as 4 steps — Grid → Symbols →
-> Timing → Review. Symbol auto-detect is **structure-driven**: it finds the
+> Timing → Review (reordered 2026-07-04 to **Symbols → Grid → Timing →
+> Review** — symbols-first, matching §4's original design intent below).
+> Symbol auto-detect is **structure-driven**: it finds the
 > `NN_Symbols` folder in the scanned project, takes **`StaticArt/` PNGs as the
 > symbol definitions** (one symbol per static), matches land/win Spine anims
 > from the adjacent `Animations/` folder by name, matches blur PNGs from

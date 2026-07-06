@@ -16,6 +16,29 @@ function renderSymbolToCell(img, cellW, cellH, symScale) {
   return tmp;
 }
 
+// A motion-blurred symbol reads as a soft streak regardless of source
+// resolution — nobody can tell the blur pass ran on a downsampled image, but
+// every step of the WASM chain (and the canvas fallback's N-times redraw)
+// costs roughly proportional to pixel count, so blurring at 1/4 size is
+// dramatically cheaper (1/16th the pixels) for a visually indistinguishable
+// result. The output PNG stays at the downsampled size — the spinner runtime
+// (`spinnerRuntime.js`) scales the blur sprite up to match the static
+// sprite's size at render time, comparing actual texture dimensions, so
+// nothing here needs to re-upsample before returning.
+const BLUR_DOWNSAMPLE = 4;
+
+function downsampleCanvas(canvas, factor) {
+  const w = Math.max(1, Math.round(canvas.width / factor));
+  const h = Math.max(1, Math.round(canvas.height / factor));
+  const out = document.createElement('canvas');
+  out.width = w; out.height = h;
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(canvas, 0, 0, w, h);
+  return out;
+}
+
 function canvasToPngBytes(canvas) {
   return new Promise((res) => {
     canvas.toBlob((b) => b.arrayBuffer().then((ab) => res(new Uint8Array(ab))), 'image/png');
@@ -23,11 +46,16 @@ function canvasToPngBytes(canvas) {
 }
 
 /**
- * WASM path: returns a PNG Blob of the blurred symbol, same cell dimensions.
- * Requires window._Magick (wasm-imagemagick) to be loaded.
+ * WASM path, low-level: directionally motion-blurs an arbitrary source
+ * canvas (vertical, matching a slot reel's scroll axis) — same 5-step chain
+ * as the module header describes. Requires window._Magick (wasm-imagemagick).
+ * Shared by the static-symbol pipeline below AND the T7 animOnly symbols'
+ * runtime blur bake (`spinnerRuntime.bakeSpinePoseTexture`) so both symbol
+ * kinds get the identical blur style instead of two different algorithms.
+ * @returns {Promise<Blob>} PNG blob, same dimensions as `canvas`.
  */
-export async function makeBlurredSymbolWasm(img, cellW, cellH, symScale, sigma, feather) {
-  const uint8 = await canvasToPngBytes(renderSymbolToCell(img, cellW, cellH, symScale));
+export async function blurCanvasWasm(canvas, sigma, feather) {
+  const uint8 = await canvasToPngBytes(canvas);
   const blurArg = `0x${sigma}+90`;
 
   const r1 = await window._Magick.Call(
@@ -63,33 +91,57 @@ export async function makeBlurredSymbolWasm(img, cellW, cellH, symScale, sigma, 
 }
 
 /**
- * Canvas fallback: approximates vertical motion blur by stacking the symbol
- * N times along Y at low alpha. Cheaper-looking than the WASM chain but
- * keeps the wizard usable when Magick isn't available.
+ * Canvas fallback, low-level: approximates vertical motion blur by stacking
+ * an arbitrary source canvas N times along Y at low alpha. Cheaper-looking
+ * than the WASM chain but keeps things usable when Magick isn't loaded.
+ * @returns {Promise<Blob>} PNG blob, same dimensions as `canvas`.
  */
-export async function makeBlurredSymbolCanvas(img, cellW, cellH, symScale, sigma) {
-  const cell = renderSymbolToCell(img, cellW, cellH, symScale);
+export async function blurCanvasFallback(canvas, sigma) {
   const out = document.createElement('canvas');
-  out.width = cellW; out.height = cellH;
+  out.width = canvas.width; out.height = canvas.height;
   const ctx = out.getContext('2d');
   const span = Math.max(4, sigma * 1.6);          // vertical smear extent in px
   const steps = Math.max(8, Math.round(span / 2));
   ctx.globalAlpha = 1.6 / steps;
   for (let i = 0; i < steps; i++) {
     const dy = (i / (steps - 1) - 0.5) * span;
-    ctx.drawImage(cell, 0, dy);
+    ctx.drawImage(canvas, 0, dy);
   }
   ctx.globalAlpha = 1;
   return new Promise((res) => out.toBlob(res, 'image/png'));
 }
 
 /**
- * Preferred entry point: WASM chain when available, canvas ghost otherwise.
- * @returns {Promise<Blob>} PNG blob, cellW × cellH.
+ * Shared downsample-then-blur step: takes an ALREADY-RENDERED arbitrary
+ * canvas — a static symbol drawn into a cell (below) or a Spine idle pose
+ * captured live off the viewport renderer (`spinnerRuntime.js` /
+ * `PixiViewport.bakeSpinePosePng`) — and runs the identical
+ * downsample-then-blur pipeline regardless of source: WASM chain when
+ * available, canvas ghost fallback otherwise. This is the ONE place both
+ * symbol kinds (static art and animations-only) get their blur from, so they
+ * can never visually diverge and both get the same 16x pixel-count speedup.
+ * @returns {Promise<Blob>} PNG blob, downsampled `BLUR_DOWNSAMPLE`x from
+ *   `canvas` — callers scale the result back up at display/export time.
+ */
+export async function blurRenderedCanvas(canvas, sigma, feather) {
+  const small = downsampleCanvas(canvas, BLUR_DOWNSAMPLE);
+  // Same absolute streak length relative to the (now smaller) image — sigma
+  // is a pixel radius, so it must shrink with the image or the blur would
+  // look BLUR_DOWNSAMPLE× stronger once the runtime scales the result back up.
+  const dsSigma = Math.max(1, Math.round(sigma / BLUR_DOWNSAMPLE));
+  const dsFeather = Math.max(0, Math.round(feather / BLUR_DOWNSAMPLE));
+  return window._Magick
+    ? blurCanvasWasm(small, dsSigma, dsFeather)
+    : blurCanvasFallback(small, dsSigma);
+}
+
+/**
+ * Preferred entry point for STATIC symbol art: renders the source image into
+ * a cell-sized canvas, then runs it through `blurRenderedCanvas`.
+ * @returns {Promise<Blob>} PNG blob, downsampled `BLUR_DOWNSAMPLE`x from
+ *   cellW × cellH — the spinner runtime scales the resulting texture back up
+ *   to match the static texture's size, so callers don't need to care.
  */
 export async function makeBlurredSymbol(img, cellW, cellH, symScale, sigma, feather) {
-  if (window._Magick) {
-    return makeBlurredSymbolWasm(img, cellW, cellH, symScale, sigma, feather);
-  }
-  return makeBlurredSymbolCanvas(img, cellW, cellH, symScale, sigma);
+  return blurRenderedCanvas(renderSymbolToCell(img, cellW, cellH, symScale), sigma, feather);
 }

@@ -3,7 +3,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSceneSetupIdleTimelines, SCENE_SETUP_IDLE_DURATION } from './sceneSetupTimelines.js';
+import {
+  buildSceneSetupIdleTimelines,
+  buildSceneSetupAuxTimelines,
+  resolveSceneSetupPhaseClips,
+  SCENE_SETUP_IDLE_DURATION,
+  SCENE_SETUP_AUX_DURATION
+} from './sceneSetupTimelines.js';
 
 const MODES = [
   { key: 'base', label: 'Base Game', layerId: null },
@@ -38,4 +44,37 @@ test('each idle poses its own group at 1 and the others at 0', () => {
 test('no feature groups → no timelines', () => {
   assert.deepEqual(buildSceneSetupIdleTimelines([MODES[0]]), []);
   assert.deepEqual(buildSceneSetupIdleTimelines([]), []);
+});
+
+test('mode idles can gate aux groups off by default', () => {
+  const all = [...MODES, { key: 'splash', label: 'Splash', layerId: 'L_sp' }];
+  const [base] = buildSceneSetupIdleTimelines(MODES, all);
+  assert.equal(alphaOf(base, 'L_sp'), 0);
+});
+
+test('aux timelines isolate only their own group', () => {
+  const all = [...MODES, { key: 'splash', label: 'Splash', layerId: 'L_sp' }];
+  const [splash] = buildSceneSetupAuxTimelines([
+    { key: 'splash', label: 'Splash Intro', layerId: 'L_sp', type: 'splash', phase: 'splash', contentLayerId: 'L_content', contentKind: 'spine' }
+  ], all);
+  assert.equal(splash.tracks.find((t) => t.layerId === 'L_sp')?.clips[0]?.duration, SCENE_SETUP_AUX_DURATION);
+  assert.equal(alphaOf(splash, 'L_sp'), 1);
+  assert.equal(splash.tracks.some((t) => t.layerId === 'L_fs'), false, 'aux timeline should not gate unrelated mode groups');
+  assert.equal(splash.tracks.some((t) => t.layerId === 'L_bn'), false, 'aux timeline should not gate unrelated mode groups');
+  assert.ok(splash.tracks.some((t) => t.layerId === 'L_content'), 'content track added for spine aux timeline');
+});
+
+test('phase resolver maps intro/idle/outro style names in order', () => {
+  const clips = resolveSceneSetupPhaseClips(
+    ['fs_intro', 'fs_idle_loop', 'fs_outro'],
+    { fs_intro: 0.4, fs_idle_loop: 1.2, fs_outro: 0.5 },
+    'intro'
+  );
+  assert.equal(clips.length, 3);
+  assert.equal(clips[0].anim, 'fs_intro');
+  assert.equal(clips[1].anim, 'fs_idle_loop');
+  assert.equal(clips[2].anim, 'fs_outro');
+  assert.equal(clips[0].duration, 0.4);
+  assert.equal(clips[1].duration, 1.2);
+  assert.equal(clips[2].duration, 0.5);
 });

@@ -17,6 +17,8 @@ const M = {
   background: /(^|[_\-\s])(bg|background|backdrop|back)([_\-\s]|$|\d)/i,
   logo: /logo/i,
   machine: /(machine|m[_\-]?frame|reel[_\-\s]?frame|frame)/i,
+  splash: /(splash|preload(er)?)/i,
+  introOutro: /(intro|outro|transition|begin|end)/i,
 };
 // Game-mode heuristics.
 const MODE = {
@@ -43,11 +45,26 @@ const MODE_SLOTS = [
   { slot: 'machineFrame', kind: 'png', match: M.machine, optional: true },
   { slot: 'machineAnim', kind: 'spine', match: M.machine, optional: true },
 ];
+const SPLASH_SLOTS = [
+  { slot: 'background', kind: 'png', match: M.splash, optional: true, folderMatch: /(^|\/)06[_\-]?splash(\/|$)/i },
+  { slot: 'backgroundAnim', kind: 'spine', match: M.splash, optional: true, folderMatch: /(^|\/)06[_\-]?splash(\/|$)/i },
+];
+const TRANSITION_SLOTS = [
+  { slot: 'backgroundAnim', kind: 'spine', match: M.introOutro, optional: true, folderMatch: /(^|\/)08[_\-]?intro[_\-]?outro(\/|$)/i },
+  { slot: 'background', kind: 'png', match: M.introOutro, optional: true, folderMatch: /(^|\/)08[_\-]?intro[_\-]?outro(\/|$)/i },
+];
 const SECTIONS = [
   { key: 'base', mode: null, label: 'Base game', always: true, slots: BASE_SLOTS },
   { key: 'freespins', mode: MODE.freespins, label: 'Free Spins', slots: MODE_SLOTS },
   { key: 'bonus', mode: MODE.bonus, label: 'Bonus Game', slots: MODE_SLOTS },
   { key: 'pick', mode: MODE.pick, label: 'Pick & Click', slots: MODE_SLOTS },
+  { key: 'splash', mode: null, label: 'Splash', slots: SPLASH_SLOTS, autoEnable: true },
+  { key: 'freespinsIntro', mode: MODE.freespins, label: 'Free Spins Intro', slots: TRANSITION_SLOTS },
+  { key: 'freespinsOutro', mode: MODE.freespins, label: 'Free Spins Outro', slots: TRANSITION_SLOTS },
+  { key: 'bonusIntro', mode: MODE.bonus, label: 'Bonus Intro', slots: TRANSITION_SLOTS },
+  { key: 'bonusOutro', mode: MODE.bonus, label: 'Bonus Outro', slots: TRANSITION_SLOTS },
+  { key: 'pickIntro', mode: MODE.pick, label: 'Pick Intro', slots: TRANSITION_SLOTS },
+  { key: 'pickOutro', mode: MODE.pick, label: 'Pick Outro', slots: TRANSITION_SLOTS },
 ];
 const roleOf = (sectionKey, slot) => `${sectionKey}:${slot}`;
 const PICK_MIN = 70; // score needed to auto-pick / show ◆
@@ -59,6 +76,7 @@ function scoreCandidate(slot, modeRx, cand) {
   const folder = (cand.folder || '').toLowerCase();
   let sc;
   if (slot.match.test(name)) sc = 100;
+  else if (slot.folderMatch && slot.folderMatch.test(folder)) sc = 85;
   else if (slot.match.test(folder)) sc = 25;
   else return -1;
   if (modeRx) {
@@ -69,12 +87,29 @@ function scoreCandidate(slot, modeRx, cand) {
     if (/(^|[_\-\s])base([_\-\s]|$|\d)/i.test(name)) sc += 20; // prefer *_base for base game
     if (ANY_MODE.test(name)) sc -= 45; // a mode-specific asset shouldn't fill a base slot
   }
+  if (slot.slot === 'background') {
+    if (/(^|[_\-\s])(bg|background|preloader[_\-\s]?bg)([_\-\s]|$|\d)/i.test(name)) sc += 30;
+    if (/logo/i.test(name)) sc -= 65;
+  }
   return sc;
 }
 
 export function SceneSetupWizard({ scene, assetItems = [], onClose, onCreate, embedded = false, onPreviewScene, existingConfig = null }) {
+  const defaultEnabled = {
+    base: true,
+    freespins: false,
+    bonus: false,
+    pick: false,
+    splash: false,
+    freespinsIntro: false,
+    freespinsOutro: false,
+    bonusIntro: false,
+    bonusOutro: false,
+    pickIntro: false,
+    pickOutro: false,
+  };
   const [name, setName] = useState(existingConfig?.name || '');
-  const [enabled, setEnabled] = useState(existingConfig?.enabled || { base: true, freespins: false, bonus: false, pick: false });
+  const [enabled, setEnabled] = useState({ ...defaultEnabled, ...(existingConfig?.enabled || {}) });
   const [picks, setPicks] = useState(existingConfig?.picks || {});
   const autoPickedRef = useRef(!!existingConfig);
 
@@ -107,7 +142,7 @@ export function SceneSetupWizard({ scene, assetItems = [], onClose, onCreate, em
     if (autoPickedRef.current || (!pngPool.length && !spinePool.length)) return;
     autoPickedRef.current = true;
     const nextPicks = {};
-    const nextEnabled = { base: true, freespins: false, bonus: false, pick: false };
+    const nextEnabled = { ...defaultEnabled, base: true };
     for (const section of SECTIONS) {
       for (const slot of section.slots) {
         const scored = poolFor(slot.kind)
@@ -116,6 +151,8 @@ export function SceneSetupWizard({ scene, assetItems = [], onClose, onCreate, em
         const best = scored[0];
         nextPicks[roleOf(section.key, slot.slot)] = best && best.score >= PICK_MIN ? best.c.src : '';
         if (section.mode && best && slot.match.test((best.c.name || '').toLowerCase()) && section.mode.test((best.c.name || '').toLowerCase())) {
+          nextEnabled[section.key] = true;
+        } else if (section.autoEnable && best && best.score >= PICK_MIN) {
           nextEnabled[section.key] = true;
         }
       }
@@ -245,8 +282,8 @@ export function SceneSetupWizard({ scene, assetItems = [], onClose, onCreate, em
 
         <div className="scene-spinner-meta">
           ◆ = suggested by filename. Creates one parent object holding the scene;
-          background sits under it with logo + machine frame; animations nest under
-          their static. Alternate modes are added hidden.
+          every mode (including Base Game) gets its own group. Alternate modes,
+          splash, and transition groups are created hidden and can be auto-timed.
         </div>
       </div>
 

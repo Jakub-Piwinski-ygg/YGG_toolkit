@@ -695,10 +695,27 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   margin: 0;
   padding: 2px 0;
 }
+/* Nested levels indent structurally and draw a dotted vertical guide line so
+   the tree hierarchy reads at a glance (Unity-style). The line sits just left
+   of the children, under their parent's disclosure arrow. */
 .scene-layer-list--nested {
   padding: 0;
+  margin-left: 15px;
+  border-left: 1px dotted var(--tree-guide, rgba(140, 150, 170, 0.38));
 }
 .scene-layer-li { position: relative; }
+/* Short horizontal tick connecting the vertical guide to each child row.
+   Lives on the <li> (the row's ::before/::after are taken by drop indicators);
+   fixed top approximates the row's vertical centre. */
+.scene-layer-list--nested > .scene-layer-li::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 11px;
+  width: 7px;
+  border-top: 1px dotted var(--tree-guide, rgba(140, 150, 170, 0.38));
+  pointer-events: none;
+}
 .scene-layer-row {
   display: flex;
   align-items: center;
@@ -766,6 +783,15 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   font-size: 12px;
 }
 .scene-icon-btn:hover { color: var(--red, #ff4f6a); }
+/* De-clutter: the per-row delete (✕) only appears on hover / when selected.
+   The lock badge (scene-layer-lock) always stays visible — it's informative. */
+.scene-layer-row .scene-icon-btn:not(.scene-layer-lock) {
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.scene-layer-row:hover .scene-icon-btn:not(.scene-layer-lock),
+.scene-layer-row.selected .scene-icon-btn:not(.scene-layer-lock) { opacity: 0.55; }
+.scene-layer-row .scene-icon-btn:not(.scene-layer-lock):hover { opacity: 1; }
 .scene-layer-eye {
   background: transparent;
   border: none;
@@ -774,8 +800,20 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   font-size: 12px;
   line-height: 1;
   opacity: 0.85;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-1, #a8afc0);
 }
-.scene-layer-eye:hover { opacity: 1; }
+.scene-layer-eye:hover { opacity: 1 !important; }
+.scene-layer-eye svg { width: 14px; height: 14px; display: block; }
+/* Hidden (alpha 0) rows read dimmer so the closed eye stands out. */
+.scene-layer-eye.is-hidden { opacity: 0.5; }
+/* Locally shown but under a hidden ancestor: same open-eye glyph, barely
+   visible — signals "on here, but effectively off". */
+.scene-layer-eye.is-dimmed { opacity: 0.18; }
+/* Fade the whole row of an effectively-hidden object (self or ancestor). */
+.scene-layer-row.effectively-hidden .scene-layer-name,
+.scene-layer-row.effectively-hidden .scene-layer-type-icon { opacity: 0.4; }
 
 /* ── Inspector ───────────────────────────────────────────────────────── */
 .scene-field {
@@ -822,6 +860,24 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   font-style: normal;
   font-size: 10px;
   font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Alpha (opacity) slider — a bare range track, no input box chrome, with a
+   fixed-width numeric readout so the row lines up with the other fields. */
+.scene-field--alpha input[type="range"] {
+  flex: 1;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  accent-color: var(--accent, #4f9eff);
+  cursor: pointer;
+}
+.scene-field--alpha input[type="range"]:focus { outline: none; }
+.scene-field--alpha .scene-field-suffix {
+  width: 30px;
+  text-align: right;
+  flex: none;
 }
 
 /* Scrub-on-drag inputs: the label is the drag handle. Cursor + subtle hover
@@ -2851,7 +2907,7 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-height: 260px;
+  max-height: 420px; /* was 260px — bigger preview thumbnails need more room per row */
   overflow-y: auto;
   margin-bottom: 4px;
 }
@@ -2910,11 +2966,15 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   width: 22px;
 }
 
-/* Per-symbol preview strip: static / blur / land / win at a glance */
+/* Per-symbol preview strip: static / blur / land / win at a glance.
+   Sized to actually use the (now wider by default, user-resizable) wizard
+   panel width instead of leaving most of the row blank — was a fixed 44px
+   box regardless of how much room the panel had. */
 .spinner-sym-previews {
   display: flex;
-  gap: 6px;
-  margin: 3px 0 2px;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 4px;
   padding-left: 6px;
 }
 
@@ -2922,20 +2982,20 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
-  width: 52px;
+  gap: 2px;
+  width: 84px;
   min-width: 0;
 }
 
 .spinner-thumb em {
-  font-size: 8px;
+  font-size: 9px;
   font-style: normal;
   color: var(--text-2, #9599a8);
 }
 
 .spinner-thumb-box {
-  width: 44px;
-  height: 44px;
+  width: 76px;
+  height: 76px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -2944,7 +3004,7 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   background:
     repeating-conic-gradient(rgba(255, 255, 255, 0.05) 0 25%, transparent 0 50%)
     0 0 / 12px 12px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-2, #9599a8);
 }
 
@@ -3028,6 +3088,84 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   background: var(--bg-2, #222530);
   border-radius: 4px;
   border: 1px solid var(--border, #2e3340);
+}
+
+.spinner-blur-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.spinner-blur-progress-bar {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-3, #2a2d3a);
+  overflow: hidden;
+}
+
+.spinner-blur-progress-fill {
+  height: 100%;
+  background: var(--accent, #4fc);
+  transition: width 0.15s ease-out;
+}
+
+.spinner-preview-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.spinner-preview-timeline-bar {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-2, #1a1d24);
+  cursor: pointer;
+  user-select: none;
+}
+
+.spinner-preview-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+  font-size: 9px;
+  text-transform: uppercase;
+  color: var(--text-2, #8a92a8);
+  border-right: 1px solid rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.spinner-preview-seg:last-child { border-right: 0; }
+.spinner-preview-seg--startSpin { background: rgba(74, 168, 136, 0.22); }
+.spinner-preview-seg--spin { background: rgba(72, 140, 204, 0.22); }
+.spinner-preview-seg--stopSpin { background: rgba(204, 136, 102, 0.24); }
+.spinner-preview-seg--presentWin { background: rgba(191, 166, 83, 0.25); }
+.spinner-preview-seg.active { color: var(--text-0, #e8eaf0); filter: brightness(1.55); }
+
+.spinner-preview-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent, #4f9eff);
+  pointer-events: none;
+  box-shadow: 0 0 6px var(--accent, #4f9eff);
+}
+
+.spinner-preview-now {
+  font-size: 11px;
+  color: var(--text-1, #aab2c8);
 }
 
 /* ── Spinner clip tints in timeline ─────────────────────────────────────── */

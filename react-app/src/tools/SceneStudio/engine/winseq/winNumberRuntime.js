@@ -100,5 +100,7 @@ export function applyWinNumberAtTime(numObj, parentObj, layer, ut, sampleOverrid
   numObj.alpha = Math.max(0, Math.min(1, baseAlpha * animAlpha));
   if (colorOverride?.tint) CHANNEL_DEFS.tint.apply(numObj, colorOverride.tint);
   else numObj.tint = 0xffffff;
-  numObj.visible = layer.visible !== false;
+  // Unified visibility model: hiding is expressed via alpha (baseAlpha above),
+  // never a hard Pixi `visible=false`, so the object stays live in the runtime.
+  numObj.visible = true;
 }

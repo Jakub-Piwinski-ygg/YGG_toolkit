@@ -641,15 +641,25 @@ export function resolveWalk(sc) {
  */
 export function listProjectTimelines(project) {
   const out = [];
+  const iconFor = (tl) => {
+    const src = tl?.generatedMeta?.source;
+    if (src === 'sceneSetup') return '🎬';
+    if (src === 'spinner') return '🎰';
+    if (src === 'winseq') return '🏆';
+    return null;
+  };
   for (const s of project?.scenes || []) {
     const data = s.data;
     if (!data) continue;
     for (const tl of data.timelines || []) {
+      const icon = iconFor(tl);
       out.push({
         sceneId: s.id,
         sceneName: s.name || data.name || 'Scene',
         timelineId: tl.id,
         timelineName: tl.name || 'Timeline',
+        icon,
+        timelineDisplayName: icon ? `${icon} ${tl.name || 'Timeline'}` : (tl.name || 'Timeline'),
         trackCount: (tl.tracks || []).length,
         clipCount: (tl.tracks || []).reduce((sum, t) => sum + (t.clips?.length || 0), 0),
         duration: timelineDuration(tl)

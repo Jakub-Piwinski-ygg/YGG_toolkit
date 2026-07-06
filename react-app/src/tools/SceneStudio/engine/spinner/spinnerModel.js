@@ -47,11 +47,11 @@ export function hash32(str) {
 
 export function defaultSpinnerTiming() {
   return {
-    startDuration: 0.4,
+    startDuration: 0.25,
     startEase: 'easeIn',
     /** Full spin speed in cells per second. */
-    spinSpeed: 12,
-    stopDuration: 0.6,
+    spinSpeed: 30,
+    stopDuration: 0.35,
     /** Positional ease of the stop travel (0→1 over the stop duration). */
     stopEase: 'easeOut',
     reelStaggerStart: 0.08,
@@ -61,7 +61,7 @@ export function defaultSpinnerTiming() {
      * wizard's "test spin" and as the default duration for `spin` action clips
      * added to the timeline.
      */
-    minSpinTime: 1.0
+    minSpinTime: 0.5
   };
 }
 
@@ -71,8 +71,13 @@ export function defaultSpinnerBounce() {
 
 export function defaultSpinnerBlur() {
   // Crossfade thresholds in cells/second: fully static at vLo, fully
-  // blurred at vHi.
-  return { enabled: true, vLo: 4, vHi: 9 };
+  // blurred at vHi. `sigma`/`feather` (2026-07-04) are the directional
+  // motion-blur strength/edge-softness — used both by the wizard's "fill
+  // missing blurs"/"regenerate all" static-symbol PNG generation AND by the
+  // animations-only symbols' runtime blur bake (spinnerRuntime.js), so both
+  // mechanisms share one artist-facing control instead of the runtime bake
+  // using a fixed, non-adjustable value.
+  return { enabled: true, vLo: 4, vHi: 9, sigma: 36, feather: 4 };
 }
 
 export function defaultSpinnerEvents() {
@@ -145,13 +150,21 @@ export function normalizeSpinnerConfig(raw) {
     .map(normalizeSymbol).filter(Boolean);
   if (!symbols.length) return null;
 
+  const cellW = num(raw.grid?.cellW, 200, 8, 4096);
+  const cellH = num(raw.grid?.cellH, 200, 8, 4096);
   const grid = {
     reels: Math.round(num(raw.grid?.reels, 5, 1, 12)),
     rows: Math.round(num(raw.grid?.rows, 3, 1, 10)),
-    cellW: num(raw.grid?.cellW, 200, 8, 4096),
-    cellH: num(raw.grid?.cellH, 200, 8, 4096),
-    spacingX: num(raw.grid?.spacingX, 0, 0, 1024),
-    spacingY: num(raw.grid?.spacingY, 0, 0, 1024)
+    cellW,
+    cellH,
+    // Negative spacing overlaps cells; clamped so pitch (cell + spacing)
+    // never drops below 1px.
+    spacingX: num(raw.grid?.spacingX, 0, -(cellW - 1), 1024),
+    spacingY: num(raw.grid?.spacingY, 0, -(cellH - 1), 1024),
+    // Uniform art scale inside each cell (statics/blur/spine), independent of
+    // cell size — geometry stays untouched, only the rendered symbol shrinks
+    // or grows. See spinnerRuntime.applySpinnerAtTime.
+    symbolScale: num(raw.grid?.symbolScale, 1, 0.05, 10)
   };
 
   const seed = (Number.isFinite(Number(raw.seed)) ? Number(raw.seed) : 1) >>> 0;
@@ -169,7 +182,10 @@ export function normalizeSpinnerConfig(raw) {
     && initialBoard.length === grid.reels
     && initialBoard.every((col) => Array.isArray(col) && col.length === grid.rows
       && col.every((id) => symbolIds.includes(id)));
-  if (!boardValid) initialBoard = generateNonWinningBoard(symbolIds, grid.reels, grid.rows, seed);
+  if (!boardValid) {
+    const { wildId } = classifySymbols({ symbols });
+    initialBoard = generateNonWinningBoard(symbolIds, grid.reels, grid.rows, seed, wildId);
+  }
 
   const t = raw.timing || {};
   const dt = defaultSpinnerTiming();
@@ -206,7 +222,9 @@ export function normalizeSpinnerConfig(raw) {
     blur: {
       enabled: bl.enabled !== false,
       vLo: num(bl.vLo, dbl.vLo, 0, 200),
-      vHi: num(bl.vHi, dbl.vHi, 0.1, 200)
+      vHi: num(bl.vHi, dbl.vHi, 0.1, 200),
+      sigma: num(bl.sigma, dbl.sigma, 1, 64),
+      feather: num(bl.feather, dbl.feather, 0, 32)
     },
     events: {
       winDelay: num(ev.winDelay, dev.winDelay, 0, 10),
@@ -251,6 +269,12 @@ export function normalizeSpinnerClipPayload(action, raw) {
     return {
       targetBoard: board,
       boardSeed: p.boardSeed != null ? (Number(p.boardSeed) >>> 0) : null,
+      // T12 outcome threshold (e.g. "no win") + its re-roll counter — must
+      // survive normalization or targetBoardForClip never sees them and
+      // silently falls back to a generic board (the wizard's outcome
+      // dropdown would appear to do nothing).
+      outcome: p.outcome && p.outcome !== 'default' && SPIN_OUTCOMES.includes(p.outcome) ? p.outcome : null,
+      rerollSeed: Number.isFinite(Number(p.rerollSeed)) ? Math.max(0, Math.round(Number(p.rerollSeed))) : 0,
       stopEase: p.stopEase != null ? normalizeCurveSpec(p.stopEase, 'easeOut') : null,
       stopDuration: p.stopDuration != null ? num(p.stopDuration, null, 0.01, 30) : null,
       perReelStopDelay: delays(p.perReelStopDelay),
@@ -344,28 +368,35 @@ export function spinnerPresentWinDuration(config, reelWinStagger = 0, perReelWin
  * → presentWin, exactly the cycle the scene timeline plays. Used by the
  * wizard's test-spin preview.
  *
- * `outcome`/`rerollSeed` (T12): when the wizard's own "Result" selector picks
- * a threshold, the stopSpin clip carries `spinner.outcome`/`rerollSeed`
- * instead of a fixed `targetBoard` — it resolves through the exact same
- * `targetBoardForClip` path as the director node and timeline clip surfaces,
- * so "re-roll" behaves identically everywhere. `outcome` omitted/'default'
- * keeps the original behavior: a seeded WINNING board so present-win has
- * something to show.
+ * `targetBoard` (2026-07-04): when the caller already has a concrete board
+ * decided (e.g. the wizard's Review step, where picking a Result outcome
+ * writes a literal board into `initialBoard` and shows it at rest), pass it
+ * here so the spin lands on EXACTLY that board — no seed re-derivation, so
+ * the animation can never diverge from what was already previewed.
+ *
+ * `outcome`/`rerollSeed` (T12): when no explicit `targetBoard` is given and
+ * the caller only has a threshold (director node / timeline clip inspector),
+ * the stopSpin clip instead carries `spinner.outcome`/`rerollSeed` — it
+ * resolves through the same `targetBoardForClip` path so "re-roll" behaves
+ * identically everywhere. `outcome` omitted/'default' keeps the original
+ * behavior: a seeded WINNING board so present-win has something to show.
  *
  * Returns { clips, total } with raw (un-normalized) clips — the caller runs
  * them through normalizeTrack before the resolver.
  */
-export function buildSpinnerTestClips(config, outcome = null, rerollSeed = 0) {
+export function buildSpinnerTestClips(config, outcome = null, rerollSeed = 0, targetBoard = null) {
   if (!config) return { clips: [], total: 1 };
   const t = config.timing || {};
   const start = spinnerStartSpinDuration(config);
   const spin = Math.max(0.05, Number(t.minSpinTime) > 0 ? Number(t.minSpinTime) : 1);
   const stop = spinnerStopSpinDuration(config);
   const present = spinnerPresentWinDuration(config);
-  const useOutcome = outcome && outcome !== 'default' && SPIN_OUTCOMES.includes(outcome);
-  const stopPayload = useOutcome
-    ? { outcome, rerollSeed }
-    : { targetBoard: generateWinningBoard(config.symbols.map((s) => s.id), config.grid.reels, config.grid.rows, (config.seed ^ 0x7e57) >>> 0) };
+  const useOutcome = !Array.isArray(targetBoard) && outcome && outcome !== 'default' && SPIN_OUTCOMES.includes(outcome);
+  const stopPayload = Array.isArray(targetBoard)
+    ? { targetBoard }
+    : useOutcome
+      ? { outcome, rerollSeed }
+      : { targetBoard: generateWinningBoard(config.symbols.map((s) => s.id), config.grid.reels, config.grid.rows, (config.seed ^ 0x7e57) >>> 0) };
   const clips = [
     { id: 'ts_start', action: 'startSpin', start: 0, duration: start, spinner: {} },
     { id: 'ts_spin', action: 'spin', start: start, duration: spin, spinner: {} },
@@ -385,6 +416,7 @@ export function buildSpinnerFullSpinTimeline(layerId, config) {
   const { clips } = buildSpinnerTestClips(config);
   return {
     name: 'spin · full',
+    generatedMeta: { source: 'spinner', kind: 'fullSpin' },
     tracks: [{ layerId, clips }]
   };
 }
@@ -523,7 +555,11 @@ function randomBoard(symbolIds, reels, rows, rand) {
  * first; if the config makes that unlikely (few symbols, many rows), a
  * greedy fix-up clears reel-2 occurrences of any symbol spanning reels
  * 0..2 — a win needs presence on the first three reels, so breaking the
- * third reel kills every win.
+ * third reel kills every win. If that greedy pass still can't converge
+ * (as few as 2 non-wild symbols can make every candidate an "offender"
+ * AND already present on reel 0, leaving no safe replacement), a
+ * deterministic last resort guarantees the postcondition regardless of
+ * symbol count: see the comment below.
  */
 export function generateNonWinningBoard(symbolIds, reels, rows, seed, wildId = null) {
   // Wilds substitute for anything, so a guaranteed non-win excludes them.
@@ -546,9 +582,35 @@ export function generateNonWinningBoard(symbolIds, reels, rows, seed, wildId = n
       // Prefer a replacement absent from reel 0 — it can never start a win.
       const safe = symbolIds.filter((id) => !board[0].includes(id));
       const pool = safe.length ? safe : symbolIds.filter((id) => !offenders.includes(id));
-      if (!pool.length) return board; // pathological config; give up gracefully
-      board[fixReel][row] = pool[Math.floor(rand() * pool.length)];
+      // No cell-local replacement can help (too few symbols to satisfy both
+      // constraints at once) — leave this cell and fall through to the
+      // deterministic guarantee below rather than giving up with a win intact.
+      if (pool.length) board[fixReel][row] = pool[Math.floor(rand() * pool.length)];
     }
+  }
+  if (!boardHasWin(board)) return board;
+  // Deterministic guarantee: a ways win needs its candidate symbol present
+  // SOMEWHERE in every reel from 0 through WAYS_MIN_COUNT-1. Overwriting one
+  // interior reel entirely with symbol X and the next entirely with a
+  // DIFFERENT symbol Y caps every candidate below WAYS_MIN_COUNT no matter
+  // what reel 0 (or anything past reel WAYS_MIN_COUNT-1) contains: any
+  // candidate other than X is absent from the X-reel (dies at count 1); X
+  // itself is absent from the Y-reel (capped at count 2). Reel 0 is left
+  // untouched so the board doesn't look uniform there. Needs only 2 distinct
+  // non-wild symbols, so it always succeeds except the genuinely impossible
+  // case of a single non-wild symbol (every cell must be that symbol, so
+  // every reel trivially "wins" — no board can satisfy that request).
+  if (symbolIds.length >= 2) {
+    const breakReel = WAYS_MIN_COUNT - 2; // reel index 1
+    const capReel = WAYS_MIN_COUNT - 1; // reel index 2
+    const x = symbolIds[0];
+    const y = symbolIds.find((id) => id !== x);
+    for (let row = 0; row < rows; row++) {
+      board[breakReel][row] = x;
+      board[capReel][row] = y;
+    }
+  } else if (typeof console !== 'undefined') {
+    console.warn('[Spinner] generateNonWinningBoard: only one non-wild symbol — a non-winning board is impossible.');
   }
   return board;
 }
@@ -771,5 +833,5 @@ export function targetBoardForClip(config, clip, outcomeOverride = null, outcome
   const seed = payload.boardSeed != null
     ? payload.boardSeed >>> 0
     : (config.seed ^ hash32(clip?.id || 'stop')) >>> 0;
-  return generateNonWinningBoard(ids, reels, rows, seed);
+  return generateNonWinningBoard(ids, reels, rows, seed, classifySymbols(config).wildId);
 }

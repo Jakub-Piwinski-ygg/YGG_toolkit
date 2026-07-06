@@ -20,9 +20,10 @@
 //             blurSprite      ← alpha = blurMix crossfade
 //     fx Container            ← land/win overlays — OUTSIDE the mask (overflow)
 
-import { BlurFilter, Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { normalizeSpinnerConfig } from './spinnerModel.js';
 import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey, pickSpinnerActionTrack } from './spinnerEval.js';
+import { blurRenderedCanvas } from './spinnerBlur.js';
 
 /**
  * T7 (animations-only symbols): bake a static texture from a spine pose at
@@ -36,21 +37,50 @@ import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey, pickSpinnerAct
  * below) to bound Spine's per-instance render cost, and idle cells vastly
  * outnumber that cap on any board with more than a couple of reels — baking
  * to a texture is the only approach that scales to "every resting cell".
+ *
+ * Only captures the SHARP texture + a raw canvas of the same pose — cheap
+ * (one Pixi `generateTexture`/`extract.canvas`, no WASM). The blur variant is
+ * baked separately by `queueBlurBake` below, off the critical path: see its
+ * docstring for why (2026-07-04 regression — this used to also run the
+ * directional-blur WASM chain right here, blocking the whole scene from
+ * appearing for multiple seconds on a handful of animOnly symbols).
+ *
+ * Also returns an `anchor` fraction (2026-07-04, position-jump fix):
+ * `generateTexture` crops tightly to the posed container's bounding box and
+ * has no memory of where the skeleton's own local origin (0,0) sat inside
+ * it — but that origin is exactly the point every live land/win Spine
+ * overlay is positioned BY (`useSpineOverlay` below sets `container.x/y`
+ * with no anchor concept of its own). Artists author land/idle/win Spine
+ * clips to share one rig origin specifically so they transition without a
+ * jump; a plain `anchor.set(0.5)` (bbox-center) on the baked texture ignores
+ * that origin and reintroduces the jump for any pose whose art isn't
+ * symmetric around the rig root (feet-at-origin rigs, off-center win FX,
+ * …). Capturing the bounds BEFORE `generateTexture` crops them away lets
+ * the caller anchor the sprite at the origin fraction instead, so idle ↔
+ * land/win lines up on the same point the Spine data was authored around.
  */
-async function bakeSpinePoseTexture(deps, assetId, animName, loop) {
+export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop) {
   if (!deps.renderer || !deps.createSpineContainer) return null;
   let inst = null;
   try {
     inst = await deps.createSpineContainer(assetId, animName, loop);
     if (!inst) return null;
     inst.setTrackTime(0); // first frame = the idle/resting pose
+    // Same bounds computation generateTexture uses internally to crop —
+    // capture it first so we know where (0,0) fell inside the crop.
+    const bounds = inst.container.getLocalBounds();
+    const anchor = (bounds.width > 0 && bounds.height > 0)
+      ? { x: -bounds.x / bounds.width, y: -bounds.y / bounds.height }
+      : { x: 0.5, y: 0.5 };
     const sharp = deps.renderer.generateTexture(inst.container);
-    let blurred = null;
-    try {
-      inst.container.filters = [new BlurFilter({ strength: 8 })];
-      blurred = deps.renderer.generateTexture(inst.container);
-    } catch { /* blur variant is best-effort — sharp texture still works */ }
-    return { sharp, blurred };
+    let canvas = null;
+    // Extract from the TEXTURE we just generated, not the raw (unattached,
+    // off-stage) container a second time through a different Pixi subsystem —
+    // `sharp` already has well-defined bounds/dimensions since generateTexture
+    // just produced it, whereas an arbitrary un-parented container's bounds
+    // for `extract` are less certain to resolve the same way.
+    try { canvas = deps.renderer.extract.canvas(sharp); } catch { /* blur bake becomes unavailable; sharp texture still works */ }
+    return { sharp, canvas, anchor };
   } catch (e) {
     console.warn('[SceneStudio] spinner idle-pose bake failed', assetId, animName, e);
     return null;
@@ -59,19 +89,69 @@ async function bakeSpinePoseTexture(deps, assetId, animName, loop) {
   }
 }
 
-// §B: symbols render at native 1:1 (a 220px symbol stays 220px, overflowing
-// its cell). No fit-shrink — keep scale 1; the single machine mask clips the
-// reel window, neighbours overlap freely.
+// A single shared, strictly-sequential queue for every animOnly blur bake in
+// the app (2026-07-04). Two things this must NOT do: (1) block
+// buildSpinnerObject's caller — the directional-blur WASM chain is several
+// round-trips and can take seconds across a handful of symbols, and nothing
+// about it needs to finish before the scene can appear (the sharp texture is
+// a perfectly good stand-in for both static AND blurred until the real blur
+// lands); (2) run concurrently with itself — every ImageMagick WASM call in
+// this app (not just this one) writes to FIXED temp filenames, so overlapping
+// calls could clobber each other's files. Chaining through one module-level
+// promise gets both: callers fire-and-forget, and the actual WASM work still
+// happens one bake at a time.
+let blurBakeQueue = Promise.resolve();
+function queueBlurBake(deps, canvas, sigma, feather) {
+  const result = blurBakeQueue
+    .then(() => blurRenderedCanvas(canvas, sigma, feather))
+    .then((blob) => deps.loadTexture(URL.createObjectURL(blob)));
+  // Keep the shared queue alive even if this particular bake fails, so bakes
+  // queued after it still run.
+  blurBakeQueue = result.catch(() => {});
+  return result;
+}
 
-function useSpineOverlay(spinePool, key, x, y, stateT) {
+// §B: symbols render at native 1:1 (a 220px symbol stays 220px, overflowing
+// its cell). No fit-shrink — keep scale 1 (times the artist-set uniform
+// symbolScale); the single machine mask clips the reel window, neighbours
+// overlap freely.
+
+function useSpineOverlay(spinePool, key, x, y, stateT, scale = 1) {
   const pool = spinePool.get(key);
   if (!pool || pool.nextFree >= pool.instances.length) return false;
   const inst = pool.instances[pool.nextFree++];
   inst.container.visible = true;
   inst.container.x = x;
   inst.container.y = y;
+  inst.container.scale.set(scale);
   inst.setTrackTime(stateT);
   return true;
+}
+
+function redrawCellGizmo(sp) {
+  if (!sp?.cellGizmo) return;
+  const g = sp.cellGizmo;
+  g.clear();
+  if (!sp.showCellGizmo) return;
+  const { reels, rows, cellW, cellH, spacingX, spacingY } = sp.config.grid;
+  const line = 1;
+  g.roundRect(0, 0, sp.W, sp.H, 8).stroke({ color: 0x74d9ff, width: line, alpha: 0.75 });
+  for (let r = 0; r < reels; r++) {
+    const x = r * (cellW + spacingX);
+    for (let j = 0; j < rows; j++) {
+      const y = j * (cellH + spacingY);
+      g.rect(x, y, cellW, cellH).stroke({ color: 0x74d9ff, width: line, alpha: 0.42 });
+    }
+  }
+}
+
+export function setSpinnerCellGizmoVisible(obj, visible) {
+  const sp = obj?.__spinner;
+  if (!sp) return;
+  const next = !!visible;
+  if (sp.showCellGizmo === next) return;
+  sp.showCellGizmo = next;
+  redrawCellGizmo(sp);
 }
 
 /**
@@ -101,21 +181,48 @@ export async function buildSpinnerObject(asset, layer, deps) {
   for (const sym of config.symbols) {
     const tex = await load(sym.assetId);
     const blurTex = await load(sym.blurAssetId);
-    textures.set(sym.id, { tex: tex || Texture.WHITE, blurTex: blurTex || tex || Texture.WHITE });
+    // Ordinary static-art symbols are always cell-centered — the artist's
+    // static PNG and their Spine rig's origin are conventionally authored to
+    // already agree on that center. Only the T7 bake below (no static PNG,
+    // texture cropped from an arbitrary pose's bounding box) needs a
+    // non-center anchor to line up with the rig origin instead.
+    textures.set(sym.id, { tex: tex || Texture.WHITE, blurTex: blurTex || tex || Texture.WHITE, anchor: { x: 0.5, y: 0.5 } });
   }
 
   // T7: "animations-only" symbols — no static PNG authored, but a land/win
   // Spine animation exists — get their idle/resting texture baked from that
   // animation's first frame (landAnim preferred, winAnim as fallback) instead
-  // of sitting on the near-invisible Texture.WHITE default above.
+  // of sitting on the near-invisible Texture.WHITE default above. The BLUR
+  // texture may already be a real, persisted asset the wizard's "render +
+  // blur idle pose" step generated (loaded like any other symbol in the loop
+  // above, via `sym.blurAssetId`) — in that case it's kept as-is and the
+  // automatic runtime bake-and-blur below is skipped entirely. That fallback
+  // only fires for symbols that haven't been through the wizard step yet.
   for (const sym of config.symbols) {
     if (sym.assetId) continue; // has a real static — nothing to bake
     const animConf = sym.landAnim?.kind === 'spine' ? sym.landAnim
       : sym.winAnim?.kind === 'spine' ? sym.winAnim
       : null;
     if (!animConf?.assetId || !animConf?.anim) continue; // no anim either — stays Texture.WHITE
-    const baked = await bakeSpinePoseTexture(deps, animConf.assetId, animConf.anim, animConf.loop !== false);
-    if (baked?.sharp) textures.set(sym.id, { tex: baked.sharp, blurTex: baked.blurred || baked.sharp });
+    const existing = textures.get(sym.id);
+    const hasPersistedBlur = !!sym.blurAssetId && existing?.blurTex && existing.blurTex !== Texture.WHITE;
+    const baked = await bakeSpinePoseSharpTexture(deps, animConf.assetId, animConf.anim, animConf.loop !== false);
+    if (!baked?.sharp) continue;
+    // Sharp texture stands in for the idle/resting slot immediately — the
+    // scene can render right now. A persisted blur asset (if any) is used
+    // as-is; otherwise the real directional blur (slow) lands later via the
+    // background queue, once ready, without anyone waiting on it.
+    textures.set(sym.id, { tex: baked.sharp, blurTex: hasPersistedBlur ? existing.blurTex : baked.sharp, anchor: baked.anchor });
+    if (baked.canvas && !hasPersistedBlur) {
+      const symId = sym.id;
+      const sharpTex = baked.sharp;
+      const anchor = baked.anchor;
+      queueBlurBake(deps, baked.canvas, config.blur?.sigma ?? 8, config.blur?.feather ?? 4)
+        // The blur canvas is a uniform downsample of the SAME crop as `sharpTex`
+        // (spinnerBlur.js never re-crops), so the anchor fraction is unchanged.
+        .then((blurTex) => { if (blurTex) textures.set(symId, { tex: sharpTex, blurTex, anchor }); })
+        .catch((e) => console.warn('[SceneStudio] spinner idle-pose blur bake failed — keeping unblurred', symId, e));
+    }
   }
 
   const root = new Container();
@@ -163,6 +270,12 @@ export async function buildSpinnerObject(asset, layer, deps) {
   const fx = new Container();
   fx.label = 'spinner-fx';
   root.addChild(fx);
+
+  const cellGizmo = new Graphics();
+  cellGizmo.label = 'spinner-cell-gizmo';
+  cellGizmo.eventMode = 'none';
+  cellGizmo.visible = true;
+  board.addChild(cellGizmo);
 
   // Symbol lookup map for land/win anim dispatch in applySpinnerAtTime.
   const symbolMap = new Map(config.symbols.map((s) => [s.id, s]));
@@ -225,8 +338,17 @@ export async function buildSpinnerObject(asset, layer, deps) {
   if (!root.anchor) root.anchor = { x: 0.5, y: 0.5, set() {} };
   root.__spinner = {
     config,
+    // The raw asset.spinner this build normalized. The live-patch pass
+    // (pixiApp.js applyRuntimeConfigs) compares by identity and swaps `config`
+    // in place for runtime-only edits (timing/blur/board/strips/events/…).
+    rawRef: asset.spinner,
     textures,
     reelViews,
+    // board + mask refs so relayoutSpinnerGeometry can resize in place when
+    // cell size / spacing change (reel/row COUNTS still rebuild — containers).
+    board,
+    boardMask,
+    cellGizmo,
     fx,
     pitchY,
     resolveKey: null,
@@ -234,12 +356,44 @@ export async function buildSpinnerObject(asset, layer, deps) {
     symbolMap,
     spinePool,
     W,
-    H
+    H,
+    showCellGizmo: false
   };
+  redrawCellGizmo(root.__spinner);
 
   // Show the initial board even before any timeline evaluation runs.
   applySpinnerAtTime(root, layer, [], 0);
   return root;
+}
+
+/**
+ * Re-derive the board geometry (offsets, mask, reel/cell x-positions, base
+ * bounds) from the CURRENT config's cell size + spacing, on the already-built
+ * containers. Called by the live-patch pass after a runtime config swap so
+ * cellW/cellH/spacingX/spacingY edits resize the machine in place — only the
+ * reel/row COUNTS (container topology) and the symbol set (textures, overlay
+ * pool) still require a full rebuild. Per-frame cell Y positions are computed
+ * from sp.pitchY/W/H in applySpinnerAtTime, so updating them here is enough.
+ */
+export function relayoutSpinnerGeometry(obj) {
+  const sp = obj.__spinner;
+  if (!sp?.board || !sp?.boardMask) return;
+  const { reels, rows, cellW, cellH, spacingX, spacingY } = sp.config.grid;
+  const W = reels * cellW + (reels - 1) * spacingX;
+  const H = rows * cellH + (rows - 1) * spacingY;
+  sp.W = W;
+  sp.H = H;
+  sp.pitchY = cellH + spacingY;
+  sp.board.x = -W / 2;
+  sp.board.y = -H / 2;
+  sp.boardMask.clear().rect(0, 0, W, H).fill(0xffffff);
+  for (let r = 0; r < sp.reelViews.length; r++) {
+    const view = sp.reelViews[r];
+    view.reelC.x = r * (cellW + spacingX);
+    for (const cell of view.cells) cell.cellC.x = cellW / 2;
+  }
+  obj.__baseBounds = { x: -W / 2, y: -H / 2, width: W, height: H };
+  redrawCellGizmo(sp);
 }
 
 /**
@@ -258,7 +412,7 @@ export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, out
   const sp = obj.__spinner;
   if (!sp) return;
   const { config, textures, reelViews, pitchY, symbolMap, spinePool, W, H } = sp;
-  const { rows, cellW, cellH, spacingX } = config.grid;
+  const { rows, cellW, cellH, spacingX, symbolScale } = config.grid;
 
   const track = pickSpinnerActionTrack(tracks || []);
   const key = spinnerResolveKey(config, track, startBoard, outcome, outcomeReroll);
@@ -280,6 +434,16 @@ export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, out
     const reel = res.reels[r];
     const dispFrac = (reel.frac + reel.bounceOffset) * config.direction;
     const cellCenterX = -W / 2 + r * (cellW + spacingX) + cellW / 2;
+    // True only when the reel is EXACTLY at rest — no scroll, no bounce
+    // wiggle (bounce always returns to exactly 0 once fully settled, see
+    // spinnerEval.test.js). Buffer-row cells (gridRow -1 / rows) only need
+    // to render while a symbol is actually transiting into/out of frame —
+    // at rest their native-1:1 art (which can be taller than cellH, §B) has
+    // nothing left to clip it but the outer mask, and can bleed past its
+    // edge. Gating on dispFrac (not e.g. reel.speed) also covers the
+    // post-land/win settle window for free, since bounce is additive on top
+    // of the same value.
+    const atRest = Math.abs(dispFrac) < 1e-4;
 
     for (let i = 0; i < view.cells.length; i++) {
       const cell = view.cells[i];
@@ -288,11 +452,38 @@ export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, out
       if (cell.symbolId !== data.symbolId) {
         const texPair = textures.get(data.symbolId);
         if (texPair) {
-          // §B: native 1:1 — assign the texture, leave scale at 1.
+          // §B: native 1:1 for the static — assign the texture, leave scale
+          // at 1. The blur texture may be a different native resolution than
+          // the static/sharp one (spinnerBlur.js's blurRenderedCanvas blurs
+          // at reduced resolution for speed — see BLUR_DOWNSAMPLE — and never
+          // upsamples the result; this applies identically to static-art
+          // blur PNGs, wizard-generated animOnly blur PNGs, and the runtime's
+          // own automatic animOnly bake-and-blur fallback) — scale it to
+          // match the static texture's footprint exactly using actual
+          // texture dimensions, not any hardcoded factor, so this stays
+          // correct across all of them (and full-size legacy blur PNGs too,
+          // ratio 1, no visual change).
           cell.staticSprite.texture = texPair.tex;
           cell.blurSprite.texture = texPair.blurTex;
+          // Ordinary static-art symbols anchor at cell-center (0.5, 0.5) —
+          // the artist's PNG and Spine rig origin already agree on that
+          // point. A T7-baked (no static PNG) symbol instead anchors at the
+          // fraction of its cropped bounding box where the Spine rig's own
+          // local origin fell (spinnerRuntime.bakeSpinePoseSharpTexture) —
+          // the SAME point `useSpineOverlay` below positions the live
+          // land/win overlay BY, so idle ↔ land/win never jumps. The blur
+          // texture shares the fraction: it's a uniform downsample of the
+          // identical crop, never re-cropped (spinnerBlur.js).
+          const ax = texPair.anchor?.x ?? 0.5, ay = texPair.anchor?.y ?? 0.5;
+          cell.staticSprite.anchor.set(ax, ay);
+          cell.blurSprite.anchor.set(ax, ay);
           cell.staticSprite.scale.set(1);
-          cell.blurSprite.scale.set(1);
+          const tw = texPair.tex?.width, th = texPair.tex?.height;
+          const bw = texPair.blurTex?.width, bh = texPair.blurTex?.height;
+          cell.blurSprite.scale.set(
+            Number.isFinite(tw) && Number.isFinite(bw) && bw > 0 ? tw / bw : 1,
+            Number.isFinite(th) && Number.isFinite(bh) && bh > 0 ? th / bh : 1
+          );
         }
         cell.symbolId = data.symbolId;
       }
@@ -315,15 +506,18 @@ export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, out
         if (localT >= 0) {
           const spKey = `${animConf.assetId}:${animConf.anim}:${loop ? '1' : '0'}`;
           const cellY = -H / 2 + (data.gridRow + dispFrac) * pitchY + cellH / 2;
-          overlayShown = useSpineOverlay(spinePool, spKey, cellCenterX, cellY, localT);
+          overlayShown = useSpineOverlay(spinePool, spKey, cellCenterX, cellY, localT, symbolScale ?? 1);
         }
       }
 
       // Hide the static + blur behind a playing overlay so the symbol isn't
-      // visible underneath the animation.
-      cell.blurSprite.alpha = overlayShown ? 0 : reel.blurMix;
-      cell.staticSprite.alpha = overlayShown ? 0 : 1 - reel.blurMix;
-      cell.cellC.scale.set(1);
+      // visible underneath the animation. Buffer-row cells additionally go
+      // fully transparent once the reel is at rest (see `atRest` above) —
+      // they only need to be visible while actively scrolling into place.
+      const forceHidden = atRest && !isVisible;
+      cell.blurSprite.alpha = forceHidden ? 0 : (overlayShown ? 0 : reel.blurMix);
+      cell.staticSprite.alpha = forceHidden ? 0 : (overlayShown ? 0 : 1 - reel.blurMix);
+      cell.cellC.scale.set(symbolScale ?? 1);
     }
   }
 }

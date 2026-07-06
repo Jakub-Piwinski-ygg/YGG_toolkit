@@ -1,5 +1,7 @@
 // LayerListPanel — left panel listing all scene layers.
 // Click to select; checkbox toggles visibility; trash button removes.
+// NOTE: currently unused (HierarchyPanel superseded it) — kept for reference.
+// Visibility is `transform.alpha` now (0 = hidden), not a `visible` boolean.
 
 export function LayerListPanel({ scene, selectedLayerId, onSelect, onToggleVisibility, onRemove }) {
   return (
@@ -19,10 +21,10 @@ export function LayerListPanel({ scene, selectedLayerId, onSelect, onToggleVisib
               >
                 <input
                   type="checkbox"
-                  checked={layer.visible}
+                  checked={(layer.transforms?.landscape?.alpha ?? 1) > 0.0001}
                   onChange={(e) => {
                     e.stopPropagation();
-                    onToggleVisibility(layer.id, e.target.checked);
+                    onToggleVisibility(layer.id);
                   }}
                   onClick={(e) => e.stopPropagation()}
                 />

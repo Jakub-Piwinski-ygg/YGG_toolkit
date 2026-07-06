@@ -505,7 +505,7 @@ function ScenarioNodeBox({ node, project, selected, current, playing, progress =
     const ref = resolveTimelineRef(project, node.sceneId, node.timelineId);
     body = (
       <>
-        <div className="ss-node-title">{node.label || ref?.timelineName || 'timeline'}</div>
+        <div className="ss-node-title">{node.label || ref?.timelineDisplayName || ref?.timelineName || 'timeline'}</div>
         {ref ? (
           <div className="ss-node-meta">{ref.sceneName} · {ref.trackCount} trk · {Math.round(ref.duration * 10) / 10}s</div>
         ) : (

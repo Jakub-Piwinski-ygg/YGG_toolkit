@@ -1280,10 +1280,11 @@ namespace Ygg.SceneStudio
         public SpinnerSymbolData[] symbols;
         public int reels = 5, rows = 3;
         public float cellW = 200, cellH = 200, spacingX = 0, spacingY = 0;
+        public float symbolScale = 1;
         public int direction = 1;
         public SpinnerRow[] strips;
         public SpinnerRow[] initialBoard;
-        public float startDuration = 0.4f, spinSpeed = 12f, stopDuration = 0.6f;
+        public float startDuration = 0.25f, spinSpeed = 30f, stopDuration = 0.35f;
         public float reelStaggerStart = 0.08f, reelStaggerStop = 0.15f;
         public string startEase = "easeIn", stopEase = "easeOut";
         public string bounceCurve = "backOut";
@@ -1376,6 +1377,11 @@ namespace Ygg.SceneStudio
             public Image staticImg, blurImg;        // ui
             public SpriteRenderer staticSr, blurSr; // world
             public string symId;
+            // World variant only: the blur sprite may be a different native
+            // pixel resolution than the static one (the web wizard blurs at
+            // reduced resolution for speed) — cached ratio to scale bTr up/
+            // down to match sTr's footprint. 1 when sizes already match.
+            public float blurScaleX, blurScaleY;
         }
         List<CellView>[] _reelCells;
 
@@ -1560,15 +1566,32 @@ namespace Ygg.SceneStudio
                             if (worldVariant)
                             {
                                 // §B: native 1:1 — SpriteRenderer already renders at
-                                // the sprite's own ppu, so no fit scaling.
+                                // the sprite's own ppu, so no fit scaling BETWEEN
+                                // symbols — but the blur sprite may be a different
+                                // native pixel resolution than the static one (the
+                                // web wizard blurs at reduced resolution for speed),
+                                // so cache a ratio to scale bTr up/down to match sTr's
+                                // footprint (applied every frame below, alongside
+                                // symbolScale). 1 when a sprite is missing or sizes
+                                // already match.
                                 if (cell.staticSr != null) cell.staticSr.sprite = bind.staticSprite;
                                 if (cell.blurSr != null) cell.blurSr.sprite = blur;
+                                float sw = bind.staticSprite != null ? bind.staticSprite.rect.width : 0f;
+                                float sh = bind.staticSprite != null ? bind.staticSprite.rect.height : 0f;
+                                float bw = blur != null ? blur.rect.width : 0f;
+                                float bh = blur != null ? blur.rect.height : 0f;
+                                cell.blurScaleX = (sw > 0f && bw > 0f) ? sw / bw : 1f;
+                                cell.blurScaleY = (sh > 0f && bh > 0f) ? sh / bh : 1f;
                             }
                             else
                             {
-                                // §B: resize the cell to the sprite's native px.
+                                // §B: resize the cell to the sprite's native px — the
+                                // blur cell is sized against the STATIC sprite (not
+                                // its own, possibly smaller, native size) so a
+                                // reduced-resolution blur PNG still fills the same
+                                // footprint; preserveAspect=false stretches it to fit.
                                 if (cell.staticImg != null) { cell.staticImg.sprite = bind.staticSprite; SetNativeSize(cell.sTr, bind.staticSprite); }
-                                if (cell.blurImg != null) { cell.blurImg.sprite = blur; SetNativeSize(cell.bTr, blur); }
+                                if (cell.blurImg != null) { cell.blurImg.sprite = blur; SetNativeSize(cell.bTr, bind.staticSprite); }
                             }
                         }
                         cell.symId = data.symbolId;
@@ -1588,9 +1611,15 @@ namespace Ygg.SceneStudio
                         overlayShowing = DriveOverlay(r, data.symbolId, cellState == CellState.Win ? "win" : "land", colX, y, cellStateT);
                     }
                     // While the overlay plays, hide the static + blur behind it so
-                    // the symbol isn't visible underneath the animation.
-                    float sA = overlayShowing ? 0f : 1f - reel.blurMix;
-                    float bA = overlayShowing ? 0f : reel.blurMix;
+                    // the symbol isn't visible underneath the animation. Buffer-row
+                    // cells (gridRow outside 0..rows-1) additionally go fully
+                    // transparent once the reel is exactly at rest (mirrors the web
+                    // runtime's atRest fix — native 1:1 art taller than cellH can
+                    // otherwise bleed past the outer mask when idle).
+                    bool atRest = Mathf.Abs(disp) < 0.0001f;
+                    bool forceHidden = atRest && !vis;
+                    float sA = forceHidden ? 0f : (overlayShowing ? 0f : 1f - reel.blurMix);
+                    float bA = forceHidden ? 0f : (overlayShowing ? 0f : reel.blurMix);
                     var sCol = new Color(1, 1, 1, sA);
                     var bCol = new Color(1, 1, 1, bA);
                     if (worldVariant)
@@ -1604,9 +1633,13 @@ namespace Ygg.SceneStudio
                         if (cell.blurImg != null) cell.blurImg.color = bCol;
                     }
                     // No procedural scale-punch (removed per phase 3 §A1 — it was
-                    // unwanted). §B: native 1:1, no fit scale.
-                    cell.sTr.localScale = Vector3.one;
-                    cell.bTr.localScale = Vector3.one;
+                    // unwanted). §B: native 1:1 aside from the uniform symbolScale.
+                    // blurScaleX/Y (World variant only — stays 1,1 for UI, where the
+                    // resolution mismatch is instead absorbed by SetNativeSize above)
+                    // compensates for a blur sprite at a different native resolution
+                    // than its static counterpart.
+                    cell.sTr.localScale = Vector3.one * _cfg.symbolScale;
+                    cell.bTr.localScale = new Vector3(_cfg.symbolScale * cell.blurScaleX, _cfg.symbolScale * cell.blurScaleY, 1f);
                     _reelCells[r][i] = cell;
                 }
             }
@@ -1698,6 +1731,7 @@ namespace Ygg.SceneStudio
             {
                 tr.localPosition = new Vector3(ox / Mathf.Max(1e-3f, pixelsPerUnit), yBoard / Mathf.Max(1e-3f, pixelsPerUnit), 0);
             }
+            tr.localScale = Vector3.one * _cfg.symbolScale;
             if (!ov.go.activeSelf) ov.go.SetActive(true);
             try
             {
@@ -1771,7 +1805,9 @@ namespace Ygg.SceneStudio
                     {
                         sTr = EnsureCell(sReel, j, false, 0),
                         bTr = EnsureCell(bReel, j, true, 1),
-                        symId = null
+                        symId = null,
+                        blurScaleX = 1f,
+                        blurScaleY = 1f
                     };
                     v.staticImg = v.sTr.GetComponent<Image>();
                     v.blurImg = v.bTr.GetComponent<Image>();

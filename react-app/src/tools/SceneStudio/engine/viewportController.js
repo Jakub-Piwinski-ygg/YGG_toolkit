@@ -147,9 +147,13 @@ export function attachViewportController(opts) {
   // walk up to the content root. Prevents selecting invisible / proxy-hidden
   // objects by clicking where they'd be.
   const isEffectivelyVisible = (obj) => {
+    const EPS = 1e-4;
     let cur = obj;
     while (cur && cur !== content) {
       if (!cur.visible) return false;
+      // Unified visibility model uses alpha (hierarchy eye writes alpha 0/1),
+      // so raycast/selection must honor fully transparent ancestors too.
+      if (typeof cur.alpha === 'number' && cur.alpha <= EPS) return false;
       cur = cur.parent;
     }
     return true;
@@ -247,7 +251,7 @@ export function attachViewportController(opts) {
     }
 
     for (const [id, obj] of handles.entries()) {
-      if (id === selectedId || !obj?.visible) continue;
+      if (id === selectedId || !isEffectivelyVisible(obj)) continue;
       addTargetFromHandles(targets, getHandlePositions(obj, content));
     }
     return targets;

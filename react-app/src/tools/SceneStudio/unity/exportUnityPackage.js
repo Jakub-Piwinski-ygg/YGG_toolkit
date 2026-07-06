@@ -431,13 +431,10 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
           ? (layer.transforms?.portrait ?? layer.transforms?.landscape)
           : layer.transforms?.landscape;
         const conv = convertTransform(t, { isRoot, stage, ui, ppu: settings.pixelsPerUnit });
-        // T5 (eye visibility model): a closed eye composes as
-        // effectiveAlpha = min(inspectorAlpha, eyeAlpha) at runtime — it never
-        // overwrites the authored inspector alpha. Mirror that here instead of
-        // the GameObject `active` flag (below): the authored `layer.transforms`
-        // alpha is untouched, only the value baked into this node's exported
-        // SpriteRenderer/CanvasGroup/Image alpha component is gated to 0.
-        if (layer.visible === false) conv.alpha = 0;
+        // Unified visibility model: visibility IS `transform.alpha` (0 = hidden),
+        // which convertTransform already baked into conv.alpha. Nothing extra to
+        // gate here — the GameObject stays active and a hidden object exports as
+        // alpha 0 on its SpriteRenderer/CanvasGroup/Image.
         if (!ui && (conv.pivot.x !== 0.5 || conv.pivot.y !== 0.5)) {
           warnings.push(`"${name}": non-center anchor approximated in world variant (sprite pivot stays centered).`);
         }

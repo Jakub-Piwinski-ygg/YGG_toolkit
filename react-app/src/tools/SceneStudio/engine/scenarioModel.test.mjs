@@ -358,6 +358,26 @@ test('listProjectTimelines spans all scenes, scoped to origin scene', () => {
   assert.equal(c.sceneId, 'S2');
 });
 
+test('listProjectTimelines decorates generated timelines with source icon', () => {
+  const project = {
+    scenes: [{
+      id: 'S1',
+      name: 'Scene',
+      data: {
+        timelines: [
+          { id: 'TL_ss', name: 'Base Game Idle', generatedMeta: { source: 'sceneSetup', kind: 'modeIdle' }, tracks: [] },
+          { id: 'TL_spin', name: 'spin · full', generatedMeta: { source: 'spinner', kind: 'fullSpin' }, tracks: [] },
+          { id: 'TL_win', name: 'win · big', generatedMeta: { source: 'winseq', kind: 'flow' }, tracks: [] }
+        ]
+      }
+    }]
+  };
+  const list = listProjectTimelines(project);
+  assert.equal(list.find((t) => t.timelineId === 'TL_ss')?.timelineDisplayName, '🎬 Base Game Idle');
+  assert.equal(list.find((t) => t.timelineId === 'TL_spin')?.timelineDisplayName, '🎰 spin · full');
+  assert.equal(list.find((t) => t.timelineId === 'TL_win')?.timelineDisplayName, '🏆 win · big');
+});
+
 test('resolveTimelineRef finds a bound timeline or null', () => {
   const project = fakeProject();
   assert.ok(resolveTimelineRef(project, 'S1', 'TL_a'));

@@ -14,7 +14,11 @@ import { SpinnerWizard } from './components/SpinnerWizard.jsx';
 import { normalizeSpinnerConfig, buildSpinnerFullSpinTimeline } from './engine/spinner/spinnerModel.js';
 import { WinSequenceWizard } from './components/WinSequenceWizard.jsx';
 import { normalizeWinSeqConfig, buildWinSeqTimelines } from './engine/winseq/winseqModel.js';
-import { buildSceneSetupIdleTimelines } from './engine/sceneSetupTimelines.js';
+import {
+  buildSceneSetupIdleTimelines,
+  buildSceneSetupAuxTimelines,
+  resolveSceneSetupPhaseClips
+} from './engine/sceneSetupTimelines.js';
 import { SceneSetupWizard } from './components/SceneSetupWizard.jsx';
 import { StudioToolbar } from './components/StudioToolbar.jsx';
 import { WorkspaceLockOverlay } from './components/WorkspaceLockOverlay.jsx';
@@ -103,7 +107,7 @@ import {
 } from './engine/persist.js';
 import { makeVirtualRootHandle, readFolderDropAsFiles, isVirtualHandle } from './engine/virtualHandle.js';
 import { makeRepoRootHandle } from './engine/repoHandle.js';
-import { patchTransform, resetPortrait } from './engine/orientationManager.js';
+import { patchTransform, resetPortrait, resolveTransform } from './engine/orientationManager.js';
 import { groupSpineFiles } from './engine/spineLoader.js';
 import {
   channelLayout,
@@ -214,9 +218,12 @@ const PANEL_SIZES = {
   // inspector so every setup field fits comfortably. T8: user-resizable like
   // every other panel — was a hardcoded WIZARD_PANEL_W=460 constant with no
   // resize handle or persistence, the one panel in the app that diverged
-  // from the shared left/right/timeline resize mechanism. Default ~33% of a
-  // common 1440px viewport (close to the old fixed value).
-  wizard:   { key: 'ss.wizardW',   def: 460, min: 320, max: 760 }
+  // from the shared left/right/timeline resize mechanism. Default bumped
+  // 460→620 (2026-07-04): the symbol-preview thumbnails now scale with the
+  // panel width (see .spinner-sym-previews), so a narrow default left most
+  // of the row visibly empty — 620px (~43% of a 1440px viewport) actually
+  // uses that space instead of just leaving more blank margin.
+  wizard:   { key: 'ss.wizardW',   def: 620, min: 320, max: 760 }
 };
 function readStoredSize(spec) {
   try {
@@ -1146,6 +1153,38 @@ export default function SceneStudioInner() {
     log('Scene Studio: regenerated full-spin timeline', 'ok');
   }, [log, setScene]);
 
+  // Scene Setup aux timelines (splash / intro / outro) are generated inside the
+  // setup callback before fresh spine descriptors exist, so their clips may be
+  // created with anim:null. Once the descriptor arrives, backfill only those
+  // missing-anim tracks with normal named spine clips (never touches authored
+  // clips that already have anim names).
+  const backfillSceneSetupAuxClips = useCallback((assetId, descriptor) => {
+    const animations = descriptor?.animations || [];
+    if (!Array.isArray(animations) || !animations.length) return;
+    const durations = descriptor?.animationDurations || {};
+    setScene((prev) => {
+      let changed = false;
+      const timelines = (prev.timelines || []).map((tl) => {
+        const meta = tl?.generatedMeta;
+        if (meta?.source !== 'sceneSetup' || !meta.contentLayerId || !meta.phase) return tl;
+        const layer = prev.layers.find((l) => l.id === meta.contentLayerId);
+        if (!layer || layer.assetId !== assetId) return tl;
+        let tlChanged = false;
+        const tracks = (tl.tracks || []).map((track) => {
+          if (track.layerId !== meta.contentLayerId) return track;
+          const clips = track.clips || [];
+          const needsFill = clips.some((c) => !c.anim);
+          if (!needsFill) return track;
+          changed = true;
+          tlChanged = true;
+          return { ...track, clips: resolveSceneSetupPhaseClips(animations, durations, meta.phase) };
+        });
+        return tlChanged ? { ...tl, tracks } : tl;
+      });
+      return changed ? { ...prev, timelines } : prev;
+    });
+  }, [setScene]);
+
   // Drain the wizard auto-generate queue: for each freshly-created spinner /
   // win-seq layer, generate its timelines once the inputs are ready. Spinners
   // fire immediately; win-seq waits for the asset's animation durations to
@@ -1336,11 +1375,11 @@ export default function SceneStudioInner() {
         return layerId;
       };
       // Build one background→machine sub-tree under `parentId`. Z-order
-      // (bottom→top): background, bg-anim, machine frame, machine anim, LOGO on
-      // top. All children stay visible and opaque — a mode is gated via its top
-      // parent's ALPHA alone (container alpha multiplies down the subtree), so
-      // fading that parent fades the whole mode at once.
-      const buildGroup = (roles, parentId) => {
+      // (bottom→top): background, bg-anim, machine frame, machine anim, then
+      // optional logo. All children stay visible and opaque — a mode is gated
+      // via its top parent's ALPHA alone (container alpha multiplies down the
+      // subtree), so fading that parent fades the whole mode at once.
+      const buildGroup = (roles, parentId, { includeLogo = true } = {}) => {
         if (!roles) return;
         const bgSpec = roles.background || roles.backgroundAnim;
         const bgNodeId = bgSpec
@@ -1352,32 +1391,143 @@ export default function SceneStudioInner() {
           const machineNodeId = add(machineSpec, machineSpec === roles.machineFrame ? 'Machine Frame' : 'Machine Frame Anim', bgNodeId, true);
           if (roles.machineFrame && roles.machineAnim) add(roles.machineAnim, 'Machine Frame Anim', machineNodeId, true);
         }
-        if (roles.logo) add(roles.logo, 'Logo', bgNodeId, true); // logo last → on top
+        if (includeLogo && roles.logo) add(roles.logo, 'Logo', bgNodeId, true); // logo last → on top
       };
 
       rootLayerId = add({ empty: true, setup }, name || 'Scene', null, true);
-      buildGroup(modes.base, rootLayerId);
-      const featureLabels = { freespins: 'Free Spins', bonus: 'Bonus Game', pick: 'Pick & Click' };
+      const hasRoles = (roles) => !!roles && Object.values(roles).some(Boolean);
+      const modeLabels = { base: 'Base Game', freespins: 'Free Spins', bonus: 'Bonus Game', pick: 'Pick & Click' };
+      const modeGroups = [];
+      const gameModesRootId = add({ empty: true }, 'Game Modes', rootLayerId, true, 1);
+      const baseGroupId = add({ empty: true }, modeLabels.base, gameModesRootId, true, 1);
+      modeGroups.push({ key: 'base', label: modeLabels.base, layerId: baseGroupId });
+      buildGroup(modes.base, baseGroupId, { includeLogo: false });
+
       // Mode gating is ALPHA-based (visible stays a pure editing toggle): each
       // feature group is created visible but fully transparent, and the
       // generated "<Mode> Idle" timelines drive the group alphas — so Direct-
       // mode edges can crossfade between game modes instead of hard-cutting.
-      const modeGroups = [{ key: 'base', label: 'Base Game', layerId: null }];
       for (const key of ['freespins', 'bonus', 'pick']) {
         const roles = modes[key];
-        if (!roles || !Object.values(roles).some(Boolean)) continue;
-        const groupId = add({ empty: true }, featureLabels[key], rootLayerId, true, 0);
-        modeGroups.push({ key, label: featureLabels[key], layerId: groupId });
+        if (!hasRoles(roles)) continue;
+        const groupId = add({ empty: true }, modeLabels[key], gameModesRootId, true, 0);
+        modeGroups.push({ key, label: modeLabels[key], layerId: groupId });
         buildGroup(roles, groupId);
       }
+
+      // Shared logo sits directly under scene root (outside mode groups), so it
+      // remains constant across game modes unless explicitly animated.
+      if (modes.base?.logo) add(modes.base.logo, 'Logo', rootLayerId, true, 1);
+
+      const pickAuxSpec = (roles) => roles?.backgroundAnim || roles?.background || null;
+      const specKey = (spec) => {
+        if (!spec) return null;
+        if (spec.kind === 'spine') return `spine:${spec.src || ''}:${spec.atlas || ''}:${spec.texture || ''}`;
+        return `${spec.kind}:${spec.src || ''}`;
+      };
+      let transitionsRootId = null;
+      const ensureTransitionsRoot = () => {
+        if (transitionsRootId) return transitionsRootId;
+        transitionsRootId = add({ empty: true }, 'Transitions', rootLayerId, true, 1);
+        return transitionsRootId;
+      };
+      const createAuxGroup = (key, label) => ({
+        key,
+        label,
+        layerId: add({ empty: true }, label, ensureTransitionsRoot(), true, 0)
+      });
+      const auxGroups = [];
+      const auxTimelines = [];
+      const descriptorForSpec = (spec) => {
+        if (!spec || spec.kind !== 'spine' || !spec.src) return null;
+        const item = assetItemsRef.current.find((it) => it.type === 'spine' && it.jsonPath === spec.src);
+        const sceneAsset = item ? findAssetForItem(prev.assets, item) : null;
+        return sceneAsset ? (assetDescriptors[sceneAsset.id] || null) : null;
+      };
+
+      const splashSpec = pickAuxSpec(modes.splash);
+      if (splashSpec) {
+        const grp = createAuxGroup('splash', 'Splash');
+        auxGroups.push(grp);
+        const contentLayerId = add(
+          splashSpec,
+          splashSpec.kind === 'spine' ? 'Splash Anim' : 'Splash',
+          grp.layerId,
+          true,
+          1
+        );
+        auxTimelines.push({
+          ...grp,
+          label: 'Splash',
+          type: 'splash',
+          phase: 'splash',
+          contentLayerId,
+          contentKind: splashSpec.kind,
+          contentAnimations: descriptorForSpec(splashSpec)?.animations || [],
+          contentDurations: descriptorForSpec(splashSpec)?.animationDurations || {}
+        });
+      }
+
+      const transitionDefs = [
+        { modeKey: 'freespins', groupKey: 'freespinsTransition', groupLabel: 'Free Spins Transition', intro: 'freespinsIntro', outro: 'freespinsOutro', introLabel: 'Free Spins Intro', outroLabel: 'Free Spins Outro' },
+        { modeKey: 'bonus', groupKey: 'bonusTransition', groupLabel: 'Bonus Transition', intro: 'bonusIntro', outro: 'bonusOutro', introLabel: 'Bonus Intro', outroLabel: 'Bonus Outro' },
+        { modeKey: 'pick', groupKey: 'pickTransition', groupLabel: 'Pick Transition', intro: 'pickIntro', outro: 'pickOutro', introLabel: 'Pick Intro', outroLabel: 'Pick Outro' }
+      ];
+      for (const defn of transitionDefs) {
+        const introSpec = pickAuxSpec(modes[defn.intro]);
+        const outroSpec = pickAuxSpec(modes[defn.outro]);
+        if (!introSpec && !outroSpec) continue;
+        const grp = createAuxGroup(defn.groupKey, defn.groupLabel);
+        auxGroups.push(grp);
+        const layerBySig = new Map();
+        const ensureLayer = (spec) => {
+          const sig = specKey(spec);
+          if (!sig) return null;
+          if (layerBySig.has(sig)) return layerBySig.get(sig);
+          const id = add(spec, `${defn.groupLabel} Anim`, grp.layerId, true, 1);
+          layerBySig.set(sig, id);
+          return id;
+        };
+        if (introSpec) {
+          const introDesc = descriptorForSpec(introSpec);
+          auxTimelines.push({
+            ...grp,
+            label: defn.introLabel,
+            type: 'transition',
+            phase: 'intro',
+            contentLayerId: ensureLayer(introSpec),
+            contentKind: introSpec.kind,
+            contentAnimations: introDesc?.animations || [],
+            contentDurations: introDesc?.animationDurations || {},
+            modeKey: defn.modeKey
+          });
+        }
+        if (outroSpec) {
+          const outroDesc = descriptorForSpec(outroSpec);
+          auxTimelines.push({
+            ...grp,
+            label: defn.outroLabel,
+            type: 'transition',
+            phase: 'outro',
+            contentLayerId: ensureLayer(outroSpec),
+            contentKind: outroSpec.kind,
+            contentAnimations: outroDesc?.animations || [],
+            contentDurations: outroDesc?.animationDurations || {},
+            modeKey: defn.modeKey
+          });
+        }
+      }
+
       let next = { ...prev, assets: [...baseAssets, ...assets], layers: [...baseLayers, ...layers] };
       // Re-entry: drop the previous root's generated idle timelines with its
       // subtree (the new ones get fresh layer ids).
       if (editTarget) {
         next = { ...next, timelines: (next.timelines || []).filter((t) => t.generatedBy !== editTarget.layerId) };
       }
-      const idle = buildSceneSetupIdleTimelines(modeGroups).map((b) => ({ ...b, generatedBy: rootLayerId }));
-      if (idle.length) next = addPrebuiltTimelines(next, idle);
+      const gateGroups = [...modeGroups, ...auxGroups];
+      const idle = buildSceneSetupIdleTimelines(modeGroups, gateGroups).map((b) => ({ ...b, generatedBy: rootLayerId }));
+      const auxTl = buildSceneSetupAuxTimelines(auxTimelines, gateGroups).map((b) => ({ ...b, generatedBy: rootLayerId }));
+      if (idle.length || auxTl.length) next = addPrebuiltTimelines(next, [...idle, ...auxTl]);
       return next;
     });
     if (rootLayerId) setSelectedLayerId(rootLayerId);
@@ -1811,7 +1961,8 @@ export default function SceneStudioInner() {
         return changed ? { ...prev, layers } : prev;
       });
     }
-  }, []);
+    backfillSceneSetupAuxClips(assetId, descriptor);
+  }, [backfillSceneSetupAuxClips]);
 
   // Persist real Spine win/land durations resolved by the runtime back onto
   // the spinner asset's symbols, so the inspector clip-length button and the
@@ -1840,8 +1991,10 @@ export default function SceneStudioInner() {
           return next;
         });
         if (!changed) return a;
-        // Bump rev so the config re-normalizes/persists and the resolve memo
-        // (spinnerResolveKey reads config.events but not symbols; rev covers it).
+        // rev is rebuild-inert since the structural-hash refactor; the fresh
+        // asset.spinner identity is what carries these durations to the live
+        // object (applyRuntimeConfigs config swap — no rebuild). rev still
+        // bumps for persistence/versioning semantics.
         return { ...a, spinner: { ...a.spinner, symbols: syms, rev: (a.spinner.rev || 1) + 1 } };
       });
       return changed ? { ...prev, assets } : prev;
@@ -1855,9 +2008,60 @@ export default function SceneStudioInner() {
     }));
   }, []);
 
-  const handleToggleVisibility = useCallback((layerId, visible) => {
-    handlePatchLayer(layerId, { visible });
-  }, [handlePatchLayer]);
+  // Unified visibility model: `transform.alpha` is the single source of truth
+  // for opacity AND visibility. `alphaForLayer` resolves the alpha the eye
+  // should reflect — the same value the Inspector/viewport show: the evaluated
+  // alpha at the playhead in animate mode (single clip under the playhead, same
+  // logic as InspectorPanel's `disp.alpha`), else the base-pose alpha.
+  const alphaForLayer = useCallback((layerId) => {
+    const sc = sceneRef.current;
+    const layer = sc?.layers?.find((l) => l.id === layerId);
+    if (!layer) return 1;
+    const orientation = sc.stage.activeOrientation;
+    const base = resolveTransform(layer, orientation, sc.stage);
+    let a = typeof base?.alpha === 'number' ? base.alpha : 1;
+    if (studioMode !== 'setup') {
+      const time = flowState.time;
+      const track = (sc.flow?.tracks || []).find((tr) => tr.layerId === layerId);
+      const clip = track?.clips?.find((c) => time >= c.start && time < c.start + c.duration);
+      const ch = clip?.channels?.alpha;
+      const animated = ch && (ch.keys?.length || isPathChannel(ch));
+      if (animated) {
+        const v = evalChannel(ch, clipLocalSeconds(clip, time, { clampPastEnd: true }), 'alpha');
+        if (typeof v === 'number') a = v;
+      }
+    }
+    return Math.max(0, Math.min(1, a));
+  }, [studioMode, flowState]);
+
+  // Remembers the last non-zero alpha per layer so re-showing a hidden object
+  // restores its prior opacity (in-memory, per session; falls back to 1).
+  const lastAlphaRef = useRef({});
+  const handleToggleVisibility = useCallback((layerId) => {
+    const cur = alphaForLayer(layerId);
+    let next;
+    if (cur > 0.0001) { lastAlphaRef.current[layerId] = cur; next = 0; }
+    else { next = lastAlphaRef.current[layerId] || 1; }
+    if (studioModeRef.current === 'setup') {
+      // Global eye: set the base-pose alpha on BOTH orientations. Portrait is
+      // only stamped when it already has an override — otherwise it inherits
+      // landscape's alpha automatically (don't break inheritance).
+      setScene((prev) => ({
+        ...prev,
+        layers: prev.layers.map((l) => {
+          if (l.id !== layerId) return l;
+          let nl = patchTransform(l, 'landscape', { alpha: next }, prev.stage);
+          if (nl.transforms?.portrait) nl = patchTransform(nl, 'portrait', { alpha: next }, prev.stage);
+          return nl;
+        })
+      }));
+    } else {
+      // Animate mode: route through the alpha edit path so autokey inserts a
+      // keyframe exactly like dragging the alpha slider would (keyframes are
+      // global, not per-orientation).
+      handlePatchTransform(layerId, { alpha: next });
+    }
+  }, [alphaForLayer, handlePatchTransform]);
 
   const handleRemoveLayer = useCallback((layerId) => {
     let removedIds = null;
@@ -2498,6 +2702,13 @@ export default function SceneStudioInner() {
   const [wagerPreview, setWagerPreview] = useState(null);
   useEffect(() => { setWagerPreview(null); }, [selectedLayerId, selectedClipId]);
 
+  const spinnerWizardPreviewGizmoLayerId = (showSpinnerWizard || !!editSpinnerTarget || showWinSeqWizard || !!editWinSeqTarget || showSceneSetupWizard) && wizardPreviewScene
+    ? (wizardPreviewScene.layers || []).find((l) => {
+      const a = wizardPreviewScene.assets?.find((x) => x.id === l.assetId);
+      return a?.type === 'spinner';
+    })?.id || null
+    : null;
+
   const sceneWithRuntime = useMemo(() => ({
     ...scene,
     flow: {
@@ -2505,13 +2716,20 @@ export default function SceneStudioInner() {
       runtime: {
         time: flowState.time,
         playing: flowState.playing,
-        hold: flowState.hold
+        hold: flowState.hold,
+        spinnerCellGizmoLayerId: (() => {
+          if (spinnerWizardPreviewGizmoLayerId) return spinnerWizardPreviewGizmoLayerId;
+          if (studioMode !== 'setup' || !selectedLayerId) return null;
+          const sel = scene.layers.find((l) => l.id === selectedLayerId);
+          const type = sel ? scene.assets.find((a) => a.id === sel.assetId)?.type : null;
+          return type === 'spinner' ? selectedLayerId : null;
+        })()
       }
     },
     ...(wagerPreview != null
       ? { winNumberPreview: { ...(scene.winNumberPreview || null), wager: wagerPreview.wager, forAssetId: wagerPreview.forAssetId } }
       : {})
-  }), [scene, flowState.time, flowState.playing, flowState.hold, wagerPreview]);
+  }), [scene, flowState.time, flowState.playing, flowState.hold, wagerPreview, studioMode, selectedLayerId, spinnerWizardPreviewGizmoLayerId]);
 
   // ── Direct-mode derived state ──────────────────────────────────────────
   const activeScenario = useMemo(() => getActiveScenario(project), [project]);
@@ -3462,7 +3680,13 @@ export default function SceneStudioInner() {
       patchLayer: (id, patch) => handlePatchLayer(id, patch),
       patchTransform: (id, patch) => handlePatchTransform(id, patch),
       resetPortrait: (id) => handleResetPortrait(id),
-      setVisibility: (id, visible) => handleToggleVisibility(id, visible),
+      setAlpha: (id, alpha) => handlePatchTransform(id, { alpha: Math.max(0, Math.min(1, alpha)) }),
+      setVisibility: (id, visible) => {
+        // Back-compat shim: visibility is alpha now. Only toggle if the current
+        // shown/hidden state disagrees with the requested one.
+        const shown = alphaForLayer(id) > 0.0001;
+        if (shown !== !!visible) handleToggleVisibility(id);
+      },
       removeLayer: (id) => handleRemoveLayer(id),
       reorder: (draggedId, targetId, mode, canvasId) => handleReorder(draggedId, targetId, mode, canvasId),
       toggleOrientation: () => handleToggleOrientation(),
@@ -3693,6 +3917,9 @@ export default function SceneStudioInner() {
                 selectedLayerId={selectedLayerId}
                 onSelect={handleSelectLayer}
                 onToggleVisibility={handleToggleVisibility}
+                alphaForLayer={alphaForLayer}
+                flowTime={flowState.time}
+                studioMode={studioMode}
                 onRemove={handleRemoveLayer}
                 onReorder={handleReorder}
                 onRenameScene={handleRename}
@@ -3907,6 +4134,9 @@ export default function SceneStudioInner() {
                 refreshNonce={refreshNonce}
                 onPreviewScene={setWizardPreviewScene}
                 onPreviewTime={setWizardPreviewTime}
+                previewControlsRef={wizardPreviewControlsRef}
+                onBakeSpinePose={(assetId, animName, loop, sigma, feather) =>
+                  pixiViewportRef.current?.bakeSpinePosePng(assetId, animName, loop, sigma, feather)}
                 onClose={() => { setShowSpinnerWizard(false); setEditSpinnerTarget(null); }}
                 onCreate={
                   editSpinnerTarget

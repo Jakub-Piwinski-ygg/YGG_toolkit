@@ -108,7 +108,7 @@ function NodeSection({ node, project, onSetNodeLabel, onSetNodeEntry, onAddOutpu
   const spinInfo = spinnerStopInfo(project, node.sceneId, node.timelineId);
   return (
     <div className="ss-insp-body">
-      <div className="ss-insp-title">{node.label || ref?.timelineName || 'timeline'}</div>
+      <div className="ss-insp-title">{node.label || ref?.timelineDisplayName || ref?.timelineName || 'timeline'}</div>
       {ref ? (
         <div className="ss-insp-meta">{ref.sceneName} · {ref.trackCount} trk · {fmt(ref.duration)}</div>
       ) : (
@@ -121,7 +121,7 @@ function NodeSection({ node, project, onSetNodeLabel, onSetNodeEntry, onAddOutpu
           type="text"
           className="ss-insp-input"
           value={node.label || ''}
-          placeholder={ref?.timelineName || 'timeline'}
+          placeholder={ref?.timelineDisplayName || ref?.timelineName || 'timeline'}
           onChange={(e) => onSetNodeLabel?.(node.id, e.target.value)}
         />
       </label>

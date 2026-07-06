@@ -392,20 +392,19 @@ export function InspectorPanel({
           onChange={(v) => onPatchTransform(layer.id, { rotation: (v * Math.PI) / 180 })}
         />
 
-        <TransformField
-          label="alpha" prop="alpha"
-          value={disp.alpha}
-          step={0.01} min={0} max={1}
-          recording={!!recordingClip} hasChannel={!!recordingChannels?.alpha}
-          onChange={(v) => onPatchTransform(layer.id, { alpha: Math.max(0, Math.min(1, v)) })}
-        />
-
         <ColorField
           label="tint"
           value={disp.tint}
           recording={!!recordingClip}
           hasChannel={!!recordingChannels?.tint}
           onChange={(rgb) => onPatchTransform(layer.id, { tint: rgb })}
+        />
+
+        <AlphaSlider
+          value={disp.alpha}
+          recording={!!recordingClip}
+          hasChannel={!!recordingChannels?.alpha}
+          onChange={(v) => onPatchTransform(layer.id, { alpha: Math.max(0, Math.min(1, v)) })}
         />
 
         {orientation === 'portrait' && hasPortraitOverride(layer) && (
@@ -504,6 +503,46 @@ function ColorField({ label, value, recording, hasChannel, onChange }) {
           title={hasChannel
             ? 'tint is keyframed on this clip — next colour change updates a key at the playhead'
             : 'tint is not keyframed yet — next colour change creates a key on this clip at the playhead'}
+        >
+          {indicator}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Alpha (opacity) control — a plain 0..1 range slider with a numeric readout.
+ * Unified visibility model: alpha IS visibility (0 = hidden in the hierarchy),
+ * so this doubles as the eye toggle's authored value. Reuses the same ◆/◇
+ * keyframe indicator as the transform fields. A range slider isn't a text
+ * field, so the "no clamp while typing" rule doesn't apply — it drives the
+ * value live on input.
+ */
+function AlphaSlider({ value, recording, hasChannel, onChange }) {
+  const a = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
+  const indicator = hasChannel ? '◆' : (recording ? '◇' : null);
+  return (
+    <div className="scene-field-row-wrap">
+      <label className="scene-field scene-field--inline scene-field--alpha">
+        <span className="scene-field-scrub-handle" title="Object opacity — 0 hides it (and closes the hierarchy eye)">alpha</span>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={a}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          onClick={(e) => e.stopPropagation()}
+        />
+        <em className="scene-field-suffix">{a.toFixed(2)}</em>
+      </label>
+      {indicator && (
+        <span
+          className={'scene-kf-indicator' + (hasChannel ? ' is-keyed' : '')}
+          title={hasChannel
+            ? 'alpha is keyframed on this clip — next change updates a key at the playhead'
+            : 'alpha is not keyframed yet — next change creates a key on this clip at the playhead'}
         >
           {indicator}
         </span>

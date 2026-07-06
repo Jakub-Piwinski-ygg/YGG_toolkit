@@ -11,7 +11,7 @@
 
 import { evalChannel, clipLocalSeconds } from '../engine/animation/keyframes.js';
 import { tracksForLayer } from '../engine/sceneModel.js';
-import { normalizeSpinnerConfig, SPINNER_ACTIONS } from '../engine/spinner/spinnerModel.js';
+import { normalizeSpinnerConfig, SPINNER_ACTIONS, targetBoardForClip } from '../engine/spinner/spinnerModel.js';
 
 const PROPS = ['x', 'y', 'scaleX', 'scaleY', 'rotation', 'alpha', 'tintR', 'tintG', 'tintB'];
 
@@ -159,6 +159,7 @@ export function spinnerCuesForLayer(scene, layer) {
     })),
     reels: cfg.grid.reels, rows: cfg.grid.rows,
     cellW: cfg.grid.cellW, cellH: cfg.grid.cellH, spacingX: cfg.grid.spacingX, spacingY: cfg.grid.spacingY,
+    symbolScale: cfg.grid.symbolScale,
     direction: cfg.direction,
     strips: cfg.strips.map(row),
     initialBoard: cfg.initialBoard.map(row),
@@ -177,11 +178,16 @@ export function spinnerCuesForLayer(scene, layer) {
       // Action params live under `c.spinner` on a normalized clip (see
       // normalizeSpinnerClipPayload); tolerate a flat clip too.
       const sp = c.spinner || c;
+      // Outcome-driven stopSpin clips (T12 "Result" threshold) carry
+      // `outcome`/`rerollSeed` instead of a fixed targetBoard — resolve to a
+      // concrete board at bake time via the same path the web runtime uses,
+      // so Unity doesn't just export `targetBoard: null` for these.
+      const board = sp.targetBoard || (c.action === 'stopSpin' && sp.outcome ? targetBoardForClip(cfg, c) : null);
       return {
         action: c.action,
         start: c.start ?? 0,
         duration: c.duration ?? 0,
-        targetBoard: sp.targetBoard ? sp.targetBoard.map(row) : null,
+        targetBoard: board ? board.map(row) : null,
         matchEntrySpeed: sp.matchEntrySpeed !== false,
         perReelStartDelay: sp.perReelStartDelay || [],
         perReelStopDelay: sp.perReelStopDelay || [],

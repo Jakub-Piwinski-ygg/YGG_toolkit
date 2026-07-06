@@ -4,21 +4,33 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { Assets } from 'pixi.js';
 import {
   applyFlowAtTime,
+  applyRuntimeConfigs,
   createPixiApp,
   destroyPixiApp,
+  diffStructuralParts,
   drawDimOverlay,
   drawSelection,
   drawStageFrame,
   loadDeviceGuideTexture,
+  makeSpineOverlayFactory,
   rebuildScene,
   resetAnimationState,
   resizeRenderer,
-  sceneStructuralHash,
+  sceneStructuralParts,
   setStageFrameZOrder,
   syncTransforms
 } from '../engine/pixiApp.js';
+import { bakeSpinePoseSharpTexture } from '../engine/spinner/spinnerRuntime.js';
+import { blurRenderedCanvas } from '../engine/spinner/spinnerBlur.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 import { pickVideoMime, recordCanvasFrames, grabCanvasFrames } from '../engine/webmExport.js';
+
+// Rebuild/live-patch telemetry — inspectable from the console at any time and
+// asserted against in manual QA ("this edit must NOT bump `rebuilds`").
+const DIAG_INIT = { rebuilds: 0, livePatches: 0, lastRebuildMs: 0, lastReason: null };
+const diag = (typeof window !== 'undefined')
+  ? (window.__sceneStudioDiag ||= { ...DIAG_INIT })
+  : { ...DIAG_INIT };
 
 export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle, selectedLayerId, selectedClip = null, onSelectLayer, onTransformLayer, onAssetReady, onSpinnerAnimDurations, onViewportClick, onSeekToKey, onPathEdit, flowTime = 0, livePreview = true, overlayMode = 'behind', studioMode = 'animate', refreshNonce = 0, onDiag = null, showGizmo = true }, ref) {
   const hostRef = useRef(null);
@@ -53,6 +65,8 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   const [pixiTick, setPixiTick] = useState(0);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
+  const rootHandleRef = useRef(rootHandle);
+  rootHandleRef.current = rootHandle;
   const livePreviewRef = useRef(livePreview);
   livePreviewRef.current = livePreview;
   const flowTimeRef = useRef(flowTime);
@@ -305,30 +319,64 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     pixiTick
   ]);
 
-  // Structural hash — only changes when assets are added/removed or layer
-  // shape changes (spine/video config, asset binding). Pure transform edits
-  // do NOT bump this, so they go through the cheap sync path below instead
-  // of triggering a full Spine rebuild on every mouse-move.
-  const structHash = useMemo(() => sceneStructuralHash(scene), [scene.assets, scene.layers]);
+  // Structural parts/hash — only change on true topology or GPU-resource
+  // identity edits (asset add/remove/src swap, layer add/remove/reorder/
+  // reparent, canvas set/active switch, spinner grid+symbol set, winseq glyph
+  // structure). Transforms, timeline edits, spine/video layer settings and
+  // spinner/winseq runtime fields do NOT bump this — they go through the cheap
+  // sync + live-patch path below instead of a full Pixi rebuild.
+  const structParts = useMemo(
+    () => sceneStructuralParts(scene),
+    [scene.assets, scene.layers, scene.canvases, scene.activeCanvasId]
+  );
+  const structHash = useMemo(() => structParts.join('\n'), [structParts]);
+  // Previous generation's parts + non-hash deps, for rebuild-reason tracing.
+  const prevBuildRef = useRef(null);
+  // Reasons accumulate here per effect run and drain when a build COMMITS —
+  // superseded/failed builds leave their causes for the build that lands, so
+  // lastReason never names a generation that was never applied.
+  const pendingReasonsRef = useRef([]);
 
   useEffect(() => {
     const app = appRef.current;
     const content = contentRef.current;
     if (!app || !content) return;
+    // Why is this rebuild firing? Diff the structural parts (or name the
+    // non-hash dep that moved) — logged + kept in window.__sceneStudioDiag.
+    const prev = prevBuildRef.current;
+    const reasons = [];
+    if (prev) {
+      if (prev.rootHandle !== rootHandle) reasons.push('workspace root changed');
+      if (prev.refreshNonce !== refreshNonce) reasons.push('manual refresh assets');
+      if (prev.pixiTick !== pixiTick) reasons.push('pixi (re)mount');
+    }
+    reasons.push(...diffStructuralParts(prev?.parts || null, structParts));
+    prevBuildRef.current = { parts: structParts, rootHandle, refreshNonce, pixiTick };
+    pendingReasonsRef.current.push(...reasons);
     const myBuild = ++buildIdRef.current;
     pendingRef.current = pendingRef.current.catch(() => {}).then(async () => {
       if (myBuild !== buildIdRef.current) return;
       try {
+        const t0 = performance.now();
         const handles = await rebuildScene(
           app, content, selectionOverlayRef.current, scene, selectedLayerId, rootHandle, onAssetReady, onSpinnerAnimDurations
         );
         if (myBuild === buildIdRef.current) {
           handlesRef.current = handles;
+          diag.rebuilds += 1;
+          diag.lastRebuildMs = Math.round(performance.now() - t0);
+          const reason = pendingReasonsRef.current.splice(0).join(' · ') || 'unknown';
+          diag.lastReason = reason;
+          if (import.meta.env?.DEV) console.info(`[SceneStudio] rebuild #${diag.rebuilds} (${diag.lastRebuildMs}ms) — ${reason}`);
+          onDiagRef.current?.(`rebuild #${diag.rebuilds} ${diag.lastRebuildMs}ms — ${reason}`);
           // Pose freshly-built objects at the current time immediately —
           // otherwise a newly-added object (e.g. a win-number child entering
           // the Number step) sits at its build state until the next scene/time
           // change instead of following its bone / showing its value.
           try {
+            // Runtime configs may have moved while the async build ran with the
+            // effect's closured scene — reconcile against the live scene first.
+            applyRuntimeConfigs(handles, sceneRef.current, studioModeRef.current);
             syncTransforms(app, handles, sceneRef.current);
             if (studioModeRef.current !== 'setup') applyFlowAtTime(handles, sceneRef.current, flowTimeRef.current);
             if (app.renderer) app.render();
@@ -361,6 +409,12 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     // "can't move/scale/rotate" bug. Skip the pose sync but still refresh the
     // selection overlay so the handles track the object as it moves.
     if (!interactingRef.current) {
+      // Live-patch runtime configs first (spine defaults / video options /
+      // spinner + winseq config swaps) so the sync + flow passes below apply
+      // the fresh values — the core of the "no rebuild for parameter edits"
+      // model (see engine/pixiApp.js applyRuntimeConfigs).
+      const patchedN = applyRuntimeConfigs(handlesRef.current, scene, studioMode);
+      if (patchedN) diag.livePatches += patchedN;
       syncTransforms(appRef.current, handlesRef.current, scene);
       // Setup mode shows the base pose only — no timeline overrides applied.
       if (studioMode !== 'setup') applyFlowAtTime(handlesRef.current, scene, flowTime);
@@ -394,7 +448,11 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       }
       appRef.current?.render();
     }
-  }, [scene.layers, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime, studioMode, showGizmo]);
+  // NB: scene.assets is a dep because asset-only patches (e.g. the win-seq
+  // wizard editing asset.winseq, or handlePatchAsset) don't change the
+  // scene.layers array identity — without it the live-patch pass above would
+  // only run on the next transform/flow tick.
+  }, [scene.layers, scene.assets, scene.flow, scene.stage.activeOrientation, selectedLayerId, selectedClip, flowTime, studioMode, showGizmo]);
 
   // Reorder stageFrame and redraw it when overlay mode changes.
   useEffect(() => {
@@ -476,6 +534,38 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       const cx = (clientX - rect.left) * (canvas.width / rect.width) / dpr;
       const cy = (clientY - rect.top) * (canvas.height / rect.height) / dpr;
       return { x: (cx - vp.x) / vp.scale.x, y: (cy - vp.y) / vp.scale.y };
+    },
+
+    /**
+     * Bake a Spine animation's first frame ("idle"/landing pose) through this
+     * viewport's live renderer and run the SAME downsample-then-blur pipeline
+     * static symbol art uses (`spinnerBlur.js#blurRenderedCanvas`) — used by
+     * the Spinner wizard's "render + blur idle pose" step for
+     * animations-only symbols (no static PNG exists to source a blur from).
+     * The current `scene` prop must already reference `assetId` (the wizard's
+     * live preview scene does, via its referencedAssets set).
+     * @returns {Promise<Blob|null>} blurred PNG blob, or null if the renderer
+     *   isn't ready yet or the pose/blur bake failed.
+     */
+    async bakeSpinePosePng(assetId, animName, loop, sigma, feather) {
+      const app = appRef.current;
+      if (!app?.renderer) return null;
+      const scene = sceneRef.current;
+      const createSpineContainer = makeSpineOverlayFactory(scene, rootHandleRef.current, scene?.projectRoot || null);
+      const baked = await bakeSpinePoseSharpTexture(
+        { renderer: app.renderer, createSpineContainer }, assetId, animName, loop
+      );
+      if (!baked) return null;
+      try {
+        if (!baked.canvas) return null;
+        return await blurRenderedCanvas(baked.canvas, sigma, feather);
+      } finally {
+        // This bake is one-off (the sharp texture is only a means to the
+        // blurred canvas here, never displayed) — destroy it immediately so
+        // it doesn't leak GPU memory the way the display-bound T7 bake in
+        // spinnerRuntime.js intentionally keeps alive.
+        try { baked.sharp?.destroy?.(true); } catch { /* ignore */ }
+      }
     },
 
     /**

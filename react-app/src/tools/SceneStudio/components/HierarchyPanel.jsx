@@ -10,14 +10,21 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { buildLayerTree, layerTypeIcon } from '../engine/sceneModel.js';
+import { EyeOpen, EyeClosed } from './EyeIcons.jsx';
 
-const INDENT_PX = 14;
+// Indentation + tree guide lines are structural (nested <ul> margin + a dotted
+// border-left in CSS), not depth-based padding — see .scene-layer-list--nested.
 
 export function HierarchyPanel({
   scene,
   selectedLayerId,
   onSelect,
   onToggleVisibility,
+  alphaForLayer, // (layerId) → displayed alpha 0..1 (drives the eye icon)
+  // eslint-disable-next-line no-unused-vars -- re-render triggers as playhead / mode change so the eye reflects live alpha
+  flowTime,
+  // eslint-disable-next-line no-unused-vars
+  studioMode,
   onRemove,
   onReorder, // (draggedId, targetId, mode) — mode: 'above' | 'below' | 'inside' | 'canvasRoot'
   onRenameScene // (name) — rename the active scene (shown as the panel head title)
@@ -134,6 +141,7 @@ export function HierarchyPanel({
                   toggleExpand,
                   onSelect,
                   onToggleVisibility,
+                  alphaForLayer,
                   onRemove,
                   onDragStart,
                   onDragOver,
@@ -155,15 +163,22 @@ export function HierarchyPanel({
   );
 }
 
-function renderNodes(nodes, ctx) {
+function renderNodes(nodes, ctx, ancestorHidden = false) {
   return nodes.map((node) => {
-    const { layer, depth, children } = node;
+    const { layer, children } = node;
     const expanded = ctx.isExpanded(layer.id);
     const isDropTarget = ctx.dropTarget?.id === layer.id;
+    // Own (local) visibility vs. effective visibility: an object can be
+    // locally shown (its own alpha > 0 → open eye) yet effectively hidden
+    // because an ancestor is hidden. In that case we keep the OPEN-eye glyph
+    // (it's technically on locally) but dim it right down.
+    const selfVisible = (ctx.alphaForLayer ? ctx.alphaForLayer(layer.id) : 1) > 0.0001;
+    const dimmed = ancestorHidden && selfVisible; // locally on, effectively off
     const cls = [
       'scene-layer-row',
       layer.id === ctx.selectedLayerId ? 'selected' : '',
       ctx.dragId === layer.id ? 'dragging' : '',
+      (ancestorHidden || !selfVisible) ? 'effectively-hidden' : '',
       isDropTarget && ctx.dropTarget?.mode === 'inside' ? 'drop-inside' : '',
       isDropTarget && ctx.dropTarget?.mode === 'above' ? 'drop-above' : '',
       isDropTarget && ctx.dropTarget?.mode === 'below' ? 'drop-below' : ''
@@ -173,7 +188,6 @@ function renderNodes(nodes, ctx) {
       <li key={layer.id} className="scene-layer-li">
         <div
           className={cls + (layer.locked ? ' locked' : '')}
-          style={{ paddingLeft: 8 + depth * INDENT_PX }}
           draggable={!layer.locked}
           onDragStart={ctx.onDragStart(layer.id)}
           onDragOver={ctx.onDragOver(layer.id)}
@@ -188,11 +202,15 @@ function renderNodes(nodes, ctx) {
           </span>
           <button
             type="button"
-            className="scene-layer-eye"
-            title={layer.visible !== false ? 'Eye open — visible (click to hide)' : 'Eye closed — hidden (click to show)'}
-            onClick={(e) => { e.stopPropagation(); ctx.onToggleVisibility(layer.id, layer.visible === false); }}
+            className={'scene-layer-eye' + (!selfVisible ? ' is-hidden' : (dimmed ? ' is-dimmed' : ''))}
+            title={!selfVisible
+              ? 'Hidden (alpha 0) — click to show'
+              : (dimmed
+                ? 'Shown locally, but a parent is hidden — click to toggle this object'
+                : 'Visible (alpha > 0) — click to hide')}
+            onClick={(e) => { e.stopPropagation(); ctx.onToggleVisibility(layer.id); }}
           >
-            {layer.visible !== false ? '👁' : '🙈'}
+            {selfVisible ? <EyeOpen /> : <EyeClosed />}
           </button>
           <span className="scene-layer-type-icon" title={ctx.assetsById.get(layer.assetId)?.type || 'object'}>
             {layerTypeIcon(ctx.assetsById.get(layer.assetId))}
@@ -212,7 +230,7 @@ function renderNodes(nodes, ctx) {
         </div>
         {children.length > 0 && expanded && (
           <ul className="scene-layer-list scene-layer-list--nested">
-            {renderNodes(children, ctx)}
+            {renderNodes(children, ctx, ancestorHidden || !selfVisible)}
           </ul>
         )}
       </li>

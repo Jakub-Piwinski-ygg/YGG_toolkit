@@ -282,6 +282,9 @@ export function normalizeTimeline(tl) {
     // Layer id this timeline was auto-generated from (spinner / win-seq wizard).
     // Kept so "Regenerate" can find and replace exactly its own timelines.
     generatedBy: tl.generatedBy || null,
+    // Optional provenance for generated timelines (scene setup / spinner / etc.)
+    // used by Direct-mode timeline list + graph icons.
+    generatedMeta: tl.generatedMeta && typeof tl.generatedMeta === 'object' ? tl.generatedMeta : null,
     tracks: derived.tracks,
     markers: derived.markers,
     nodes: derived.nodes,
@@ -335,7 +338,7 @@ export function addTimeline(scene, name) {
 
 /**
  * Append one or more pre-built timelines (e.g. the win-sequence / full-spin
- * generators). Each entry is { name, tracks?, markers? } with raw tracks/clips
+ * generators). Each entry is { name, tracks?, markers?, generatedMeta? } with raw tracks/clips
  * (ids backfilled by normalizeTrack). The active timeline is committed first
  * and left unchanged — the new timelines are added inactive so they show up in
  * the Director / timeline list ready to use.
@@ -347,6 +350,7 @@ export function addPrebuiltTimelines(scene, built) {
   const made = list.map((b) => ({
     ...createTimeline(b.name),
     generatedBy: b.generatedBy || null,
+    generatedMeta: b.generatedMeta && typeof b.generatedMeta === 'object' ? b.generatedMeta : null,
     tracks: (b.tracks || []).map(normalizeTrack).filter(Boolean),
     markers: Array.isArray(b.markers) ? b.markers : []
   }));
@@ -362,7 +366,11 @@ export function addPrebuiltTimelines(scene, built) {
  */
 export function regenerateTimelinesForLayer(scene, layerId, built) {
   const list = (Array.isArray(built) ? built : [built]).filter(Boolean)
-    .map((b) => ({ ...b, generatedBy: b.generatedBy || layerId }));
+    .map((b) => ({
+      ...b,
+      generatedBy: b.generatedBy || layerId,
+      generatedMeta: b.generatedMeta && typeof b.generatedMeta === 'object' ? b.generatedMeta : null
+    }));
   const synced = syncFlowToActiveTimeline(scene);
   const kept = (synced.timelines || []).filter((t) => t.generatedBy !== layerId);
   let activeTimelineId = synced.activeTimelineId;
@@ -377,6 +385,7 @@ export function regenerateTimelinesForLayer(scene, layerId, built) {
   const made = list.map((b) => ({
     ...createTimeline(b.name),
     generatedBy: b.generatedBy,
+    generatedMeta: b.generatedMeta,
     tracks: (b.tracks || []).map(normalizeTrack).filter(Boolean),
     markers: Array.isArray(b.markers) ? b.markers : []
   }));
@@ -414,21 +423,33 @@ export function removeTimeline(scene, timelineId) {
 
 function normalizeLayer(layer, defaultCanvasId) {
   if (!layer || typeof layer !== 'object') return null;
+  const transforms = {
+    landscape: normalizeTransform(layer.transforms?.landscape),
+    portrait: layer.transforms?.portrait == null ? null : normalizeTransform(layer.transforms.portrait)
+  };
+  // Unified visibility model: `transform.alpha` is now the single source of
+  // truth for visibility. Migrate any legacy hidden layer (`visible:false`)
+  // by baking alpha 0 into the base pose, then leave `visible` inert (true).
+  // Portrait, when it inherits (null), rides landscape's alpha automatically;
+  // only stamp an explicit portrait override if one already existed.
+  if (layer.visible === false) {
+    transforms.landscape = { ...transforms.landscape, alpha: 0 };
+    if (transforms.portrait) transforms.portrait = { ...transforms.portrait, alpha: 0 };
+  }
   return {
     id: layer.id || uid('L'),
     name: layer.name || 'unnamed',
     canvasId: layer.canvasId || defaultCanvasId,
     parentId: layer.parentId ?? null,
     assetId: layer.assetId,
-    visible: layer.visible !== false,
+    // Retired to an inert always-true field: visibility lives in alpha now.
+    // Kept so old scenes / the Unity descriptor still parse.
+    visible: true,
     // Locked layers (e.g. a win-number child of a win-sequence) can't be
     // reparented or deleted on their own — they only move/go with their parent.
     locked: layer.locked === true,
     blend: layer.blend || 'normal',
-    transforms: {
-      landscape: normalizeTransform(layer.transforms?.landscape),
-      portrait: layer.transforms?.portrait == null ? null : normalizeTransform(layer.transforms.portrait)
-    },
+    transforms,
     spine: layer.spine || undefined,
     video: layer.video || undefined
   };

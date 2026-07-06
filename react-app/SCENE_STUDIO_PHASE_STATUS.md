@@ -322,6 +322,97 @@ w kolejności z §3 planu.
   T7 (3/4); nie ma czego naprawiać, dopóki ten krok nie istnieje.
   Pliki: `SceneStudioInner.jsx`, `components/SceneSetupWizard.jsx`.
 
+## Live-update refactor — edycje bez pełnego rebuildu Pixi (2026-07-04)
+
+Główny ból UX: zbyt wiele zwykłych edycji (defaulty spine, loop/mute wideo,
+timing spinnera, tiery/formatowanie winseq) wywoływało pełny `rebuildScene`.
+Plan + inwentarz triggerów: `~/.claude/plans/scene-studio-refactor-minimize-*.md`
+(deliverables A–G). Zaimplementowana faza 1+2:
+
+- **Nowy moduł `engine/structuralHash.js`** (czysty, testowalny pod node):
+  `sceneStructuralParts/Hash` — hash rebuildu obejmuje TYLKO prawdziwą
+  topologię/tożsamość zasobów: canvasy (+ **`activeCanvasId` — bugfix**, wcześniej
+  przełączenie aktywnego canvasu nie robiło rebuildu), asset id/type/src
+  (src z **długością** w sygnaturze — same 32 znaki data-URL-a to głównie
+  wspólny nagłówek), spine/winseq atlas+texture, winnumber parent, kolejność +
+  parentage warstw, **`spinnerStructuralSig`** (liczba reels×rows + zestaw
+  symboli + spec animacji land/win — czyli TOPOLOGIA kontenerów; rozmiar
+  komórki i spacing to geometria, którą `relayoutSpinnerGeometry` przeskalowuje
+  na zbudowanych kontenerach NA ŻYWO — maska, offsety, pozycje reelów) i
+  **`winseqNumberSig`** (fontSrc/cell/cols/rows/charLayout — glify pieczone w
+  `buildWinNumberContainer`; wcześniej `charLayout/cell/cols/rows` W OGÓLE nie
+  były w hashu — druga cicha luka). **USUNIĘTE z hashu**: `JSON(l.spine)`,
+  `JSON(l.video)`, `spinner.rev`, `winseq.rev` — bumpy rev z kreatorów są od
+  teraz obojętne dla rebuildu (persystencja bez zmian). Efekt uboczny: znika
+  **podwójny rebuild** po każdym Apply spinnera (`handleSpinnerAnimDurations`
+  bumpował rev po pierwszym buildzie → drugi build).
+- **Nowy pass `applyRuntimeConfigs(handles, scene, studioMode)`**
+  (`engine/pixiApp.js`), wołany na początku cheap-patha we
+  `PixiViewport.jsx` (oraz po commit'cie rebuildu, na wypadek edycji w trakcie
+  async builda). Strażnicy tożsamości referencji (stan sceny jest immutable) →
+  zero pracy, gdy nic się nie zmieniło. Patche na żywo:
+  - `layer.spine` → w setup pełny re-apply `applySpineState`
+    (anim/loop/skin; jawny reset do skina domyślnego — `applySpineState`
+    pomija pusty skin), w animate/direct tylko skin (anim/loop ma Phase C.5,
+    defaultMix i tak re-sync per frame);
+  - `layer.video` → `loop`/`muted` prosto na HTMLVideoElement;
+  - `asset.spinner` → swap `sp.config` + nowa `symbolMap` + `resolveKey=null`
+    (timing/blur/strips/board/events/seed/direction/perReel re-resolwują się
+    przy następnym `applySpinnerAtTime`); w setup re-poza planszy `t=0`;
+  - `asset.winseq` → swap `__winseq.config` (tiery/setupPose) + reset
+    `__wsCache`; w setup re-apply `applyWinSeqSetupPose`.
+  Swap jest POMIJANY, gdy sygnatura strukturalna się różni (taka edycja i tak
+  zbumpowała hash — rebuild w kolejce; live-patch niezgodnego grida na żywe
+  reelViews crashowałby pętlę komórek).
+- **Deps**: cheap-path effect dostał `scene.assets` (edycje samego asseta —
+  np. kreator winseq — nie zmieniają tożsamości `scene.layers`); memo hashu
+  dostał `scene.canvases` + `scene.activeCanvasId`.
+- **Diagnostyka**: `window.__sceneStudioDiag` = `{ rebuilds, livePatches,
+  lastRebuildMs, lastReason }`; przy każdym rebuildzie diff części hashu
+  (`diffStructuralParts`, wykrywa też czysty reorder) + przyczyny spoza hashu
+  (manual refresh / workspace root / remount) → `console.info` (dev) i `onDiag`
+  (`?debug=1`). Kryterium akceptacji: edycje z listy „LIVE" nie ruszają
+  licznika `rebuilds`.
+- **Ręczny refresh bez zmian**: przycisk „refresh assets" (`refreshNonce`)
+  pozostaje jedyną ścieżką cache-bust + wymuszonego rebuildu.
+
+**Runda review (agenci A–D, 8 kątów) — naprawione przed zamknięciem sesji:**
+- swap configu spinnera gubił zmierzone długości animacji land/win (żyły tylko
+  w zbudowanym configu — preview kreatora nigdy ich nie persystuje) → carry-over
+  durations przy swapie;
+- strażnik strukturalny porównywał z poprzednim RAW configiem zamiast z
+  sygnaturą, z którą obiekt FAKTYCZNIE zbudowano (`sp.structSig`/`ws.numSig`
+  stemplowane przy buildzie) — odporność na upadły/wyprzedzony rebuild;
+- wyczyszczenie `defaultAnimation` w pauzie animate zostawiało pozę zamrożoną
+  w połowie fade'u 0.1s (Phase D pod `update(0)`) → snap-clear slotu
+  `__default__` z pustą animacją 0s;
+- edycja samego `defaultMix` nie rusza już skeletonu (pop pozy przy pauzie) —
+  patch pozy tylko gdy zmienił się anim/loop/skin;
+- włączenie `loop` na wideo, które już się SKOŃCZYŁO, restartuje odtwarzanie
+  (stary rebuild wołał `play()`; samo `loop=true` nie wznawia);
+- **kreator spinnera: debounce 150ms przywrócony dla pól STRUKTURALNYCH**
+  (liczba reels/rows + zestaw symboli) — po uśmierceniu `rev` w hashu
+  drag-scrub tych pól rebuildowałby per klawisz (ryzyko crasha rapid-rebuild
+  Pixi v8, §20.10); cała reszta (cellW/cellH/spacing → live relayout geometrii,
+  timing/blur/board → live patch) omija debounce i działa od razu;
+- diagnostyka: przyczyny rebuildu akumulują się do commitu builda (wyprzedzone
+  buildy nie fałszują `lastReason`); fast-path tożsamości sceny w
+  `applyRuntimeConfigs` (bez budowy Map per tick playbacku); nieaktualne
+  komentarze o „rev → rebuild" zaktualizowane (WinSequenceWizard,
+  handleSpinnerAnimDurations).
+
+Nowy test `engine/structuralHash.test.mjs` (17 checków: co NIE jest
+strukturalne — transformy/flow/spine/video/runtime spinnera i winseq — i co
+JEST: src/atlas/reorder/reparent/canvas/grid/glify/parent). Wszystkie suity
+silnika + build zielone. **Wizualna weryfikacja w przeglądarce (edycja
+defaultów spine w setup, timing spinnera w kreatorze, tiery winseq na żywo) —
+TODO, nie wykonana w tej sesji.**
+
+Pliki: `engine/structuralHash.js` (+ test, nowe), `engine/pixiApp.js`,
+`engine/spinner/spinnerRuntime.js` (rawRef), `components/PixiViewport.jsx`,
+`components/SpinnerWizard.jsx` (bakedStruct), `components/WinSequenceWizard.jsx`
+(komentarz), `SceneStudioInner.jsx` (komentarz).
+
 ## T7 (2–4/4) — pipeline animations-only dla symboli spinnera (2026-07-04)
 
 Po teście poprzedniej sesji użytkownik doprecyzował: kreator ma domyślnie
@@ -1008,3 +1099,377 @@ importem do Unity (§A3 runtime overlay = największe ryzyko).
 | `components/SpinnerInspectorSections.jsx` | przyciski "set duration" |
 | `components/SpinnerWizard.jsx` | inputy offsetu land/win |
 | `unity/spinnerTrack.test.mjs` | testy phase 3 (41 pass) |
+
+## Sesja (2026-07-04) — Spinner wizard: kolejność kroków, defaulty timingu, symbol scale, ujemny spacing, fix bugu outcome test-spinu
+
+Pięć zmian zgłoszonych przez artystów (`react-app/SPINNER.md` §4 + schemat
+grida/klipu). Wszystkie zweryfikowane wobec aktualnego kodu przed
+implementacją (3 przebiegi Explore + 1 Plan); pełny plan wykonania:
+`~/.claude/plans/spinner-wizard-step-reorder-squishy-waterfall.md`.
+
+### Zrobione ✅
+- **Kolejność kroków kreatora** — otwiera się teraz na **Symbols** (krok 1),
+  **Grid** drugi (Timing → Review bez zmian) — zgodnie z pierwotnym designem
+  §4 (`① symbols → ② grid → …`), od którego as-built (2026-06-12) odbiegał.
+  `canNext`/`goToStep` są kluczowane nazwą kroku, nie indeksem — reorder bez
+  dodatkowych zmian logiki.
+- **Nowe defaulty timingu dla nowego spinnera** — `startDuration` 0.4→0.25s,
+  `spinSpeed` 12→30 komórek/s, `stopDuration` 0.6→0.35s, `minSpinTime`
+  1.0→0.5s (`defaultSpinnerTiming()`); istniejące spinnery zachowują zapisane
+  wartości. Zmirrorowane w `SpinnerConfigData` (C#).
+- **`grid.symbolScale`** (domyślnie 1, zakres 0.05–10) — jednolite
+  skalowanie renderowanego symbolu (static/blur/spine) wewnątrz komórki,
+  niezależnie od jej rozmiaru. Live-patch bez rebuildu Pixi: `cellC.scale`
+  (środek komórki, statyki/blur są jej dziećmi) + nowy param `scale` w
+  `useSpineOverlay` (overlay Spine'a NIE jest dzieckiem `cellC`, siedzi w
+  osobnej warstwie `fx` w bezwzględnych współrzędnych planszy — wymagał
+  jawnego skalowania). Wykluczony ze `spinnerStructuralSig` (ten sam kubeł co
+  cellW/cellH/spacing — geometria, nie topologia). Parytet Unity:
+  `SpinnerConfigData.symbolScale`, `cell.sTr/bTr.localScale` oraz
+  `DriveOverlay`'s `tr.localScale`.
+- **Ujemny spacing gridu** — `spacingX`/`spacingY` mogą być ujemne (komórki
+  stykają się lub nachodzą), sclampowane tak, by pitch (cell+spacing) nie
+  spadł poniżej 1px: `min = -(cellW-1)` / `-(cellH-1)`. Nic więcej tego nie
+  zakładało nieujemności (eval spinnera pracuje w jednostkach komórek, nie
+  pikseli; relayout gridu już reaguje generycznie na zmianę spacingu).
+- **Fix bugu**: dropdown "Result" (np. "no win") w test-spinie kreatora był
+  ignorowany. Przyczyna: `normalizeSpinnerClipPayload`'s gałąź `stopSpin`
+  zwracała stały zestaw kluczy, który po cichu gubił `outcome`/`rerollSeed`
+  przy normalizacji klipu — `targetBoardForClip` nigdy ich nie widział i
+  spadał na generyczną planszę. Dodatkowo fallback (`generateNonWinningBoard`)
+  był wywoływany bez `wildId`, więc wild-substytuowana wygrana mogła
+  "przeciekać" do planszy "no win" mimo wild-aware evaluacji wygranych.
+  Naprawione w trzech miejscach tej samej klasy bugu: `normalizeSpinnerClipPayload`
+  (przenosi `outcome`/`rerollSeed`), `targetBoardForClip`'s fallback i
+  `normalizeSpinnerConfig`'s regen `initialBoard` (oba dostają `wildId` z
+  `classifySymbols`). Bake do Unity (`bake.js`) też naprawiony — dla klipów z
+  `outcome` bez `targetBoard` rozwiązuje realną planszę przez
+  `targetBoardForClip` zamiast eksportować `targetBoard: null`.
+- **Testy** — 8 nowych w `spinnerEval.test.js`: round-trip normalizacji
+  outcome/rerollSeed, regresja przez `normalizeTrack` (zamyka lukę — istniejące
+  testy T12 karmiły `resolveSpinnerTrack` surowymi klipami, omijając
+  normalizację, dlatego bug przeszedł niezauważony), wild-awareness fallbacków
+  (100 seedów każdy), determinizm, schemat gridu (symbolScale clamp,
+  ujemny spacing + inwariant pitch), snapshot `defaultSpinnerTiming()`.
+  Wszystkie suity Scene Studio zielone (166 testów: `node --test` po całym
+  `src/tools/SceneStudio/`).
+
+| Plik | Co zmienione |
+|------|-------------|
+| `engine/spinner/spinnerModel.js` | grid: `symbolScale` + ujemny spacing clamp; `defaultSpinnerTiming()`; `normalizeSpinnerClipPayload` (stopSpin outcome/rerollSeed); `targetBoardForClip` + `normalizeSpinnerConfig` initialBoard (wildId-aware fallback) |
+| `engine/spinner/spinnerRuntime.js` | `symbolScale` destructure + `cellC.scale.set`; `useSpineOverlay` nowy param `scale` |
+| `components/SpinnerWizard.jsx` | kolejność `STEPS`/`STEP_LABELS` + initial step; state/field/threading `symbolScale`; spacing min `1-cellW`/`1-cellH` |
+| `unity/csharp.js` | `SpinnerConfigData.symbolScale` + timing defaults; `cell.sTr/bTr.localScale` i `DriveOverlay` scale |
+| `unity/bake.js` | `configJson.symbolScale`; outcome-driven stopSpin → `targetBoardForClip` gdy `targetBoard` puste |
+| `engine/spinner/spinnerEval.test.js` | 8 nowych testów + fix nieaktualnego komentarza (0.4s→0.25s) |
+
+## Sesja 2 (2026-07-04) — Spinner: realny fix "no win", parytet bluru animOnly, Result steruje planszą wprost
+
+Artysta zgłosił, że mimo poprzedniej sesji: (1) "no win" dalej czasem ląduje na
+wygranej, (2) blur symboli animOnly wygląda "dziwnie", (3) chce, by wybór
+Result od razu aktualizował siatkę planszy + podgląd, a Spin tylko odgrywał tę
+samą planszę. Pełna diagnoza (3 równoległe agenty Explore) przed
+implementacją — zobacz `~/.claude/plans/spinner-wizard-outcome-blur-rework-prompt.md`
+(brief przygotowany dla nowej sesji, ale wykonany w tej samej sesji na
+prośbę użytkownika: "ok try to fix this stuff").
+
+### Zrobione ✅
+
+- **Realny fix "no win"** — `generateNonWinningBoard` (spinnerModel.js) nigdy
+  nie weryfikowało własnego postconditionu: przy 2 symbolach (minimum
+  kreatora) i większej liczbie wierszy greedy fix-up reelu 2 potrafił
+  wyczerpać pulę "bezpiecznych" zamienników i po cichu zwrócić PLANSZĘ Z
+  WYGRANĄ. Empirycznie: 40% re-rolli failowało na konfiguracji 2
+  symbole/3×5. Naprawione deterministycznym ostatnim rzutem: jeden
+  wewnętrzny reel jednolicie symbolem X, następny jednolicie SYMBOLEM Y —
+  żaden kandydat nie osiąga progu wygranej niezależnie od reszty planszy,
+  działa nawet przy 2 symbolach. Nowy sweep-test (2–6 symboli × 3 liczby
+  reelów × 3 liczby wierszy × 100 seedów) pokrywa dokładnie tę lukę, której
+  nie łapały dotychczasowe fixtury.
+- **Parytet bluru symboli animOnly (T7)** — `bakeSpinePoseTexture` używało
+  generycznego, izotropowego `BlurFilter` z pixi.js zamiast tego samego
+  kierunkowego motion-bluru WASM co zwykłe symbole (udokumentowany,
+  świadomy skrót z sesji T7 — "lower quality than the hand-made blur").
+  Wyodrębniono `blurCanvasWasm`/`blurCanvasFallback` (niski poziom, działa na
+  dowolnym canvasie) ze `spinnerBlur.js`, dzielone teraz przez statyczne
+  symbole ORAZ bake animOnly — ten sam posed frame (pierwsza klatka land,
+  fallback win) co dotychczasowy sharp-bake, wyciągnięty przez
+  `renderer.extract.canvas`, przepuszczony przez identyczny łańcuch
+  WASM/canvas-ghost.
+- **Result steruje planszą wprost** — wybór Result (lub re-roll) w kroku
+  Review teraz SYNCHRONICZNIE liczy konkretną planszę
+  (`generateOutcomeBoard`/`generateWinningBoard`) i zapisuje ją w
+  `initialBoard` — siatka `BoardGridEditor` i podgląd na żywo (w spoczynku)
+  aktualizują się natychmiast, bez konieczności spinowania. `Spin` (dawniej
+  "test spin") niesie teraz jawny `targetBoard` (dokładnie tę planszę, która
+  już jest widoczna) zamiast `outcome`/`rerollSeed` — animacja nie może już
+  wylądować na czymś innym niż podgląd. `buildSpinnerTestClips` dostał 4.
+  parametr `targetBoard` (opcjonalny, nadpisuje outcome). Ręczna edycja
+  komórki nadal działa, po prostu przestaje pasować do etykiety Result.
+- **Testy**: 3 nowe w `spinnerEval.test.js` (sweep postconditionu,
+  wild-blind edge case przy 1 symbolu, explicit `targetBoard` w
+  `buildSpinnerTestClips`). Pełna suita Scene Studio: **169 testów, wszystkie
+  zielone**.
+
+### Bez pokrycia testami (wymaga ręcznej weryfikacji w przeglądarce)
+
+`bakeSpinePoseTexture`'s blur bake dotyka DOM/Pixi/`window._Magick` — brak
+harnessu testowego, tak jak poprzednio (ten sam brak co przy sharp-bake).
+**Nie było możliwe zweryfikowanie wizualnie** — brak narzędzia do sterowania
+przeglądarką w tym środowisku. Wymagana ręczna kontrola w `npm run dev`:
+wygląd bluru animOnly vs. zwykłych symboli, natychmiastowa aktualizacja
+siatki/podglądu po wyborze Result, oraz że Spin ląduje dokładnie na
+pokazanej planszy.
+
+| Plik | Co zmienione |
+|------|-------------|
+| `engine/spinner/spinnerModel.js` | `generateNonWinningBoard` deterministyczny fallback; `buildSpinnerTestClips` param `targetBoard` |
+| `engine/spinner/spinnerBlur.js` | wyodrębnione `blurCanvasWasm`/`blurCanvasFallback` (niski poziom, dzielone) |
+| `engine/spinner/spinnerRuntime.js` | `bakeSpinePoseTexture` używa kierunkowego bluru zamiast `BlurFilter` |
+| `components/SpinnerWizard.jsx` | `applyOutcomeBoard`; Result/re-roll → `initialBoard`; Spin → explicit `targetBoard`; przeorganizowany UI kroku Review |
+| `engine/spinner/spinnerEval.test.js` | 3 nowe testy |
+
+## Sesja 3 (2026-07-04) — Spinner: progress bar generowania bluru, zawsze widoczne sigma/feather, większy panel kreatora
+
+Artysta zgłosił, że przy pierwszym użyciu symbole nie renderowały się w
+podglądzie (prawdopodobnie generowanie blurów w tle bez informacji o
+postępie), poprosił o pasek postępu, upewnienie się że blur startuje TYLKO
+po jawnym kliknięciu, możliwość wyboru sigma/feather oraz (zgłaszane już
+wcześniej) większy panel kreatora — miniatury symboli zajmowały tylko
+ułamek szerokości panelu.
+
+### Zrobione ✅
+
+- **Pasek postępu przy generowaniu blurów** — `generateBlurs` aktualizuje
+  teraz stan przyrostowo (po `symbol.id`, nie przez nadpisanie całej listy
+  na końcu partii — bezpieczniejsze i widoczne od razu) i czeka jedną
+  klatkę (`requestAnimationFrame`) przed każdym symbolem, żeby pasek
+  postępu i podgląd Pixi zdążyły się przemalować zamiast wyglądać na
+  zawieszone przez cały czas trwania partii. Prawdziwe wykonanie w tle
+  (Web Worker) odrzucone — wspólny łańcuch WASM `window._Magick` pisze do
+  STAŁYCH nazw plików tymczasowych używanych też przez każde inne wywołanie
+  ImageMagick w aplikacji, więc równoległe wywołania kolidowałyby ze sobą —
+  musi zostać sekwencyjne niezależnie od miejsca wykonania.
+- **Generowanie bluru pozostaje w 100% na jawne kliknięcie** — zweryfikowane,
+  że `generateBlurs` nigdy nie było wywoływane automatycznie (tylko z
+  przycisku), ale panel z suwakami sigma/feather był ukrywany, gdy żaden
+  symbol nie potrzebował bluru — dodano drugi przycisk **"↻ regenerate all"**
+  (przelicza blur dla WSZYSTKICH symboli bieżącymi ustawieniami,
+  nadpisując istniejące), a panel z suwakami jest teraz zawsze widoczny gdy
+  są jakiekolwiek symbole ze statykiem.
+- **Większy panel kreatora + miniatury** — domyślna szerokość panelu
+  kreatora (dzielona przez wszystkie kreatory, `PANEL_SIZES.wizard`)
+  460→620px; miniatury podglądu symbolu (static/blur/land/win) były na
+  sztywno 44px niezależnie od szerokości panelu — teraz 76px, siatka
+  zawija się (`flex-wrap`) przy wąskim panelu; lista symboli
+  `max-height` 260→420px, żeby więcej symboli mieściło się bez scrolla.
+
+### Bez pokrycia testami
+
+Czysto UI/CSS — brak logiki do pokrycia w `node --test`; pełna suita Scene
+Studio (169 testów) nadal zielona (regresja wykluczona, nie dodano nowych
+testów bo nie ma tu nic do testowania jednostkowo). **Wizualna weryfikacja
+w przeglądarce nie została wykonana** — brak narzędzia do sterowania
+przeglądarką w tym środowisku.
+
+| Plik | Co zmienione |
+|------|-------------|
+| `components/SpinnerWizard.jsx` | `generateBlurs` przyrostowy + `blurProgress`; zawsze widoczny panel sigma/feather + "regenerate all" |
+| `SceneStudioInner.jsx` | `PANEL_SIZES.wizard.def` 460→620 |
+| `styles/scene-studio.css` | `.spinner-blur-progress*` (nowe); `.spinner-sym-previews`/`.spinner-thumb-box` większe + `flex-wrap`; `.spinner-sym-list` `max-height` 260→420 |
+
+## Sesja 4 (2026-07-04) — Spinner: fix regresji wydajności bluru animOnly, prawdziwe ustawienia sigma/feather
+
+Artysta zgłosił dwa problemy: (1) panel bluru/sigma/feather w ogóle się nie
+pojawia przy pracy z symbolami tylko-animacyjnymi ("fill from animations"),
+(2) po wypełnieniu symboli z animacji podgląd czeka wiele sekund zanim się
+pokaże. Punkt 2 to realna regresja wprowadzona w Sesji 2 tego dnia: fix
+kierunkowego bluru dla symboli animOnly zamienił tani filtr Pixi na
+**5-krokowy łańcuch WASM ImageMagick wykonywany SYNCHRONICZNIE w trakcie
+budowania sceny** — kilka symboli animOnly potrafiło zablokować podgląd na
+kilka sekund, zanim cokolwiek się wyrenderowało.
+
+### Zrobione ✅
+
+- **Fix regresji wydajności** — `bakeSpinePoseTexture` podzielone na dwie
+  fazy: szybki, blokujący bake tekstury "sharp" (jedno `generateTexture`,
+  bez WASM) — pokazywany NATYCHMIAST (jako tymczasowy zamiennik dla obu
+  slotów tex/blurTex), oraz osobna, NIEBLOKUJĄCA kolejka
+  (`queueBlurBake`) na właściwy kierunkowy blur WASM, podmieniana w
+  `textures` Map gdy gotowa (Map czytana na żywo co klatkę, więc podmiana
+  działa bez rebuildu). Kolejka jest WSPÓLNA i ściśle sekwencyjna (jeden
+  moduł-poziomu `Promise` łańcuch) — równoległe wywołania WASM Magick
+  pozostają niebezpieczne (stałe nazwy plików tymczasowych, dzielone przez
+  KAŻDE wywołanie ImageMagick w aplikacji), więc kolejka serializuje bez
+  blokowania wywołującego.
+- **Prawdziwe, trwałe ustawienia sigma/feather** — dodano `blur.sigma`/
+  `blur.feather` do schematu configu (`defaultSpinnerBlur`,
+  `normalizeSpinnerConfig`), dzielone przez OBA mechanizmy bluru: generację
+  PNG dla symboli statycznych (przyciski w kreatorze) ORAZ automatyczny bake
+  w runtime dla symboli animOnly (bez przycisku — po prostu używane przy
+  następnym przebuildzie). Panel z suwakami w kreatorze pokazuje się teraz
+  zawsze, gdy jest jakikolwiek symbol (wcześniej wymagał symbolu ze
+  statykiem) — usunięto osobny, nietrwały stan `blurSigma`/`blurFeather`,
+  suwaki edytują teraz bezpośrednio `blur.sigma`/`blur.feather` (ten sam
+  obiekt, który już był persystowany).
+- **Testy**: 1 nowy w `spinnerEval.test.js` (default + clamp `blur.sigma`/
+  `feather`). Pełna suita: **170 testów, wszystkie zielone**.
+
+### Bez pokrycia testami
+
+Sam bake i jego timing (Pixi/WASM/DOM) nie mają harnessu testowego — jak
+poprzednio. **Nie zweryfikowano wizualnie ani czasowo** (brak narzędzia do
+sterowania przeglądarką) — wymagana ręczna kontrola: podgląd powinien pokazać
+symbole animOnly niemal natychmiast (sharp texture), blur powinien "dogonić"
+chwilę później bez zauważalnego zacinania.
+
+| Plik | Co zmienione |
+|------|-------------|
+| `engine/spinner/spinnerModel.js` | `blur.sigma`/`blur.feather` w schemacie (`defaultSpinnerBlur`, `normalizeSpinnerConfig`) |
+| `engine/spinner/spinnerRuntime.js` | `bakeSpinePoseTexture` rozdzielone na `bakeSpinePoseSharpTexture` (blokujące, szybkie) + `queueBlurBake` (kolejka w tle) |
+| `components/SpinnerWizard.jsx` | usunięty stan `blurSigma`/`blurFeather` (teraz `blur.sigma`/`blur.feather`); panel widoczny dla dowolnego symbolu, nie tylko statycznego |
+| `engine/spinner/spinnerEval.test.js` | 1 nowy test |
+
+## Sesja 5 (2026-07-04) — Spinner: dwa kolejne bugi bluru (ładowanie obrazu w kreatorze, ekstrakcja canvasu dla animOnly)
+
+Artysta zgłosił, że mimo Sesji 4: (1) w workflow tylko-animacyjnym nadal brak
+bluru w ogóle, (2) `generateBlurs` w kreatorze pokazuje progress, ale
+statyczne miniatury bluru nigdy się nie pojawiają — nawet "match blur"
+(dopasowanie po nazwie pliku, bez przetwarzania obrazu) nie pomaga.
+
+### Zrobione ✅
+
+- **Realny, przedwcześniejszy bug w `generateBlurs`** — assety zeskanowane z
+  folderu projektu (`browserPool`, `_fromBrowser`) mają w `src` SUROWĄ ścieżkę
+  względną, nie URL nadający się do wczytania — `el.src = asset.src`
+  (przypisanie wprost do `<img>`) cicho failowało (`onerror` → catch →
+  `console.warn`, progress i tak kończył się "sukcesem" bez wyniku). Ten sam
+  problem `SymbolThumb` już rozwiązuje przez `resolveAssetFile(src,
+  rootHandle)` — `generateBlurs` teraz robi to samo przed wczytaniem obrazu.
+  To błąd sprzed tej sesji (nie regresja z dzisiejszych zmian), ale leżał
+  dokładnie na ścieżce kodu, którą dziś przerabialiśmy.
+- **Wzmocniona ekstrakcja canvasu dla bluru animOnly** —
+  `deps.renderer.extract.canvas(inst.container)` ekstrahowało z SUROWEGO,
+  nie podpiętego do sceny kontenera; zmienione na ekstrakcję z już
+  wygenerowanej tekstury `sharp` (`extract.canvas(sharp)`) — bardziej
+  niezawodne wymiary/bounds, skoro `generateTexture` już potwierdził że ten
+  render działa. Nie mam pewności czy to był FAKTYCZNY root cause zgłoszonego
+  "brak bluru w ogóle" (brak możliwości debugowania w przeglądarce), ale to
+  ściśle bezpieczniejsza zmiana bez wad.
+
+### Bez pokrycia testami / bez weryfikacji
+
+Obie zmiany dotykają DOM/Pixi/plików projektu — brak harnessu testowego.
+**Nie zweryfikowano wizualnie** (brak narzędzia do sterowania przeglądarką).
+Jeśli blur animOnly nadal nie działa po tej sesji, warto sprawdzić konsolę
+przeglądarki pod kątem `[SceneStudio] spinner idle-pose blur bake failed` —
+`queueBlurBake`'s `.catch` loguje tam każdy błąd.
+
+| Plik | Co zmienione |
+|------|-------------|
+| `components/SpinnerWizard.jsx` | `generateBlurs` rozwiązuje `src` przez `resolveAssetFile` dla assetów spoza sceny |
+| `engine/spinner/spinnerRuntime.js` | `bakeSpinePoseSharpTexture` ekstrahuje canvas z `sharp` (Texture), nie z surowego kontenera |
+
+## Sesja 6 (2026-07-04) — Spinner: blur symboli statycznych 4x wolniejszy niż trzeba — downsample przed blurem
+
+Artysta: blur symboli statycznych działa (Sesja 5 naprawiła ładowanie), ale
+jest wolny. Prośba: przeskalować w dół (np. 4x) przed puszczeniem łańcucha
+WASM, potem wyświetlać w spinnerze w poprawnym (oryginalnym) rozmiarze.
+
+### Zrobione ✅
+
+- **Downsample 4x przed blurem** (`spinnerBlur.js`) — `makeBlurredSymbolWasm`/
+  `makeBlurredSymbolCanvas` teraz skalują wyrenderowany canvas komórki w dół
+  o `BLUR_DOWNSAMPLE=4` PRZED puszczeniem łańcucha WASM/canvas-ghost — 16x
+  mniej pikseli, więc każdy z 5 kroków WASM (motion-blur, feather mask,
+  alpha extract/multiply, composite) i encode/decode PNG między nimi jest
+  odpowiednio tańszy. `sigma`/`feather` skalowane w dół proporcjonalnie
+  (promień w pikselach musiałby inaczej wyglądać 4x silniej po
+  przeskalowaniu z powrotem w górę). Wynikowy PNG zostaje w mniejszym
+  rozmiarze — BEZ ponownego upsample'u w generatorze.
+- **Kompensacja rozmiaru przy wyświetlaniu** (`spinnerRuntime.js`) —
+  `blurSprite.scale` liczone teraz z rzeczywistego stosunku wymiarów tekstur
+  (`tex.width/blurTex.width`, analogicznie Y) zamiast sztywnego `1` — działa
+  transparentnie dla każdego rozmiaru bluru: nowego zmniejszonego, starych
+  pełnorozmiarowych PNG-ów, i tekstury animOnly (tam stosunek = 1, bez
+  zmiany).
+- **Parytet Unity** (`unity/csharp.js`) — ten sam problem dotyczyłby exportu:
+  wariant UI (`Image`) rozmiarowuje komórkę bluru wg WŁASNEGO natywnego
+  rozmiaru sprite'a bluru (`SetNativeSize`) — zmienione na rozmiarowanie wg
+  sprite'a STATYCZNEGO (z `preserveAspect=false` rozciąga mniejszy blur do
+  właściwego rozmiaru). Wariant World (`SpriteRenderer`) — nowe pola
+  `CellView.blurScaleX/Y` liczone przy podmianie tekstury (stosunek
+  `static.rect.width/blur.rect.width`), mnożone przez `symbolScale` w
+  `bTr.localScale` co klatkę — bez tego blur renderowałby się 4x mniejszy w
+  świecie.
+
+### Bez pokrycia testami / bez weryfikacji
+
+`spinnerBlur.js` operuje na DOM canvas/Image — zero pokrycia w `node --test`
+(jak zawsze dla tego pliku). Zmiany w `csharp.js` to string templates
+generowanego C# — nie mam jak skompilować/uruchomić w Unity. **Nie
+zweryfikowano wizualnie ani czasowo** — wymagana ręczna kontrola: czy blur
+faktycznie generuje się szybciej, czy wygląda podobnie po przeskalowaniu w
+górę (30×30 z domyślnego 120×120 to sporo utraconej rozdzielczości, choć dla
+kierunkowego rozmycia bez ostrych krawędzi powinno być niezauważalne).
+
+| Plik | Co zmienione |
+|------|-------------|
+| `engine/spinner/spinnerBlur.js` | `BLUR_DOWNSAMPLE=4`, `downsampleCanvas`; oba entry pointy skalują przed blurem, sigma/feather skalowane proporcjonalnie |
+| `engine/spinner/spinnerRuntime.js` | `blurSprite.scale` liczone z realnego stosunku wymiarów tekstur |
+| `unity/csharp.js` | UI: `SetNativeSize(bTr, staticSprite)`; World: `CellView.blurScaleX/Y` + zastosowanie w `bTr.localScale` |
+
+## Sesja 7 (2026-07-04) — Spinner: PRAWDZIWY root cause "bluru nigdzie nie widać" — `resolveAssetUrl` nie obsługiwało `blob:`
+
+Artysta: generowanie bluru jest teraz szybsze, ale wygenerowany blur **nigdy
+się nie pokazuje** — ani w podglądzie kreatora, ani w timeline, ani w
+director/Direct mode. To był fundamentalny bug, nie coś związanego z
+downsample'em z Sesji 6.
+
+### Root cause (znaleziony)
+
+`resolveAssetUrl` (`engine/persist.js`) — WSPÓLNY resolver assetów używany
+przez KAŻDY typ zasobu w Scene Studio (spine skel/atlas/texture, zwykłe PNG
+warstwy, spinner statics/blur) — obsługiwał specjalnie tylko `data:` URL-e:
+
+```js
+if (src.startsWith('data:')) return { url: src };
+if (!rootHandle) return null;
+// ... traktuje src jako ścieżkę względną w folderze projektu
+```
+
+Wygenerowany blur PNG (`generateBlurs` w kreatorze) ma `src` w postaci
+`URL.createObjectURL(blob)` — czyli `blob:...`, NIE `data:...`. Taki URL
+wpadał w gałąź "traktuj jako ścieżkę względną", oczywiście nigdy nic takiego
+nie znajdowała, `resolveAssetUrl` zwracał `null`. `spinnerRuntime.js`'s
+`load()` na `null` cicho zwraca `null`, a `textures.set(sym.id, { tex,
+blurTex: blurTex || tex || Texture.WHITE })` **fallbackuje `blurTex` na
+`tex`** — czyli sprite bluru dostawał DOKŁADNIE TĘ SAMĄ, nierozmytą
+teksturę co statyk. Zero błędu w konsoli, zero wizualnej różnicy — blur
+"działał" (crossfade alpha), tylko pokazywał identyczny obrazek po obu
+stronach. To dotyczyło KAŻDEGO wygenerowanego/blob:-owego assetu w całej
+aplikacji, nie tylko bluru spinnera — po prostu spinner jest jedynym
+miejscem, które akurat generuje blob:-owe PNG-i w locie.
+
+### Zrobione ✅
+
+- **Fix w `resolveAssetUrl`** — rozszerzone o `blob:` i `https?:` (regex
+  `/^(data:|blob:|https?:)/`), zwraca URL wprost bez próby traktowania go
+  jako ścieżki plikowej. Naprawia blur spinnera ORAZ każdy przyszły
+  przypadek generowanego/zdalnego assetu w Scene Studio.
+- **Nowe testy** — `engine/persist.test.mjs` (nowy plik, 3 testy): data:/
+  blob:/http(s): rozwiązują się bezpośrednio bez `rootHandle`; względne
+  ścieżki nadal wymagają `rootHandle`; nie-string `src` zwraca `null`.
+  Pełna suita: **173 testy, wszystkie zielone**.
+
+### Bez weryfikacji
+
+**Nie zweryfikowano wizualnie w przeglądarce** (brak narzędzia). To jednak
+najbardziej precyzyjnie zdiagnozowany fix z całej dzisiejszej serii — czysta
+logika (nie DOM/Pixi), pokryta testem jednostkowym, więc pewność co do
+poprawności jest wysoka mimo braku wizualnej weryfikacji.
+
+| Plik | Co zmienione |
+|------|-------------|
+| `engine/persist.js` | `resolveAssetUrl` rozpoznaje `blob:`/`https?:` jako bezpośrednio ładowalne URL-e, nie tylko `data:` |
+| `engine/persist.test.mjs` | nowy plik, 3 testy |

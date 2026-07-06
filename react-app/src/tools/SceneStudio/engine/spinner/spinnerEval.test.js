@@ -15,6 +15,8 @@ import {
   classifySymbols,
   spinnerPresentWinDuration,
   buildSpinnerTestClips,
+  defaultSpinnerTiming,
+  defaultSpinnerBlur,
   mulberry32
 } from './spinnerModel.js';
 import {
@@ -22,6 +24,7 @@ import {
   evaluateSpinner,
   spinnerResolveKey
 } from './spinnerEval.js';
+import { normalizeTrack } from '../sceneModel.js';
 
 const SYMS = ['a', 'b', 'c', 'd', 'e', 'f'];
 
@@ -114,6 +117,37 @@ test('non-winning generator: stressed config (4 symbols, 3x4) still never wins',
   }
 });
 
+// Regression: the wizard allows as few as 2 symbols and as many as 6 rows —
+// a combination the two fixtures above never covered, and the exact gap that
+// let generateNonWinningBoard silently return a winning board (the greedy
+// reel-2 fixup could exhaust its "safe" replacement pool with only 2 symbols,
+// e.g. seed 3 at 2 symbols/3 reels/5 rows used to still have a win).
+test('non-winning generator: never wins across the wizard\'s full symbol/reel/row range (2-6 symbols)', () => {
+  for (let nsym = 2; nsym <= 6; nsym++) {
+    const ids = SYMS.slice(0, nsym);
+    for (const reels of [3, 5, 9]) {
+      for (const rows of [1, 3, 6]) {
+        for (let seed = 0; seed < 100; seed++) {
+          assert.equal(
+            boardHasWin(generateNonWinningBoard(ids, reels, rows, seed)),
+            false,
+            `${nsym} symbols, ${reels}x${rows}, seed ${seed}`
+          );
+        }
+      }
+    }
+  }
+});
+
+test('non-winning generator: wild-aware even at the 2-symbol edge (1 non-wild symbol left)', () => {
+  // Only one non-wild symbol survives wild-filtering — genuinely impossible
+  // to avoid a win (every reel must contain that symbol). Just confirm this
+  // doesn't throw and still returns a well-shaped board.
+  const board = generateNonWinningBoard(['a', 'wd'], 5, 3, 7, 'wd');
+  assert.equal(board.length, 5);
+  assert.ok(board.every((col) => col.length === 3 && col.every((id) => id === 'a')));
+});
+
 test('generators are deterministic per seed', () => {
   assert.deepEqual(
     generateNonWinningBoard(SYMS, 5, 3, 42),
@@ -161,7 +195,7 @@ test('scroll and speed are continuous across startSpin→spin→stopSpin', () =>
 
 test('truncated startSpin exits below vmax and the spin clip ramps the rest', () => {
   const cfg = makeConfig();
-  // startSpin only 0.15s long but startDuration is 0.4s → truncated.
+  // startSpin only 0.15s long but startDuration is 0.25s → truncated.
   const track = {
     clips: [
       clip('c1', 0, 0.15, 'startSpin'),
@@ -714,4 +748,139 @@ test('T12: buildSpinnerTestClips carries outcome/rerollSeed into the stopSpin cl
   assert.equal(stopOutcome.spinner.outcome, 'noWin');
   assert.equal(stopOutcome.spinner.rerollSeed, 3);
   assert.equal(stopOutcome.spinner.targetBoard, undefined, 'outcome mode does not also carry a fixed targetBoard');
+});
+
+test('buildSpinnerTestClips: an explicit targetBoard wins over outcome and lands on it exactly (wizard Review-step Spin)', () => {
+  const cfg = namedConfig();
+  const explicitBoard = generateNonWinningBoard(['l1', 'l2', 'l3', 'h1', 'h2', 'h3'], 5, 3, 9);
+  const { clips } = buildSpinnerTestClips(cfg, 'bigWin', 2, explicitBoard);
+  const stop = clips.find((c) => c.action === 'stopSpin');
+  assert.deepEqual(stop.spinner.targetBoard, explicitBoard, 'explicit board is carried verbatim, ignoring outcome/rerollSeed');
+  assert.equal(stop.spinner.outcome, undefined);
+  assert.equal(stop.spinner.rerollSeed, undefined);
+  // The normalized clip resolves to exactly that board — no seed re-derivation.
+  const track = normalizeTrack({ layerId: 'L1', clips });
+  const resolved = resolveSpinnerTrack(cfg, track);
+  assert.deepEqual(resolved.stops[0].target, explicitBoard);
+});
+
+// ── Regression: outcome/rerollSeed must survive normalizeTrack ──────────
+// The T12 tests above all feed raw clips directly to resolveSpinnerTrack,
+// bypassing normalizeTrack/normalizeSpinnerClipPayload entirely — which is
+// exactly how the wizard's outcome dropdown shipped broken (the stopSpin
+// branch of normalizeSpinnerClipPayload had a fixed key set that silently
+// dropped `outcome`/`rerollSeed`). These tests route through normalizeTrack,
+// the same path the wizard's test-spin and the timeline/director surfaces use.
+
+test('normalizeTrack preserves stopSpin outcome + rerollSeed, drops invalid/default outcome names', () => {
+  const raw = {
+    layerId: 'L1',
+    clips: [
+      clip('c1', 0, 1, 'stopSpin', { outcome: 'bigWin', rerollSeed: 3 }),
+      clip('c2', 1, 1, 'stopSpin', { outcome: 'bogus', rerollSeed: 2 }),
+      clip('c3', 2, 1, 'stopSpin', { outcome: 'default', rerollSeed: 5 }),
+      clip('c4', 3, 1, 'stopSpin', {})
+    ]
+  };
+  const normalized = normalizeTrack(raw);
+  assert.equal(normalized.clips[0].spinner.outcome, 'bigWin');
+  assert.equal(normalized.clips[0].spinner.rerollSeed, 3);
+  assert.equal(normalized.clips[1].spinner.outcome, null, 'unrecognized outcome name drops to null');
+  assert.equal(normalized.clips[1].spinner.rerollSeed, 2, 'rerollSeed is preserved independent of outcome validity');
+  assert.equal(normalized.clips[2].spinner.outcome, null, "'default' normalizes to null (matches buildSpinnerTestClips convention)");
+  assert.equal(normalized.clips[3].spinner.outcome, null);
+  assert.equal(normalized.clips[3].spinner.rerollSeed, 0, 'missing rerollSeed defaults to 0');
+});
+
+test('regression: an outcome authored via normalizeTrack still lands the requested outcome (was silently dropped)', () => {
+  const cfg = namedConfig();
+  const buildRaw = (rerollSeed) => ({
+    layerId: 'L1',
+    clips: [
+      clip('c1', 0.5, 0.5, 'startSpin'),
+      clip('c2', 1.0, 2.0, 'spin'),
+      clip('c3', 3.0, 2.0, 'stopSpin', { outcome: 'noWin', rerollSeed })
+    ]
+  });
+  const track = normalizeTrack(buildRaw(0));
+  const resolved = resolveSpinnerTrack(cfg, track);
+  const wins = evalWaysWins(resolved.stops[0].target, 'wd');
+  assert.equal(wins.length, 0, 'noWin outcome, once it survives normalization, lands a genuinely non-winning board');
+
+  // Determinism: same track resolves to the same board every time.
+  const again = resolveSpinnerTrack(cfg, track);
+  assert.deepEqual(again.stops[0].target, resolved.stops[0].target);
+
+  // Re-roll (the clip's own rerollSeed) changes the board within the same outcome.
+  const rerolled = resolveSpinnerTrack(cfg, normalizeTrack(buildRaw(1)));
+  assert.notDeepEqual(rerolled.stops[0].target, resolved.stops[0].target);
+  assert.equal(evalWaysWins(rerolled.stops[0].target, 'wd').length, 0, 'still noWin after reroll');
+});
+
+test('targetBoardForClip fallback (no outcome, no explicit board) is wild-aware — never a wild-substituted win (100 seeds)', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const cfg = namedConfig({ seed });
+    const resolved = resolveSpinnerTrack(cfg, standardTrack());
+    const wins = evalWaysWins(resolved.stops[0].target, 'wd');
+    assert.equal(wins.length, 0, `seed ${seed}: unexpected win on the wild-blind fallback board`);
+  }
+});
+
+test('normalizeSpinnerConfig initialBoard regen is wild-aware — never a wild-substituted win (100 seeds)', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const cfg = normalizeSpinnerConfig({
+      symbols: NAMED_SYMS,
+      grid: { reels: 5, rows: 3, cellW: 200, cellH: 200 },
+      seed
+    });
+    assert.equal(evalWaysWins(cfg.initialBoard, 'wd').length, 0, `seed ${seed}`);
+  }
+});
+
+// ── Grid schema: symbolScale + negative spacing ──────────────────────────
+
+test('grid schema: symbolScale defaults to 1 and clamps to [0.05, 10]', () => {
+  const cfg1 = makeConfig();
+  assert.equal(cfg1.grid.symbolScale, 1);
+  const cfg2 = makeConfig({ grid: { reels: 5, rows: 3, cellW: 200, cellH: 200, symbolScale: 0.001 } });
+  assert.equal(cfg2.grid.symbolScale, 0.05);
+  const cfg3 = makeConfig({ grid: { reels: 5, rows: 3, cellW: 200, cellH: 200, symbolScale: 50 } });
+  assert.equal(cfg3.grid.symbolScale, 10);
+});
+
+test('grid schema: negative spacing is allowed, clamped so pitch (cell + spacing) stays >= 1', () => {
+  const extreme = makeConfig({ grid: { reels: 5, rows: 3, cellW: 100, cellH: 80, spacingX: -500, spacingY: -500 } });
+  assert.equal(extreme.grid.spacingX, -(100 - 1));
+  assert.equal(extreme.grid.spacingY, -(80 - 1));
+  assert.ok(extreme.grid.cellW + extreme.grid.spacingX >= 1);
+  assert.ok(extreme.grid.cellH + extreme.grid.spacingY >= 1);
+
+  const moderate = makeConfig({ grid: { reels: 5, rows: 3, cellW: 200, cellH: 200, spacingX: -50, spacingY: -20 } });
+  assert.equal(moderate.grid.spacingX, -50);
+  assert.equal(moderate.grid.spacingY, -20);
+});
+
+// ── Timing defaults snapshot ──────────────────────────────────────────────
+
+test('defaultSpinnerTiming matches the updated design defaults', () => {
+  assert.deepEqual(defaultSpinnerTiming(), {
+    startDuration: 0.25,
+    startEase: 'easeIn',
+    spinSpeed: 30,
+    stopDuration: 0.35,
+    stopEase: 'easeOut',
+    reelStaggerStart: 0.08,
+    reelStaggerStop: 0.15,
+    minSpinTime: 0.5
+  });
+});
+
+test('grid schema: blur sigma/feather default and clamp, shared by static-symbol generation and the animOnly runtime bake', () => {
+  assert.deepEqual(defaultSpinnerBlur(), { enabled: true, vLo: 4, vHi: 9, sigma: 8, feather: 4 });
+  const cfg = makeConfig({ blur: { sigma: 0, feather: -5 } });
+  assert.equal(cfg.blur.sigma, 1, 'clamped to the [1, 64] minimum');
+  assert.equal(cfg.blur.feather, 0, 'clamped to the [0, 32] minimum');
+  const cfg2 = makeConfig({ blur: { sigma: 999, feather: 999 } });
+  assert.equal(cfg2.blur.sigma, 64);
+  assert.equal(cfg2.blur.feather, 32);
 });

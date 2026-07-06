@@ -636,10 +636,11 @@ export function WinSequenceWizard({
 
   const previewConfig = useMemo(() => {
     const tierList = tiers.map((t) => ({ key: t.key, begin: t.begin, idle: t.idle, end: t.end, enabled: t.enabled }));
-    // rev bumps (→ full Pixi rebuild) only on STRUCTURAL changes: tier mapping
-    // and the number's glyph set (font / grid / layout string). Cheap number
-    // edits (scale, spacing, currency, decimals, wager) are applied live by the
-    // runtime without a rebuild, so they're excluded here.
+    // Since the structural-hash refactor only the number's GLYPH SET (font /
+    // grid / layout string) forces a full Pixi rebuild — tier mapping and all
+    // other number edits (scale, spacing, currency, decimals, wager) reach the
+    // built object live via the runtime-config patch (engine/pixiApp.js
+    // applyRuntimeConfigs). `rev` is rebuild-inert; kept for persistence only.
     const numStruct = numberConfig
       ? { fontSrc: numberConfig.fontSrc, charLayout: numberConfig.charLayout, cell: numberConfig.cell, cols: numberConfig.cols, rows: numberConfig.rows }
       : null;

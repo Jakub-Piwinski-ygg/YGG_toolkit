@@ -299,7 +299,17 @@ export async function loadSceneFromFile() {
 /**
  * Resolve an asset src to an object URL that Pixi can load.
  *
- * If src is a data URL → return as-is (Pixi accepts data URLs).
+ * If src is already a directly-loadable URL (data:, blob:, http(s):) →
+ *   return as-is. `blob:` matters for any generated/in-memory asset (e.g.
+ *   the Spinner wizard's WASM-blurred symbol PNGs, `URL.createObjectURL`'d
+ *   and never written to disk) — without this, such assets silently failed
+ *   to resolve (this function fell through to treating the blob: URL string
+ *   itself as a relative project-folder path, which obviously never
+ *   matches anything) and every caller's null-safe fallback masked it
+ *   completely: the Spinner runtime in particular falls back to reusing the
+ *   STATIC texture as the blur texture, so a "blurred" symbol rendered as
+ *   the exact same unblurred image with nothing visibly different — no
+ *   error, just a blur that silently never took effect anywhere.
  * If src is a relative path + rootHandle is available → walk the dir handle,
  *   read the File, return URL.createObjectURL(file).
  *
@@ -311,7 +321,7 @@ export async function loadSceneFromFile() {
  */
 export async function resolveAssetUrl(src, rootHandle, sceneBasePath = null) {
   if (typeof src !== 'string') return null;
-  if (src.startsWith('data:')) return { url: src };
+  if (/^(data:|blob:|https?:)/.test(src)) return { url: src };
   if (!rootHandle) return null;
 
   for (const relPath of buildResolutionCandidates(src, sceneBasePath)) {

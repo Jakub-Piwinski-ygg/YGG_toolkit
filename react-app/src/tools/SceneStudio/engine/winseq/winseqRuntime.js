@@ -77,8 +77,10 @@ export function applyWinSeqAtTime(obj, layer, tracks, t) {
   const ev = evaluateWinSeqFlow(flow, durations, localRaw, { hangOnLastIdle: payload.hangOnLastIdle === true });
   if (!ev) { hideWinSeq(obj, cache); return; }
 
-  // Driven by an active clip → visible (respecting the layer's own flag).
-  obj.visible = layer?.visible !== false;
+  // Driven by an active clip → visible. Unified visibility model: hiding is an
+  // alpha-0 gate (transform.alpha, applied by applyPngChannels), never a hard
+  // Pixi `visible=false`, so the object stays live in the runtime.
+  obj.visible = true;
 
   // Publish the driving context so a child win-number layer (processed later in
   // the same applyFlowAtTime pass) can follow the bone + count up at this time.

@@ -65,7 +65,7 @@ export function ScenarioTimelineList({ timelines = [], activeScenario = null, on
                   title="Drag onto the graph to add a node · double-click to edit in animate mode"
                 >
                   <span className="ss-tl-dot" />
-                  <span className="ss-tl-name">{t.timelineName}</span>
+                  <span className="ss-tl-name">{t.timelineDisplayName || t.timelineName}</span>
                   <span className="ss-tl-meta">{t.trackCount} trk · {fmtDur(t.duration)}</span>
                   {used > 0 && <span className="ss-tl-badge" title={`Used ${used}× in this scenario`}>×{used}</span>}
                   <button

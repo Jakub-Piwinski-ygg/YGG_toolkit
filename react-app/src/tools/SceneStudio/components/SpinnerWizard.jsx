@@ -1,5 +1,5 @@
 // components/SpinnerWizard.jsx
-// Spinner setup wizard — 4 steps: Grid → Symbols → Timing → Review.
+// Spinner setup wizard — 3 steps: Symbols → Grid → Preview.
 //
 // Asset model
 // ──────────────────────────────────────────────────────────────────────────
@@ -43,6 +43,8 @@ import {
 } from '../engine/sceneModel.js';
 import {
   generateNonWinningBoard,
+  generateWinningBoard,
+  generateOutcomeBoard,
   generateStrip,
   mulberry32,
   hash32,
@@ -87,6 +89,10 @@ function buildSpinnerPreviewScene(spinnerConfig, refAssets, testTrack, projectRo
   }];
   const tracks = testTrack ? [testTrack] : [];
   base.flow = deriveFlowGraph({ tracks, markers: [], nodes: [], edges: [] });
+  base.flow.runtime = {
+    ...(base.flow.runtime || {}),
+    spinnerCellGizmoLayerId: 'sprev_layer'
+  };
   base.timelines = [{ ...base.timelines[0], tracks }];
   if (testTrack) {
     const end = Math.max(1, ...testTrack.clips.map((c) => c.start + c.duration));
@@ -101,8 +107,8 @@ import {
 } from '../engine/spinner/symbolMatch.js';
 import { BoardGridEditor } from './SpinnerInspectorSections.jsx';
 
-const STEPS = ['grid', 'symbols', 'timing', 'review'];
-const STEP_LABELS = { grid: '1. Grid', symbols: '2. Symbols', timing: '3. Timing', review: '4. Review' };
+const STEPS = ['symbols', 'grid', 'preview'];
+const STEP_LABELS = { symbols: '1. Symbols', grid: '2. Grid', preview: '3. Preview' };
 
 function uid(prefix = 's') {
   return `${prefix}${Math.random().toString(36).slice(2, 9)}`;
@@ -351,6 +357,46 @@ function SymbolThumb({ label, asset, rootHandle }) {
   );
 }
 
+function SpinnerPreviewTimeline({ run, time, onScrub }) {
+  const total = Math.max(0.001, run?.total || 0.001);
+  const clips = run?.clips || [];
+  const playPct = Math.max(0, Math.min(100, (time / total) * 100));
+  const activeClip = clips.find((c) => time >= c.start && time < c.start + c.duration) || null;
+  const onDown = (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+    onScrub?.(p * total);
+  };
+  const onMove = (e) => {
+    if (!(e.buttons & 1)) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+    onScrub?.(p * total);
+  };
+  const onUp = (e) => e.currentTarget.releasePointerCapture?.(e.pointerId);
+  return (
+    <div className="spinner-preview-timeline">
+      <div className="spinner-preview-timeline-bar" onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}>
+        {clips.map((c) => (
+            <div
+              key={c.id}
+              className={'spinner-preview-seg spinner-preview-seg--' + c.action + (activeClip?.id === c.id ? ' active' : '')}
+              style={{ width: `${(c.duration / total) * 100}%` }}
+              title={`${c.action} · ${c.duration.toFixed(2)}s`}
+            >
+            <span>{c.action}</span>
+          </div>
+        ))}
+        <div className="spinner-preview-playhead" style={{ left: `${playPct}%` }} />
+      </div>
+      <div className="spinner-preview-now">▶ <strong>{activeClip?.action || 'idle'}</strong></div>
+    </div>
+  );
+}
+
 /** Land/win cell: spine file + resolved animation name, or what's missing. */
 function AnimBadge({ label, anim, spinePool }) {
   const spineA = anim?.assetId ? spinePool.find((a) => a.id === anim.assetId) : null;
@@ -374,19 +420,20 @@ function AnimBadge({ label, anim, spinePool }) {
 export function SpinnerWizard({
   scene, assetItems, rootHandle, onClose, onCreate,
   existingConfig = null, existingName = null,
-  embedded = false, onPreviewScene, onPreviewTime, refreshNonce = 0,
+  embedded = false, onPreviewScene, onPreviewTime, onBakeSpinePose, previewControlsRef = null, refreshNonce = 0,
 }) {
   const isEdit = !!existingConfig;
-  const [step, setStep] = useState('grid');
+  const [step, setStep] = useState('symbols');
 
   // Step 1 — grid
   const [name, setName] = useState(existingName || 'Spinner');
   const [reels, setReels] = useState(existingConfig?.grid?.reels ?? 5);
-  const [rows, setRows] = useState(existingConfig?.grid?.rows ?? 3);
-  const [cellW, setCellW] = useState(existingConfig?.grid?.cellW ?? 120);
-  const [cellH, setCellH] = useState(existingConfig?.grid?.cellH ?? 120);
-  const [spacingX, setSpacingX] = useState(existingConfig?.grid?.spacingX ?? 6);
-  const [spacingY, setSpacingY] = useState(existingConfig?.grid?.spacingY ?? 6);
+  const [rows, setRows] = useState(existingConfig?.grid?.rows ?? 5);
+  const [cellW, setCellW] = useState(existingConfig?.grid?.cellW ?? 200);
+  const [cellH, setCellH] = useState(existingConfig?.grid?.cellH ?? 200);
+  const [spacingX, setSpacingX] = useState(existingConfig?.grid?.spacingX ?? 0);
+  const [spacingY, setSpacingY] = useState(existingConfig?.grid?.spacingY ?? 0);
+  const [symbolScale, setSymbolScale] = useState(existingConfig?.grid?.symbolScale ?? 1);
 
   // Step 2 — symbols
   const [symbols, setSymbols] = useState(() =>
@@ -395,16 +442,17 @@ export function SpinnerWizard({
       : Array.from({ length: 6 }, (_, i) => defaultSymbol(i))
   );
   const [assetFilter, setAssetFilter] = useState('');
-  const [blurSigma, setBlurSigma] = useState(8);
-  const [blurFeather, setBlurFeather] = useState(4);
   const [blurGenerating, setBlurGenerating] = useState(false);
+  // { done, total, name } while generateBlurs runs, else null — drives the
+  // progress bar so a batch of slow WASM calls doesn't look like a freeze.
+  const [blurProgress, setBlurProgress] = useState(null);
   const [generatedAssets, setGeneratedAssets] = useState([]);
 
-  // Step 3 — timing + blur
+  // Step 3 — preview (timing + blur + board + transport)
   const [timing, setTiming] = useState(() => ({ ...defaultSpinnerTiming(), ...(existingConfig?.timing || {}) }));
   const [blur, setBlur] = useState(() => ({ ...defaultSpinnerBlur(), ...(existingConfig?.blur || {}) }));
 
-  // Step 4 — initial board
+  // Step 3 — initial board
   const [initialBoard, setInitialBoard] = useState(existingConfig?.initialBoard || null);
   const [seed] = useState(() => existingConfig?.seed ?? (Math.floor(Math.random() * 0xFFFFFF) + 1));
 
@@ -672,48 +720,124 @@ export function SpinnerWizard({
   };
 
   // ── Generate blur variants ────────────────────────────────────────────────
-  const generateBlurs = async () => {
+  // Runs strictly on explicit user click (the two buttons below) — never
+  // automatically from auto-detect/matching. Each WASM motion-blur call can
+  // take a noticeable moment; the loop below yields a frame before each one
+  // and updates state incrementally (by symbol id, not a stale end-of-batch
+  // snapshot) so the progress bar is accurate and the live preview keeps
+  // rendering symbols as they finish instead of appearing to freeze until
+  // the whole batch completes. True background execution (a Web Worker)
+  // isn't used: the shared `window._Magick` WASM chain writes to FIXED
+  // temp filenames (input.png, blurred.png, …) also used by every other
+  // ImageMagick call in the app, so concurrent calls would race — this has
+  // to stay sequential regardless of where it runs.
+  const generateBlurs = async (onlyMissing = true) => {
+    const targets = symbols.filter((s) => s.assetId && (!onlyMissing || !s.blurAssetId));
+    if (!targets.length) return;
     setBlurGenerating(true);
-    const newAssets     = [];
-    const updatedSymbols = [...symbols];
-
-    for (let i = 0; i < symbols.length; i++) {
-      const sym   = symbols[i];
-      if (!sym.assetId || sym.blurAssetId) continue;
+    for (let i = 0; i < targets.length; i++) {
+      const sym = targets[i];
+      setBlurProgress({ done: i, total: targets.length, name: sym.name || `symbol ${i + 1}` });
+      await new Promise(requestAnimationFrame); // let the progress update (and Pixi) paint first
       const asset = allPngAssets.find((a) => a.id === sym.assetId);
       if (!asset?.src) continue;
       try {
+        // Project-folder-scanned assets (`_fromBrowser`) carry a raw relative
+        // path as `src`, not a loadable URL — same resolution SymbolThumb
+        // already does for previews. Assigning that path straight to <img
+        // src> (as this used to) silently fails to load, so the blur step
+        // below ran on nothing and the batch "succeeded" with no output.
+        const direct = isDirectUrl(asset.src);
+        const imgSrc = direct
+          ? asset.src
+          : await (async () => {
+              const file = rootHandle ? await resolveAssetFile(asset.src, rootHandle) : null;
+              return file ? URL.createObjectURL(file) : null;
+            })();
+        if (!imgSrc) throw new Error(`could not resolve source image for ${assetBaseName(asset)}`);
         const img = await new Promise((resolve, reject) => {
           const el  = new Image();
           el.crossOrigin = 'anonymous';
           el.onload  = () => resolve(el);
           el.onerror = reject;
-          el.src     = asset.src;
+          el.src     = imgSrc;
         });
-        const blob   = await makeBlurredSymbol(img, cellW, cellH, 1.0, blurSigma, blurFeather);
+        if (!direct) URL.revokeObjectURL(imgSrc); // decoded into `img` already; drop our temp blob URL
+        const blob   = await makeBlurredSymbol(img, cellW, cellH, 1.0, blur.sigma, blur.feather);
         const blobUrl = URL.createObjectURL(blob);
         const blurId  = uid('gen');
-        newAssets.push({
+        setGeneratedAssets((prev) => [...prev, {
           id: blurId,
           type: 'png',
           src: blobUrl,
           meta: { originalName: assetBaseName(asset) + '_blur.png', generated: true },
-        });
-        updatedSymbols[i] = { ...sym, blurAssetId: blurId };
+        }]);
+        setSymbols((prev) => prev.map((s) => (s.id === sym.id ? { ...s, blurAssetId: blurId } : s)));
       } catch (e) {
         console.warn('[SpinnerWizard] blur gen failed for', sym.name, e);
       }
     }
+    setBlurProgress(null);
+    setBlurGenerating(false);
+  };
 
-    setGeneratedAssets((prev) => [...prev, ...newAssets]);
-    setSymbols(updatedSymbols);
+  // Symbols with no static PNG but a usable land/win Spine anim to pose from
+  // — the same condition spinnerRuntime.js's T7 idle-pose bake uses (keyed on
+  // `!assetId`, not the `animOnly` flag, which auto-detect sets but a
+  // manually-added symbol never gets).
+  const poseAnimConfFor = (sym) =>
+    sym.landAnim?.kind === 'spine' ? sym.landAnim
+    : sym.winAnim?.kind === 'spine' ? sym.winAnim
+    : null;
+
+  // ── Generate blur variants for animation-only symbols ───────────────────────
+  // Mirrors generateBlurs above, but the source isn't a static PNG — there
+  // isn't one. It's a Spine idle/landing pose rendered live through the
+  // wizard's own preview viewport (onBakeSpinePose → PixiViewport's live
+  // renderer), then run through the SAME downsample-then-blur pipeline
+  // (spinnerBlur.js#blurRenderedCanvas) as static art. Persists a real
+  // generated blur PNG asset + blurAssetId exactly like the static path, so
+  // these symbols stop depending solely on the runtime's own automatic
+  // (fire-and-forget, per-rebuild) bake-and-blur fallback in
+  // spinnerRuntime.js — that fallback now only fires when no persisted
+  // blurAssetId exists yet.
+  const generateAnimOnlyBlurs = async (onlyMissing = true) => {
+    const targets = symbols.filter((s) =>
+      !s.assetId && poseAnimConfFor(s) && (!onlyMissing || !s.blurAssetId));
+    if (!targets.length || !onBakeSpinePose) return;
+    setBlurGenerating(true);
+    for (let i = 0; i < targets.length; i++) {
+      const sym = targets[i];
+      setBlurProgress({ done: i, total: targets.length, name: sym.name || `symbol ${i + 1}` });
+      await new Promise(requestAnimationFrame); // let the progress update (and Pixi) paint first
+      const animConf = poseAnimConfFor(sym);
+      try {
+        const blob = await onBakeSpinePose(animConf.assetId, animConf.anim, animConf.loop !== false, blur.sigma, blur.feather);
+        if (!blob) throw new Error('idle-pose render returned nothing');
+        const blobUrl = URL.createObjectURL(blob);
+        const blurId  = uid('gen');
+        setGeneratedAssets((prev) => [...prev, {
+          id: blurId,
+          type: 'png',
+          src: blobUrl,
+          meta: { originalName: (sym.name || 'symbol') + '_blur.png', generated: true },
+        }]);
+        setSymbols((prev) => prev.map((s) => (s.id === sym.id ? { ...s, blurAssetId: blurId } : s)));
+      } catch (e) {
+        console.warn('[SpinnerWizard] animOnly blur gen failed for', sym.name, e);
+      }
+    }
+    setBlurProgress(null);
     setBlurGenerating(false);
   };
 
   const symbolsNeedingBlur = symbols.filter((s) => s.assetId && !s.blurAssetId).length;
+  const symbolsWithStatic = symbols.filter((s) => s.assetId).length;
+  const poseBakeSymbols = validSymbols.filter((s) => !s.assetId && poseAnimConfFor(s));
+  const poseBlurNeeding = poseBakeSymbols.filter((s) => !s.blurAssetId).length;
 
   // ── BoardGridEditor preview config ────────────────────────────────────────
-  const previewConfig = { grid: { reels, rows, cellW, cellH, spacingX, spacingY }, symbols: validSymbols };
+  const previewConfig = { grid: { reels, rows, cellW, cellH, spacingX, spacingY, symbolScale }, symbols: validSymbols };
 
   // ── Live scene-view preview (embedded/full-focus) ──────────────────────────
   // Symbol art assets referenced by the (valid) symbols, so the preview spinner
@@ -747,36 +871,55 @@ export function SpinnerWizard({
   // director node and timeline clip inspectors (spinnerModel.buildSpinnerTestClips).
   const [testOutcome, setTestOutcome] = useState('default');
   const [testReroll, setTestReroll] = useState(0);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
+  const [previewTime, setPreviewTime] = useState(0);
   const testTimeRef = useRef(0);
   const testRafRef = useRef(0);
   const testLastRef = useRef(0);
 
-  // The spinner bakes its timing/blur into the Pixi object at BUILD time, and
-  // Pixi v8 dislikes rapid rebuilds (SPINNER.md §20.10). We DEBOUNCE the rebuild:
-  // `bakedRev` only catches up to the live content hash after edits settle
-  // (150ms), so dragging a slider doesn't thrash the renderer, AND the object
-  // stays STABLE during a test spin (no texture reload → no blank/blur flash).
+  // STRUCTURAL preview inputs (reel/row counts + symbol set) are DEBOUNCED: a
+  // structural change means a full Pixi rebuild of the preview spinner, and
+  // Pixi v8 dislikes rapid rebuilds (SPINNER.md §20.10) — `bakedStruct` only
+  // catches up 150ms after edits settle, so drag-scrubbing the reel/row count
+  // doesn't thrash the renderer. Everything else (cell size / spacing /
+  // timing / blur / board) bypasses the debounce — since the structural-hash
+  // refactor those live-patch the built spinner without a rebuild
+  // (engine/pixiApp.js applyRuntimeConfigs + relayoutSpinnerGeometry), so
+  // slider drags update the preview immediately AND keep the object stable
+  // during a test spin (no texture reload → no blank/blur flash).
   const contentHash = useMemo(() => hash32(JSON.stringify({
     s: validSymbols.map((s) => [s.id, s.assetId, s.blurAssetId, s.landAnim, s.winAnim]),
-    g: { reels, rows, cellW, cellH, spacingX, spacingY },
-    t: timing, b: blur, board: initialBoard,
-  })) || 1, [symbols, reels, rows, cellW, cellH, spacingX, spacingY, timing, blur, initialBoard]);
-  const [bakedRev, setBakedRev] = useState(contentHash);
+    g: { reels, rows },
+  })) || 1, [symbols, reels, rows]);
+  const [bakedStruct, setBakedStruct] = useState(() => ({
+    symbols: validSymbols, reels, rows, rev: contentHash,
+  }));
   useEffect(() => {
-    const id = setTimeout(() => setBakedRev(contentHash), 150);
+    const id = setTimeout(() => setBakedStruct({
+      symbols: validSymbols, reels, rows, rev: contentHash,
+    }), 150);
     return () => clearTimeout(id);
+  // The closure re-captures the live fields whenever the structural hash moves.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentHash]);
 
   const previewSpinnerConfig = useMemo(() => {
-    const ids = validSymbols.map((s) => s.id);
+    // Topology comes from the DEBOUNCED snapshot (see bakedStruct above) so
+    // rapid reel/row/symbol edits coalesce into one rebuild; everything else —
+    // including cell size + spacing (live geometry relayout) — is live. A
+    // momentary strips/board ↔ grid mismatch inside the debounce window is
+    // safe — normalizeSpinnerConfig regenerates invalid strips and the board
+    // check below falls back to a generated board.
+    const ids = bakedStruct.symbols.map((s) => s.id);
     if (ids.length < 2 || !previewStrips) return null;
+    const g = { reels: bakedStruct.reels, rows: bakedStruct.rows, cellW, cellH, spacingX, spacingY, symbolScale };
     const idSet = new Set(ids);
-    const boardValid = initialBoard && initialBoard.length === reels
-      && initialBoard.every((col) => Array.isArray(col) && col.length === rows && col.every((c) => idSet.has(c)));
-    const board = boardValid ? initialBoard : generateNonWinningBoard(ids, reels, rows, seed);
-    const cfg = {
-      symbols: validSymbols,
-      grid: { reels, rows, cellW, cellH, spacingX, spacingY },
+    const boardValid = initialBoard && initialBoard.length === g.reels
+      && initialBoard.every((col) => Array.isArray(col) && col.length === g.rows && col.every((c) => idSet.has(c)));
+    const board = boardValid ? initialBoard : generateNonWinningBoard(ids, g.reels, g.rows, seed);
+    return {
+      symbols: bakedStruct.symbols,
+      grid: g,
       strips: previewStrips,
       initialBoard: board,
       seed,
@@ -786,12 +929,10 @@ export function SpinnerWizard({
       blur,
       events: existingConfig?.events || defaultSpinnerEvents(),
       perReel: existingConfig?.perReel || [],
+      rev: bakedStruct.rev,
     };
-    // Debounced rebuild rev (settles ~150ms after the last edit).
-    cfg.rev = bakedRev;
-    return cfg;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbols, reels, rows, cellW, cellH, spacingX, spacingY, timing, blur, initialBoard, seed, previewStrips, bakedRev]);
+  }, [bakedStruct, cellW, cellH, spacingX, spacingY, symbolScale, timing, blur, initialBoard, seed, previewStrips]);
 
   // Test-spin transport: when `testRun` is set, the preview scene includes a
   // one-shot startSpin→spin→stopSpin track and the clock runs once to its end.
@@ -811,36 +952,105 @@ export function SpinnerWizard({
     onPreviewScene(previewScene);
   }, [embedded, onPreviewScene, previewScene]);
 
-  // Drive the test-spin clock once through, then hold on the result.
+  useEffect(() => {
+    if (!testRun || !previewSpinnerConfig || step !== 'preview') return;
+    setTestRun(buildSpinnerTestClips(previewSpinnerConfig, null, 0, initialBoard));
+    setPreviewPlaying(true);
+    testTimeRef.current = 0;
+    setPreviewTime(0);
+    onPreviewTime?.(0);
+  }, [step, previewSpinnerConfig, initialBoard]);
+
+  // Drive the preview clock; autoplay in the preview step and hold at the end.
   useEffect(() => {
     if (!embedded || !onPreviewTime) return undefined;
-    if (!testRun) { testTimeRef.current = 0; onPreviewTime(0); return undefined; }
-    testTimeRef.current = 0;
+    if (!testRun) {
+      testTimeRef.current = 0;
+      setPreviewTime(0);
+      onPreviewTime(0);
+      return undefined;
+    }
     testLastRef.current = 0;
-    onPreviewTime(0);
     const frame = (ts) => {
       const dt = testLastRef.current ? Math.min(0.05, (ts - testLastRef.current) / 1000) : 0;
       testLastRef.current = ts;
-      testTimeRef.current = Math.min(testRun.total, testTimeRef.current + dt);
+      if (previewPlaying) {
+        const next = Math.min(testRun.total, testTimeRef.current + dt);
+        testTimeRef.current = next;
+        if (next >= testRun.total - 1e-4) setPreviewPlaying(false);
+      }
+      setPreviewTime(testTimeRef.current);
       onPreviewTime(testTimeRef.current);
-      if (testTimeRef.current < testRun.total) testRafRef.current = requestAnimationFrame(frame);
+      testRafRef.current = requestAnimationFrame(frame);
     };
     testRafRef.current = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(testRafRef.current);
-  }, [embedded, onPreviewTime, testRun]);
+  }, [embedded, onPreviewTime, testRun, previewPlaying]);
+
+  useEffect(() => {
+    if (!previewControlsRef) return undefined;
+    previewControlsRef.current = {
+      togglePlay: () => setPreviewPlaying((p) => !p),
+      resetToStart: () => {
+        setPreviewPlaying(false);
+        testTimeRef.current = 0;
+        setPreviewTime(0);
+        onPreviewTime?.(0);
+      }
+    };
+    return () => { previewControlsRef.current = null; };
+  }, [previewControlsRef, onPreviewTime]);
+
+  // Outcome selection and the resting board are now the SAME concept
+  // (2026-07-04): picking a Result / re-rolling computes a concrete board
+  // for that threshold and writes it straight into `initialBoard`, so the
+  // BoardGridEditor and the live preview at rest update immediately — no
+  // need to spin to see it. `Spin` below then just plays the animation
+  // landing on exactly that already-displayed board.
+  const applyOutcomeBoard = useCallback((outcome, rerollSeed) => {
+    // Uses the same live (non-debounced) grid/symbol values BoardGridEditor
+    // itself renders with (previewConfig), not the debounced `bakedStruct`
+    // behind previewSpinnerConfig — this runs from a discrete click, not a
+    // rapid drag, so there's no reason to risk a transient shape mismatch.
+    const ids = validSymbols.map((s) => s.id);
+    if (ids.length < 2) return;
+    const boardSeed = (seed ^ hash32(`board::${outcome}::${rerollSeed}`)) >>> 0;
+    const board = (!outcome || outcome === 'default')
+      ? generateWinningBoard(ids, reels, rows, boardSeed)
+      : generateOutcomeBoard(previewConfig, outcome, boardSeed);
+    if (!board) return;
+    setInitialBoard(board);
+    // Revert any frozen test-spin frame so the live preview shows the new
+    // board at rest immediately, instead of holding on a stale spin result.
+    setTestRun(null);
+  }, [validSymbols, reels, rows, seed, previewConfig]);
 
   const runTestSpin = () => {
     if (!previewSpinnerConfig) return;
-    // Arm the one-shot test track (a fresh object each click restarts the
-    // clock). The spinner is already baked with current timing (debounced
-    // rebuild), so no flash — it spins from the current board exactly like the
-    // scene timeline.
-    setTestRun(buildSpinnerTestClips(previewSpinnerConfig, testOutcome, testReroll));
+    // Land on the board already shown (initialBoard) — no seed/outcome
+    // re-derivation, so the spin can never diverge from the preview.
+    testTimeRef.current = 0;
+    setPreviewTime(0);
+    onPreviewTime?.(0);
+    setTestRun(buildSpinnerTestClips(previewSpinnerConfig, null, 0, initialBoard));
+    setPreviewPlaying(true);
   };
-  const resetPreview = () => setTestRun(null);
+  const resetPreview = () => {
+    setPreviewPlaying(false);
+    testTimeRef.current = 0;
+    setPreviewTime(0);
+    onPreviewTime?.(0);
+  };
+  const scrubPreview = (t) => {
+    if (!testRun) return;
+    setPreviewPlaying(false);
+    testTimeRef.current = Math.max(0, Math.min(testRun.total, t));
+    setPreviewTime(testTimeRef.current);
+    onPreviewTime?.(testTimeRef.current);
+  };
 
   const goToStep = (next) => {
-    if (next === 'review') {
+    if (next === 'preview') {
       const ids = validSymbols.map((s) => s.id);
       if (ids.length >= 2)
         setInitialBoard((prev) => prev || generateNonWinningBoard(ids, reels, rows, seed));
@@ -880,7 +1090,7 @@ export function SpinnerWizard({
     const spinnerConfig = {
       rev: (existingConfig?.rev || 0) + 1,
       symbols: validSymbols,
-      grid: { reels, rows, cellW, cellH, spacingX, spacingY },
+      grid: { reels, rows, cellW, cellH, spacingX, spacingY, symbolScale },
       strips,
       initialBoard: board,
       seed,
@@ -911,7 +1121,7 @@ export function SpinnerWizard({
 
     onCreate?.({ name: name.trim() || 'Spinner', spinnerConfig, newAssets });
   }, [
-    validSymbols, reels, rows, cellW, cellH, spacingX, spacingY,
+    validSymbols, reels, rows, cellW, cellH, spacingX, spacingY, symbolScale,
     timing, blur, initialBoard, seed, name,
     browserPool, browserSpinePool, generatedAssets,
     scene, onCreate, existingConfig,
@@ -949,7 +1159,7 @@ export function SpinnerWizard({
 
         <div className="spinner-wizard-body">
 
-          {/* ── Step 1: Grid ─────────────────────────────────────── */}
+          {/* ── Step 2: Grid ─────────────────────────────────────── */}
           {step === 'grid' && (
             <div className="spinner-wizard-section">
               <div className="scene-field-group-head">Grid &amp; Name</div>
@@ -970,10 +1180,14 @@ export function SpinnerWizard({
                   onChange={(v) => setCellH(Math.max(32, Math.round(v)))} />
               </div>
               <div className="spinner-wizard-row">
-                <DragNumberField label="spacing X" value={spacingX} step={2} min={0}
-                  onChange={(v) => setSpacingX(Math.max(0, Math.round(v)))} />
-                <DragNumberField label="spacing Y" value={spacingY} step={2} min={0}
-                  onChange={(v) => setSpacingY(Math.max(0, Math.round(v)))} />
+                <DragNumberField label="spacing X" value={spacingX} step={2} min={1 - cellW}
+                  onChange={(v) => setSpacingX(Math.max(1 - cellW, Math.round(v)))} />
+                <DragNumberField label="spacing Y" value={spacingY} step={2} min={1 - cellH}
+                  onChange={(v) => setSpacingY(Math.max(1 - cellH, Math.round(v)))} />
+              </div>
+              <div className="spinner-wizard-row">
+                <DragNumberField label="symbol scale" value={symbolScale} step={0.05} min={0.05} max={10}
+                  onChange={(v) => setSymbolScale(Math.max(0.05, Math.min(10, v)))} />
               </div>
               <div className="scene-spinner-meta">
                 Grid: {reels * cellW + (reels - 1) * spacingX} × {rows * cellH + (rows - 1) * spacingY} px
@@ -981,7 +1195,7 @@ export function SpinnerWizard({
             </div>
           )}
 
-          {/* ── Step 2: Symbols ──────────────────────────────────── */}
+          {/* ── Step 1: Symbols ──────────────────────────────────── */}
           {step === 'symbols' && (
             <div className="spinner-wizard-section">
               <div className="scene-field-group-head">
@@ -1202,26 +1416,87 @@ export function SpinnerWizard({
 
               <button type="button" className="scene-btn scene-btn--ghost" onClick={addSymbol}>+ symbol</button>
 
-              {/* Blur generation */}
-              {symbolsNeedingBlur > 0 && (
+              {/* Blur look — sigma/feather are always visible whenever there's
+                  any symbol at all (only runs on an explicit click below,
+                  never automatically). Both generation buttons below —
+                  static-art and animations-only — share these same settings
+                  and the same downsample-then-blur pipeline
+                  (spinnerBlur.js#blurRenderedCanvas), so the two symbol kinds
+                  can never look different. The animations-only path renders
+                  each symbol's landing/idle Spine pose live (no static PNG
+                  involved) and blurs THAT render. */}
+              {validSymbols.length > 0 && (
                 <div className="spinner-blur-gen">
                   <div className="scene-field-group-sub">
-                    {symbolsNeedingBlur} symbol{symbolsNeedingBlur !== 1 ? 's' : ''} without a blur PNG — generate the missing ones
+                    {symbolsNeedingBlur > 0 || poseBlurNeeding > 0
+                      ? [
+                          symbolsNeedingBlur > 0 ? `${symbolsNeedingBlur} static symbol${symbolsNeedingBlur !== 1 ? 's' : ''} without a blur PNG` : null,
+                          poseBlurNeeding > 0 ? `${poseBlurNeeding} animation-only symbol${poseBlurNeeding !== 1 ? 's' : ''} without a rendered blur` : null,
+                        ].filter(Boolean).join(' · ')
+                      : 'All symbols have a blur PNG — adjust sigma/feather and regenerate if you want a different look'}
                   </div>
                   <div className="spinner-wizard-row">
-                    <DragNumberField label="sigma px" value={blurSigma} step={1} min={1} max={64}
-                      onChange={(v) => setBlurSigma(Math.max(1, Math.round(v)))} />
-                    <DragNumberField label="feather px" value={blurFeather} step={1} min={0} max={32}
-                      onChange={(v) => setBlurFeather(Math.max(0, Math.round(v)))} />
+                    <DragNumberField label="sigma px" value={blur.sigma} step={1} min={1} max={64}
+                      onChange={(v) => patchBlur({ sigma: Math.max(1, Math.round(v)) })} />
+                    <DragNumberField label="feather px" value={blur.feather} step={1} min={0} max={32}
+                      onChange={(v) => patchBlur({ feather: Math.max(0, Math.round(v)) })} />
                   </div>
-                  <button
-                    type="button"
-                    className="scene-btn scene-btn--ghost"
-                    onClick={generateBlurs}
-                    disabled={blurGenerating}
-                  >
-                    {blurGenerating ? '⏳ generating…' : `⚡ fill missing blurs (${symbolsNeedingBlur})`}
-                  </button>
+                  {symbolsWithStatic > 0 && (
+                    <div className="spinner-wizard-auto-row" style={{ marginBottom: 0 }}>
+                      <button
+                        type="button"
+                        className="scene-btn scene-btn--ghost"
+                        onClick={() => generateBlurs(true)}
+                        disabled={blurGenerating || symbolsNeedingBlur === 0}
+                      >
+                        ⚡ fill missing blurs ({symbolsNeedingBlur})
+                      </button>
+                      <button
+                        type="button"
+                        className="scene-btn scene-btn--ghost"
+                        onClick={() => generateBlurs(false)}
+                        disabled={blurGenerating}
+                        title="Re-runs the blur on EVERY symbol with a static PNG using the current sigma/feather, overwriting existing blur PNGs"
+                      >
+                        ↻ regenerate all ({symbolsWithStatic})
+                      </button>
+                    </div>
+                  )}
+                  {poseBakeSymbols.length > 0 && (
+                    <div className="spinner-wizard-auto-row" style={{ marginBottom: 0, marginTop: symbolsWithStatic > 0 ? 6 : 0 }}>
+                      <button
+                        type="button"
+                        className="scene-btn scene-btn--ghost"
+                        onClick={() => generateAnimOnlyBlurs(true)}
+                        disabled={blurGenerating || poseBlurNeeding === 0 || !onBakeSpinePose}
+                        title="Renders each animation-only symbol's landing/idle Spine pose live, then runs the SAME downsample blur pipeline as static art — no static PNG is created"
+                      >
+                        ⚡ render + blur idle pose ({poseBlurNeeding})
+                      </button>
+                      <button
+                        type="button"
+                        className="scene-btn scene-btn--ghost"
+                        onClick={() => generateAnimOnlyBlurs(false)}
+                        disabled={blurGenerating || !onBakeSpinePose}
+                        title="Re-renders the idle pose and re-blurs EVERY animation-only symbol using the current sigma/feather, overwriting existing blur PNGs"
+                      >
+                        ↻ regenerate all ({poseBakeSymbols.length})
+                      </button>
+                    </div>
+                  )}
+                  {blurProgress && (
+                    <div className="spinner-blur-progress">
+                      <div className="spinner-blur-progress-bar">
+                        <div
+                          className="spinner-blur-progress-fill"
+                          style={{ width: `${Math.round((blurProgress.done / blurProgress.total) * 100)}%` }}
+                        />
+                      </div>
+                      <span className="scene-spinner-meta">
+                        ⏳ blurring "{blurProgress.name}" — {blurProgress.done + 1}/{blurProgress.total}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1233,8 +1508,8 @@ export function SpinnerWizard({
             </div>
           )}
 
-          {/* ── Step 3: Timing ───────────────────────────────────── */}
-          {step === 'timing' && (
+          {/* ── Step 3: Preview ──────────────────────────────────── */}
+          {step === 'preview' && (
             <div className="spinner-wizard-section">
               <div className="scene-field-group-head">Timing</div>
               <DragNumberField label="spin speed c/s" value={timing.spinSpeed} step={0.5} min={1}
@@ -1264,17 +1539,81 @@ export function SpinnerWizard({
                     onChange={(v) => patchBlur({ vHi: Math.max(0, v) })} />
                 </>
               )}
-            </div>
-          )}
 
-          {/* ── Step 4: Review ───────────────────────────────────── */}
-          {step === 'review' && (
-            <div className="spinner-wizard-section">
-              <div className="scene-field-group-head">Initial Board</div>
+              <div className="scene-field-group-head">
+                Result
+                <span className="scene-pill">sets the board below + the preview ↑</span>
+              </div>
+              <div className="spinner-wizard-auto-row">
+                <select
+                  value={testOutcome}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setTestOutcome(next);
+                    setTestReroll(0);
+                    applyOutcomeBoard(next, 0);
+                  }}
+                  disabled={validSymbols.length < 2}
+                  title="Picking a result generates a board for that outcome and shows it immediately, below and in the live preview"
+                >
+                  {SPIN_OUTCOME_LABELS.map((o) => (
+                    <option
+                      key={o.value}
+                      value={o.value}
+                      disabled={o.value === 'wildWin' && !(previewSpinnerConfig && classifySymbols(previewSpinnerConfig).wildId)}
+                    >
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                {testOutcome !== 'default' && (
+                  <button
+                    type="button"
+                    className="scene-btn scene-btn--sm scene-btn--ghost"
+                    title="Re-seed within the same threshold — same category, different board"
+                    onClick={() => {
+                      const next = testReroll + 1;
+                      setTestReroll(next);
+                      applyOutcomeBoard(testOutcome, next);
+                    }}
+                    disabled={validSymbols.length < 2}
+                  >
+                    🎲 Re-roll
+                  </button>
+                )}
+              </div>
+
+              {embedded && testRun && (
+                <>
+                  <div className="scene-field-group-head" style={{ marginTop: 12 }}>
+                    Spin Preview
+                    <span className="scene-pill">autoplay + scrub</span>
+                  </div>
+                  <SpinnerPreviewTimeline run={testRun} time={previewTime} onScrub={scrubPreview} />
+                  <div className="spinner-wizard-auto-row" style={{ marginTop: 4 }}>
+                    <button
+                      type="button"
+                      className="scene-btn scene-btn--ghost"
+                      onClick={() => setPreviewPlaying((p) => !p)}
+                    >
+                      {previewPlaying ? '⏸ pause' : '▶ play'}
+                    </button>
+                    <button type="button" className="scene-btn scene-btn--ghost" onClick={resetPreview}>⏮ reset</button>
+                    <span className="scene-spinner-meta" style={{ marginLeft: 'auto' }}>
+                      {previewTime.toFixed(2)} / {Math.max(0, testRun.total).toFixed(2)}s
+                    </span>
+                  </div>
+                </>
+              )}
+
+              <div className="scene-field-group-head" style={{ marginTop: 12 }}>Initial Board</div>
               {validSymbols.length >= 2 ? (
                 <>
                   <BoardGridEditor config={previewConfig} board={initialBoard} onChange={setInitialBoard} />
-                  <div className="scene-spinner-meta">Shown before the first startSpin clip.</div>
+                  <div className="scene-spinner-meta">
+                    Shown before the first startSpin clip. Editing a cell by hand overrides the Result
+                    above — it won't re-sync unless you pick a Result (or re-roll) again.
+                  </div>
                 </>
               ) : (
                 <div className="scene-spinner-meta" style={{ color: 'var(--err, #f88)' }}>
@@ -1282,53 +1621,17 @@ export function SpinnerWizard({
                 </div>
               )}
               {embedded && (
-                <>
-                  <div className="scene-field-group-head" style={{ marginTop: 12 }}>
-                    Test spin
-                    <span className="scene-pill">plays in the scene view ↑</span>
-                  </div>
-                  <div className="spinner-wizard-auto-row">
-                    <button
-                      type="button"
-                      className="scene-btn scene-btn--primary"
-                      onClick={runTestSpin}
-                      disabled={validSymbols.length < 2}
-                      title={`startSpin → spin (${(timing.minSpinTime ?? 1)}s) → stopSpin, using the current timing`}
-                    >
-                      🎰 test spin ({(timing.minSpinTime ?? 1)}s)
-                    </button>
-                    <button type="button" className="scene-btn scene-btn--ghost" onClick={resetPreview} disabled={!testRun}>
-                      ↺ reset
-                    </button>
-                  </div>
-                  <div className="spinner-wizard-auto-row">
-                    <select
-                      value={testOutcome}
-                      onChange={(e) => setTestOutcome(e.target.value)}
-                      title="Result threshold for the next test spin (T12) — same seeded-outcome path as the director node / timeline clip"
-                    >
-                      {SPIN_OUTCOME_LABELS.map((o) => (
-                        <option
-                          key={o.value}
-                          value={o.value}
-                          disabled={o.value === 'wildWin' && !(previewSpinnerConfig && classifySymbols(previewSpinnerConfig).wildId)}
-                        >
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                    {testOutcome !== 'default' && (
-                      <button
-                        type="button"
-                        className="scene-btn scene-btn--sm scene-btn--ghost"
-                        title="Re-seed within the same threshold — same category, different board"
-                        onClick={() => setTestReroll((n) => n + 1)}
-                      >
-                        🎲 Re-roll
-                      </button>
-                    )}
-                  </div>
-                </>
+                <div className="spinner-wizard-auto-row" style={{ marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="scene-btn scene-btn--primary"
+                    onClick={runTestSpin}
+                    disabled={validSymbols.length < 2}
+                    title={`startSpin → spin (${(timing.minSpinTime ?? 1)}s) → stopSpin, landing on the board above exactly`}
+                  >
+                    🎰 rerun spin ({(timing.minSpinTime ?? 1)}s)
+                  </button>
+                </div>
               )}
 
               <div className="scene-field-group-head" style={{ marginTop: 12 }}>Summary</div>
@@ -1349,7 +1652,7 @@ export function SpinnerWizard({
               onClick={() => goToStep(STEPS[stepIdx - 1])}>← back</button>
           )}
           <div style={{ flex: 1 }} />
-          {step !== 'review' ? (
+          {step !== 'preview' ? (
             <button type="button" className="scene-btn scene-btn--primary"
               disabled={!canNext}
               onClick={() => goToStep(STEPS[stepIdx + 1])}>
