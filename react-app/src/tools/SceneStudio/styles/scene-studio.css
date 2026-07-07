@@ -3545,3 +3545,79 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 }
 /* Vertical layout: the step row wraps; rows stack to fit the column width. */
 .spinner-wizard--embedded .spinner-wizard-steps { flex-wrap: wrap; }
+
+/* ── Type-coloured object / timeline naming ─────────────────────────────────
+   Shared by the hierarchy, the animate-mode track labels, and the direct-mode
+   scenario nodes + timeline list. See engine/objectColors.js. The glow (subtle
+   text-shadow) is intentionally present in every mode — setup, animate, direct.
+   Colours are set on the element so they cascade to icons sitting next to the
+   name too (.scene-layer-type-icon inherits currentColor for emoji is a no-op,
+   but the row stays legible). */
+.ss-kind-spine   { color: var(--ss-k-spine, #ff6b35);  text-shadow: 0 0 6px rgba(255,107,53,0.35); }
+.ss-kind-static  { color: var(--ss-k-static, #4ecb71); text-shadow: 0 0 6px rgba(78,203,113,0.28); }
+.ss-kind-win     { color: var(--ss-k-win, #ffcf40);    text-shadow: 0 0 7px rgba(255,207,64,0.45); }
+.ss-kind-group   { color: var(--text-2, #8a93a6); }
+/* Direct-mode timeline hues: hand-authored vs generated-but-untyped. */
+.ss-kind-user      { color: var(--ss-k-user, #6bd3ff);  text-shadow: 0 0 6px rgba(107,211,255,0.32); }
+.ss-kind-setup     { color: var(--ss-k-setup, #b58bff); text-shadow: 0 0 6px rgba(181,139,255,0.30); }
+.ss-kind-generated { color: var(--text-1, #9aa3b2); }
+/* Spinner: white bold; the per-letter colour cycle is applied inline by
+   SpinnerName. The whole label pulses a faint white glow so it reads "live". */
+.ss-kind-spinner {
+  color: #ffffff; font-weight: 700; letter-spacing: 0.02em;
+  text-shadow: 0 0 6px rgba(255,255,255,0.35);
+}
+.ss-spin-letter { transition: color 0.18s ease, text-shadow 0.18s ease; }
+
+/* Hierarchy: every real object name is bold; only plain grouping folders
+   (📁 empties → ss-kind-group) stay regular weight. */
+.scene-layer-name { font-weight: 600; }
+.scene-layer-name.ss-kind-group { font-weight: 400; }
+
+/* Win-glow scaling — the caller sets --win-glow (0..1) from the tier. Bigger
+   win → brighter, wider gold halo. Applied to timeline names + scenario nodes. */
+.ss-win-glow {
+  text-shadow:
+    0 0 calc(4px + 10px * var(--win-glow, 0.5)) rgba(255,207,64, calc(0.35 + 0.55 * var(--win-glow, 0.5))),
+    0 0 calc(2px + 4px  * var(--win-glow, 0.5)) rgba(255,236,150, calc(0.30 + 0.5  * var(--win-glow, 0.5)));
+}
+/* Big wins (big+ tier) get a slow shimmer on top of the static halo. */
+.ss-win-glow.is-big-win { animation: ss-win-shine 1.8s ease-in-out infinite; }
+@keyframes ss-win-shine {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.35); }
+}
+
+/* Scenario nodes tinted by their timeline's origin kind. The border + a soft
+   halo carry the colour so the box reads at a glance on the dark canvas. */
+.ss-node--kind-spine   { border-color: var(--ss-k-spine, #ff6b35);  box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 10px rgba(255,107,53,0.28); }
+.ss-node--kind-static  { border-color: var(--ss-k-static, #4ecb71); box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 10px rgba(78,203,113,0.22); }
+.ss-node--kind-spinner { border-color: #d7dbe6; box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 10px rgba(255,255,255,0.22); }
+.ss-node--kind-user    { border-color: var(--ss-k-user, #6bd3ff);  box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 10px rgba(107,211,255,0.22); }
+.ss-node--kind-setup   { border-color: var(--ss-k-setup, #b58bff); box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 10px rgba(181,139,255,0.22); }
+/* Win nodes: gold border + tier-scaled halo (bigger win = larger glow). */
+.ss-node--kind-win {
+  border-color: var(--ss-k-win, #ffcf40);
+  box-shadow:
+    0 2px 6px rgba(0,0,0,0.35),
+    0 0 calc(8px + 22px * var(--win-glow, 0.5)) rgba(255,207,64, calc(0.30 + 0.5 * var(--win-glow, 0.5)));
+}
+.ss-node--kind-win.is-big-win { animation: ss-win-node-shine 1.8s ease-in-out infinite; }
+@keyframes ss-win-node-shine {
+  0%, 100% { box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 calc(8px + 22px * var(--win-glow,0.5)) rgba(255,207,64, calc(0.30 + 0.5 * var(--win-glow,0.5))); }
+  50%      { box-shadow: 0 2px 6px rgba(0,0,0,0.35), 0 0 calc(14px + 30px * var(--win-glow,0.5)) rgba(255,236,150, calc(0.45 + 0.5 * var(--win-glow,0.5))); }
+}
+/* The is-selected / is-playing states already set their own box-shadow later in
+   the cascade, so selection still visibly wins over the kind halo. Kill the
+   shine animation in those states so the selection/playback ring reads clearly
+   (an animated box-shadow would otherwise override the static state ring). */
+.ss-node--kind-win.is-big-win.is-selected,
+.ss-node--kind-win.is-big-win.is-playing { animation: none; }
+
+/* Timeline-list dot tinted by kind (win uses the tier glow variable). */
+.ss-tl-dot.ss-kind-spine   { background: var(--ss-k-spine, #ff6b35); }
+.ss-tl-dot.ss-kind-static  { background: var(--ss-k-static, #4ecb71); }
+.ss-tl-dot.ss-kind-win     { background: var(--ss-k-win, #ffcf40); box-shadow: 0 0 calc(3px + 6px * var(--win-glow,0.5)) rgba(255,207,64,0.8); }
+.ss-tl-dot.ss-kind-spinner { background: #ffffff; }
+.ss-tl-dot.ss-kind-user    { background: var(--ss-k-user, #6bd3ff); }
+.ss-tl-dot.ss-kind-setup   { background: var(--ss-k-setup, #b58bff); }

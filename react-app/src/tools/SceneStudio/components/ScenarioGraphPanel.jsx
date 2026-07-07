@@ -21,6 +21,8 @@ import {
   SCENARIO_NODE_H
 } from '../engine/scenarioModel.js';
 import { sampleScenario } from '../engine/scenarioTimeline.js';
+import { kindClass } from '../engine/objectColors.js';
+import { SpinnerName } from './SpinnerName.jsx';
 import { TIMELINE_REF_MIME } from './ScenarioTimelineList.jsx';
 
 // Node geometry (graph units) — shared with the model (chained placement) so
@@ -488,10 +490,18 @@ function ScenarioScrubber({ timeline, time, onScrub, activeNodeId = null, playin
 
 /** One node box (HTML, crisp text). Positions in graph space; the world layer scales. */
 function ScenarioNodeBox({ node, project, selected, current, playing, progress = 0, onStartDrag, onStartLink, onRemove }) {
+  // Resolve the bound timeline first so its origin kind can tint the node.
+  const ref = node.type === 'timeline'
+    ? resolveTimelineRef(project, node.sceneId, node.timelineId)
+    : null;
+  const isWin = ref?.colorKind === 'win';
   const cls = `ss-node ss-node--${node.type}`
+    + (ref ? ` ss-node--kind-${ref.colorKind}` : '')
+    + (isWin && ref.bigWin ? ' is-big-win' : '')
     + (selected ? ' is-selected' : '')
     + (current && node.type === 'timeline' ? ' is-playing' : '');
   const style = { left: node.x, top: node.y, width: nodeWidth(node) };
+  if (isWin) style['--win-glow'] = ref.winGlow;
   // Grow the node tall enough to fit all output pins down its right edge.
   if (node.type === 'timeline') {
     const pinCount = (node.outputs || []).length || 1;
@@ -502,10 +512,14 @@ function ScenarioNodeBox({ node, project, selected, current, playing, progress =
   if (node.type === 'start') body = <div className="ss-node-title">▶ Start</div>;
   else if (node.type === 'end') body = <div className="ss-node-title">■ End</div>;
   else {
-    const ref = resolveTimelineRef(project, node.sceneId, node.timelineId);
+    const titleText = node.label || ref?.timelineDisplayName || ref?.timelineName || 'timeline';
+    const titleCls = 'ss-node-title ' + kindClass(ref?.colorKind)
+      + (isWin ? ' ss-win-glow' + (ref.bigWin ? ' is-big-win' : '') : '');
     body = (
       <>
-        <div className="ss-node-title">{node.label || ref?.timelineDisplayName || ref?.timelineName || 'timeline'}</div>
+        {ref?.colorKind === 'spinner'
+          ? <div className="ss-node-title"><SpinnerName name={titleText} /></div>
+          : <div className={titleCls}>{titleText}</div>}
         {ref ? (
           <div className="ss-node-meta">{ref.sceneName} · {ref.trackCount} trk · {Math.round(ref.duration * 10) / 10}s</div>
         ) : (

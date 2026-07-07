@@ -3,7 +3,7 @@ type: design
 tool: Spinner
 category: 🎬 Scene Studio
 status: shipped
-updated: 2026-07-04
+updated: 2026-07-07
 source: react-app/SPINNER.md
 tags: [design, scene-studio, spinner, slot]
 ---
@@ -13,6 +13,14 @@ tags: [design, scene-studio, spinner, slot]
 > [!info] Canonical source
 > Full design + milestone status: [`react-app/SPINNER.md`](../../react-app/SPINNER.md).
 > Unity-export work is logged across [[Spinner Unity Phase 2]] → [[Spinner Unity Phase 5]].
+
+> [!note] Latest (2026-07-07)
+> Wizard round: land/win preview cells render the real Spine pose + an anim-clip
+> dropdown; pose baking moved to an isolated renderer (fixed scene-graph
+> corruption + preview blanking); win anims play once & hold; idle/blur falls
+> back to the win first frame; "Spin!" step auto-spins on entry, reroll re-arms
+> the spin, default outcome = big win; "render blurs and continue" primary
+> button. See [[Session 2026-07-07 Scene Studio Spinner Wizard Preview Overhaul]].
 
 Deterministic slot-machine **Spinner** object inside [[Scene Studio]]. Replaced the
 retired standalone Slot Machine tool (`?tool=slotmachine` soft-redirects to Scene

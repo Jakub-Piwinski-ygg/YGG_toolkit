@@ -10,6 +10,8 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { buildLayerTree, layerTypeIcon } from '../engine/sceneModel.js';
+import { assetColorKind, kindClass } from '../engine/objectColors.js';
+import { SpinnerName } from './SpinnerName.jsx';
 import { EyeOpen, EyeClosed } from './EyeIcons.jsx';
 
 // Indentation + tree guide lines are structural (nested <ul> margin + a dotted
@@ -23,7 +25,6 @@ export function HierarchyPanel({
   alphaForLayer, // (layerId) → displayed alpha 0..1 (drives the eye icon)
   // eslint-disable-next-line no-unused-vars -- re-render triggers as playhead / mode change so the eye reflects live alpha
   flowTime,
-  // eslint-disable-next-line no-unused-vars
   studioMode,
   onRemove,
   onReorder, // (draggedId, targetId, mode) — mode: 'above' | 'below' | 'inside' | 'canvasRoot'
@@ -134,6 +135,7 @@ export function HierarchyPanel({
                 {renderNodes(roots, {
                   scene,
                   assetsById,
+                  studioMode,
                   selectedLayerId,
                   dragId,
                   dropTarget,
@@ -215,7 +217,17 @@ function renderNodes(nodes, ctx, ancestorHidden = false) {
           <span className="scene-layer-type-icon" title={ctx.assetsById.get(layer.assetId)?.type || 'object'}>
             {layerTypeIcon(ctx.assetsById.get(layer.assetId))}
           </span>
-          <span className="scene-layer-name">{layer.name}</span>
+          {(() => {
+            const kind = assetColorKind(ctx.assetsById.get(layer.assetId));
+            if (kind === 'spinner') {
+              // In setup mode the name only animates while the object is
+              // selected; in animate / direct it always cycles.
+              const isSelected = layer.id === ctx.selectedLayerId;
+              const animate = ctx.studioMode !== 'setup' || isSelected;
+              return <SpinnerName name={layer.name} className="scene-layer-name" animate={animate} />;
+            }
+            return <span className={'scene-layer-name ' + kindClass(kind)}>{layer.name}</span>;
+          })()}
           {layer.locked ? (
             <span className="scene-icon-btn scene-layer-lock" title="Locked to its parent — removed with it">🔒</span>
           ) : (

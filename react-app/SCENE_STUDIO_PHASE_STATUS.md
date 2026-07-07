@@ -1,4 +1,84 @@
-# Scene Studio — status po sesji (2026-07-03)
+# Scene Studio — status po sesji (2026-07-07)
+
+## Spinner Wizard — podgląd póz, autospin, izolowany bake i renderowanie blurów (2026-07-07)
+
+Sesja skupiona wyłącznie na kreatorze Spinnera (`SpinnerWizard`) — UX + naprawa
+korupcji sceny przy bakowaniu póz Spine. Wszystko zbudowane (`npm run build` OK);
+`spinnerEval` 56/57 jak w bazie (jedyny fail „grid schema: blur sigma/feather"
+jest wcześniejszy i niezwiązany), prefab spinner 5/5.
+
+- **Fałszywe symbole z animacji — naprawione ✅.** Gdy nie wykryto struktury
+  folderu `*Symbols`, `animSearchPool` sięgał po CAŁY pool spine'ów, a
+  `autoFillFromAnimations` robił symbol z każdego rigu mającego animację
+  „win"/„land" — łapało `win_sequence`, `win_counter_multiplier` itd. Nowy filtr
+  `looksLikeSymbolSpine` (nazwa pliku lub segment ścieżki zawiera „symbol")
+  ogranicza fallback tylko do rigów wyglądających jak symbole. Ręczne dropdowny
+  land/win nadal pokazują wszystkie spine'y. Plik: `components/SpinnerWizard.jsx`.
+
+- **Panele-karty per symbol ✅.** `.spinner-sym-entry` dostał obramowanie/tło/
+  padding/zaokrąglenie — widać, gdzie zaczyna i kończy się konfiguracja jednego
+  symbolu. Plik: `styles/scene-studio.css`.
+
+- **Miniatury póz land/win zamiast zielonego tekstu ✅.** `AnimBadge` zastąpiony
+  `AnimPoseThumb` — renderuje faktyczną pozę Spine (land = pierwsza klatka,
+  win = klatka środkowa przez `atFraction`); fallback do nazwy/`?`/`✕`.
+
+- **Dropdown animacji ✅.** Pole tekstowe nazwy klipu zastąpione `AnimNamePicker`
+  — lista realnych animacji ze szkieletu (`spineAnimsById`, parsowane z .json);
+  fallback do pola tekstowego, gdy .json nieczytelny.
+
+- **Izolowany renderer do bakowania póz — naprawa korupcji sceny ✅.** Bakowanie
+  póz przez WSPÓŁDZIELONY `app.renderer` (generateTexture + destroy) psuło graf
+  sceny — system zaznaczenia/hover chodził po zniszczonych kontenerach i rzucał
+  `this._position is null` na każdym ruchu myszy, a miniatury utykały na „…".
+  Wprowadzony dedykowany, izolowany `autoDetectRenderer` (`poseBakeRendererRef`)
+  + serializująca kolejka (`poseBakeQueueRef`) + `ensurePoseBakeRenderer()`.
+  `renderSpinePosePng`/`bakeSpinePosePng` budują własną, jednoasetową scenę z
+  przekazanego deskryptora spine + `projectRoot`, więc działają niezależnie od
+  tego, co jest na ekranie (np. <2 symbole → brak sceny podglądu). Callback
+  `handleRenderSpinePose` ustabilizowany `useCallback`, by efekt miniatur nie
+  restartował się co render. Pliki: `components/PixiViewport.jsx`,
+  `SceneStudioInner.jsx`, `components/SpinnerWizard.jsx`.
+
+- **Idle/blur z pierwszej klatki WIN, gdy brak land ✅.** Wspólny
+  `pickPoseAnimConf` (`engine/spinner/spinnerModel.js`) — land preferowany TYLKO
+  gdy ma rozwiązaną nazwę klipu; inaczej pierwsza klatka win. Używany zarówno
+  przez generację blurów w kreatorze, jak i przez runtime'owy bake idle-pozy
+  (`spinnerRuntime.js`). Wcześniej rig z land-spine bez nazwy klipu blokował
+  fallback i blur się nie generował.
+
+- **Animacja WIN gra RAZ i trzyma ostatnią pozę ✅.** Domyślne `loop=true`
+  powodowało, że przy oknie present-win dłuższym niż klip `setTrackTime` zawijał
+  i klip grał ponownie. `effectiveAnimLoop(animConf, isWin)` — win zawsze
+  `loop=false` (klamp na ostatniej klatce), land zachowuje flagę. Spójnie w kluczu
+  puli overlayów, mapie długości i lookupie per-klatka (`spinnerRuntime.js`) oraz
+  w eksporcie Unity (`exportUnityPackage.js` — `animOf`).
+
+- **Krok „Spin!" (dawniej „Preview") — przebudowa ✅.**
+  - zakładka `3. Preview` → `3. Spin!`;
+  - **autospin przy wejściu** (pierwszym i każdym kolejnym) — stary efekt
+    wymagał, by spin JUŻ trwał (`if (!testRun) return`), więc świeży kreator
+    nigdy nie ruszał; nowy `prevStepRef` + `wantAutoSpinRef` odpala spin, gdy
+    tylko `previewSpinnerConfig` jest gotowy;
+  - **reroll/zmiana wyniku od razu spinuje** — `applyOutcomeBoard` zamiast
+    `setTestRun(null)` ustawia `wantAutoSpinRef`, więc timeline odbudowuje się i
+    gra sam;
+  - przycisk **„rerun spin" po LEWEJ** od play/reset; sekcja **Result**
+    przeniesiona POD timeline; timeline zawsze widoczny w tym kroku;
+  - **domyślny wynik = big win** (`testOutcome` init `bigWin`; pierwsze wejście
+    generuje planszę big-win).
+
+- **Ukrycie pustej miniatury „static" dla symboli animacyjnych ✅** — miniatura
+  static renderowana tylko gdy `sym.assetId` istnieje.
+
+- **Krok Symbols: „⚡ render blurs and continue" jako przycisk podstawowy ✅.**
+  Gdy brakuje blurów, to on (zamiast „next →") jest przyciskiem podstawowym:
+  renderuje brakujące blury (static + anim-only pozy) **zostając na stronie
+  Symbols** (pasek postępu + podgląd maszyny zostają), po czym przechodzi do
+  Grid. Zwykłe „next →" wraca dopiero, gdy wszystkie symbole mają dopasowany
+  blur; pominięcie generacji = zakładki na górze kreatora. Finalny
+  „＋ create spinner" zablokowany (`⏳ rendering blurs…`) dopóki
+  `blurGenerating || finalizingBlurs`.
 
 ## Direct QoL round 2 (2026-07-04) — plan w `SCENE_STUDIO_QOL_PLAN.md`
 

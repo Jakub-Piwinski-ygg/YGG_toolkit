@@ -176,6 +176,33 @@
 > `https?:` as directly-loadable, same as `data:`. New `engine/persist.test.mjs`
 > (3 tests) covers it.
 
+> **2026-07-07 (wizard: pose previews, Spin! step, isolated pose-bake) — SHIPPED.**
+> ① Land/win preview cells now render the ACTUAL Spine pose (land = first frame,
+> win = mid-clip) via `AnimPoseThumb`, and the anim-name field is a dropdown of
+> the rig's real clips (`AnimNamePicker` + `spineAnimsById`), not free text.
+> ② Pose baking moved OFF the live renderer onto a dedicated isolated
+> `autoDetectRenderer` (`PixiViewport` `poseBakeRendererRef` + serialized
+> `poseBakeQueueRef` + `ensurePoseBakeRenderer`); baking through the on-screen
+> renderer had corrupted the scene graph (`this._position is null` on hover) and
+> blanked the machine preview mid blur-gen. `render/bakeSpinePosePng` now take a
+> spine descriptor + `projectRoot` and build a throwaway one-asset scene, so they
+> work regardless of the on-screen scene. ③ Idle/blur pose falls back to the
+> WIN clip's first frame when there's no usable land anim (shared
+> `pickPoseAnimConf`, used by wizard + runtime). ④ Win symbol anims now play
+> ONCE and hold the final pose (`effectiveAnimLoop`, win→loop=false) — web
+> runtime + Unity export parity. ⑤ Anim-only symbol auto-detect no longer
+> over-matches: the no-structure fallback only takes spines whose name/path says
+> "symbol" (`looksLikeSymbolSpine`), so `win_sequence` / `win_counter_multiplier`
+> stop being pulled in. ⑥ "Preview" step renamed **Spin!**: auto-spins on entry
+> (first + every re-entry), reroll/outcome-change re-arm the spin automatically,
+> "rerun spin" sits left of the transport, Result moved below the timeline,
+> default outcome = **big win**. ⑦ Symbols step: **"⚡ render blurs and continue"**
+> is the primary button while any blur is missing — it renders (staying on the
+> page) then advances; plain "next →" returns once all blurs match; final
+> "create spinner" is gated until blur-gen settles. Per-symbol settings are now
+> card panels and the empty "static" thumbnail is hidden for animation-only
+> symbols.
+
 Deterministic slot-machine reel object for Scene Studio ("pixie engine"), replacing
 the old `SlotMachineTool` art tool. Cross-target by design: the core model is a pure
 JSON spec + evaluator with **zero rendering dependencies**, rendered first by Pixi

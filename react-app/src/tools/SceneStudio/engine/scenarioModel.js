@@ -18,6 +18,7 @@
 
 import { uid } from './sceneModel.js';
 import { SPIN_OUTCOMES, normalizeSpinnerConfig, classifySymbols } from './spinner/spinnerModel.js';
+import { timelineColorKind, winGlowStrength, isBigWinTier } from './objectColors.js';
 
 export { SPIN_OUTCOMES };
 
@@ -653,6 +654,7 @@ export function listProjectTimelines(project) {
     if (!data) continue;
     for (const tl of data.timelines || []) {
       const icon = iconFor(tl);
+      const { kind: colorKind, winTier } = timelineColorKind(tl);
       out.push({
         sceneId: s.id,
         sceneName: s.name || data.name || 'Scene',
@@ -662,7 +664,12 @@ export function listProjectTimelines(project) {
         timelineDisplayName: icon ? `${icon} ${tl.name || 'Timeline'}` : (tl.name || 'Timeline'),
         trackCount: (tl.tracks || []).length,
         clipCount: (tl.tracks || []).reduce((sum, t) => sum + (t.clips?.length || 0), 0),
-        duration: timelineDuration(tl)
+        duration: timelineDuration(tl),
+        // Type-colour metadata for the direct-mode UI (list rows + graph nodes).
+        colorKind,
+        winTier,
+        winGlow: colorKind === 'win' ? winGlowStrength(winTier) : 0,
+        bigWin: colorKind === 'win' && isBigWinTier(winTier)
       });
     }
   }

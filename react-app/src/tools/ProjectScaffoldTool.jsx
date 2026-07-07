@@ -12,7 +12,7 @@ export const projectScaffoldMeta = {
   needsFiles: false,
   fullBleed: true,
   hideOutput: true,
-  desc: 'Design a new slot project as an editable folder tree. Add elements from the palette, expand any folder to nest more subfolders, and tick which leaf folders are required. The scaffold is emitted in the Unity delivery layout — every feature is split across _Game (runtime art), _Source (working files) and _Previews — so it matches what the Asset Checker exports. Download the empty-folder scaffold ZIP, or just the config JSON for reuse.'
+  desc: 'Design a new slot project as an editable folder tree. Add elements from the palette, expand any folder to nest more subfolders, and tick which leaf folders are required. The scaffold is emitted in the Unity delivery layout — every feature is split across _Game_Export (runtime art), _Source (working files) and _Previews — so it matches what the Asset Checker exports. Download the empty-folder scaffold ZIP, or just the config JSON for reuse.'
 };
 
 // ── catalogue ───────────────────────────────────────────────────────────────
@@ -63,14 +63,14 @@ const PRESET_DEFS = {
 // NOTE: preview is NOT here — it's a per-folder toggle (see node.preview) routed
 // into _Previews/, on for top-level elements and off for nested ones by default.
 const ART_SUB_META = [
-  { path: 'Export/Animation',        bucket: '_Game',   suffix: 'Animations',       rule: 'spineAtLeastOne', def: true, source: false },
-  { path: 'Export/StaticArt',        bucket: '_Game',   suffix: 'StaticArt',        rule: 'pngAtLeastOne',   def: true, source: false },
-  { path: 'Source/AnimationSources', bucket: '_Source', suffix: 'AnimationSources', rule: 'anyFile',         def: true, source: true },
-  { path: 'Source/StaticArt',        bucket: '_Source', suffix: 'StaticArt',        rule: 'anyFile',         def: true, source: true }
+  { path: 'Export/Animation',        bucket: '_Game_Export', suffix: 'Animations',       rule: 'spineAtLeastOne', def: true, source: false },
+  { path: 'Export/StaticArt',        bucket: '_Game_Export', suffix: 'StaticArt',        rule: 'pngAtLeastOne',   def: true, source: false },
+  { path: 'Source/AnimationSources', bucket: '_Source',      suffix: 'AnimationSources', rule: 'anyFile',         def: true, source: true },
+  { path: 'Source/StaticArt',        bucket: '_Source',      suffix: 'StaticArt',        rule: 'anyFile',         def: true, source: true }
 ];
 
 const PREVIEW_BUCKET = '_Previews';
-const GAME_BUCKET = '_Game';
+const GAME_BUCKET = '_Game_Export';
 const PREVIEW_RULE = 'landscapeAndPortraitPng';
 
 const RULE_DESC = {
@@ -111,6 +111,7 @@ function makeNode(name, opts = {}) {
     autoArt: opts.autoArt !== false,
     leafKind: opts.leafKind || null,
     fontVariant: !!opts.fontVariant,
+    template: !!opts.template, // top-level template element → forced `00_` prefix
     preview: !!opts.preview, // a `preview/` subfolder on THIS node (main preview)
     artSubs: defaultArtSubs(),
     children: (opts.children || []).map((c) =>
@@ -135,8 +136,25 @@ function makePreset(name, source) {
   });
 }
 
+// The reusable template element — a standard leaf (Export/Source art subs +
+// preview) forced to the `00_` prefix so it always sorts first as the copy-me
+// blueprint for a new feature folder.
+function makeTemplateNode(source = 'base') {
+  return makeNode('Template', { source, template: true, preview: true });
+}
+
 function defaultTree() {
-  return BASE_ELEMENTS.map((name) => makePreset(name, 'base'));
+  return [makeTemplateNode('base'), ...BASE_ELEMENTS.map((name) => makePreset(name, 'base'))];
+}
+
+// Display name for a top-level node. The template is pinned to `00_`; every
+// other top-level element is numbered by its position among NON-template
+// siblings, so the template never consumes an index slot.
+function topLevelName(node, tree, index) {
+  if (node.template) return `00_${node.name}`;
+  let seq = 0;
+  for (let i = 0; i <= index && i < tree.length; i++) if (!tree[i].template) seq++;
+  return `${pad2(seq)}_${node.name}`;
 }
 
 // Immutable tree operations -------------------------------------------------
@@ -179,13 +197,13 @@ function topLevelHasName(nodes, name) {
 // Walk the tree → flat list of { relPath, rule } leaves in the Unity delivery
 // layout. Each leaf carries its FULL feature path (NN_ numbering on top-level +
 // every nesting level) so a nested feature like 08_Intro_Outro/Free_Spins_Intro_Outro
-// keeps its parents — it is routed to _Game/08_Intro_Outro/Free_Spins_Intro_Outro/…,
-// never collapsed into a bare _Game/ bucket. relPath starts with a bucket
-// (_Game / _Source / _Previews) and keeps a trailing slash.
+// keeps its parents — it is routed to _Game_Export/08_Intro_Outro/Free_Spins_Intro_Outro/…,
+// never collapsed into a bare _Game_Export/ bucket. relPath starts with a bucket
+// (_Game_Export / _Source / _Previews) and keeps a trailing slash.
 function walkTree(tree) {
   const out = [];
   const visit = (node, featureRel, autoInherited, depth, index) => {
-    const name = depth === 0 ? `${pad2(index + 1)}_${node.name}` : node.name;
+    const name = depth === 0 ? topLevelName(node, tree, index) : node.name;
     const feature = featureRel ? `${featureRel}/${name}` : name;
     const eff = autoInherited && node.autoArt !== false;
     const before = out.length;
@@ -203,11 +221,11 @@ function walkTree(tree) {
       ART_SUB_META.filter((s) => node.artSubs?.[s.path]).forEach((s) =>
         out.push({ relPath: `${s.bucket}/${feature}/${s.suffix}/`, rule: s.rule }));
     } else {
-      // Plain leaf folder (fonts variant child, png glyph folder, etc.) → _Game/.
+      // Plain leaf folder (fonts variant child, png glyph folder, etc.) → _Game_Export/.
       out.push({ relPath: `${GAME_BUCKET}/${feature}/`, rule: node.leafKind === 'png' ? 'pngAtLeastOne' : 'anyFile' });
     }
 
-    // Nothing emitted (leaf with no art subs and no preview) → bare _Game folder.
+    // Nothing emitted (leaf with no art subs and no preview) → bare _Game_Export folder.
     if (out.length === before) out.push({ relPath: `${GAME_BUCKET}/${feature}/`, rule: 'anyFile' });
   };
   tree.forEach((n, i) => visit(n, '', true, 0, i));
@@ -231,6 +249,7 @@ function serializeNode(n) {
     autoArt: n.autoArt,
     leafKind: n.leafKind,
     fontVariant: n.fontVariant,
+    template: n.template,
     preview: n.preview,
     artSubs: n.artSubs,
     children: (n.children || []).map(serializeNode)
@@ -245,6 +264,7 @@ function deserializeNode(o) {
     autoArt: o.autoArt !== false,
     leafKind: o.leafKind || null,
     fontVariant: !!o.fontVariant,
+    template: !!o.template,
     preview: !!o.preview,
     artSubs: { ...defaultArtSubs(), ...(o.artSubs || {}) },
     children: (o.children || []).map(deserializeNode)
@@ -294,7 +314,7 @@ function configToTree(cfg) {
 
 // ── scaffold zip builder ──────────────────────────────────────────────────────
 
-// One scaffold, one layout: <project>/{_Game,_Source,_Previews}/… plus the
+// One scaffold, one layout: <project>/{_Game_Export,_Source,_Previews}/… plus the
 // .ygg-scaffold.json config at the project root. Empty folders are stored as
 // plain ZIP entries (or seeded with a .gitkeep when requested).
 async function buildScaffoldZip(state) {
@@ -324,7 +344,7 @@ function triggerBlobDownload(blob, filename) {
 
 // ── tree row UI ───────────────────────────────────────────────────────────────
 
-function TreeRow({ node, depth, index, autoInherited, underFont, ops }) {
+function TreeRow({ node, depth, index, autoInherited, underFont, topName, ops }) {
   const eff = autoInherited && node.autoArt !== false;
   const isFont = underFont || node.fontVariant;
   const hasChildren = !!(node.children && node.children.length);
@@ -336,7 +356,7 @@ function TreeRow({ node, depth, index, autoInherited, underFont, ops }) {
   // What sits "inside" this node: child nodes, or (for an auto leaf) art subs.
   const expandable = hasChildren || (isLeaf && eff) || true; // every node can host an add-row
 
-  const displayName = depth === 0 ? `${pad2(index + 1)}_${node.name}` : node.name;
+  const displayName = depth === 0 ? topName : node.name;
 
   return (
     <div className="ps-tnode" style={{ marginLeft: depth === 0 ? 0 : 14 }}>
@@ -372,6 +392,7 @@ function TreeRow({ node, depth, index, autoInherited, underFont, ops }) {
           </span>
         )}
 
+        {node.template && <span className="ps-badge ps-badge-template">template</span>}
         {node.fontVariant && <span className="ps-badge ps-badge-font">fonts</span>}
         {isLeaf && !eff && !node.fontVariant && (
           <span className="ps-badge">{node.leafKind === 'png' ? 'png folder' : 'folder'}</span>
@@ -487,6 +508,12 @@ export function ProjectScaffoldTool() {
     if (!slug) return;
     if (topLevelHasName(tree, slug)) { log(`"${slug}" is already a top-level element.`, 'err'); return; }
     setTree((t) => [...t, makePreset(/* preserve preset casing */ name, source)]);
+  };
+
+  // Add the reusable 00_Template blueprint — pinned to the top of the tree.
+  const addTemplate = () => {
+    if (topLevelHasName(tree, 'Template')) { log('00_Template is already in the tree.', 'err'); return; }
+    setTree((t) => [makeTemplateNode('base'), ...t]);
   };
 
   // Add a grouped common element: ensure its shared parent group exists, then
@@ -670,13 +697,24 @@ export function ProjectScaffoldTool() {
         <div className="field">
           <label>Layout</label>
           <div className="ps-inline-check" style={{ cursor: 'default' }}>
-            <span><code>{slugify(projectName) || 'NewSlot'}/</code> → <code>_Game</code> · <code>_Previews</code> · <code>_Source</code> · <code>{CONFIG_FILENAME}</code></span>
+            <span><code>{slugify(projectName) || 'NewSlot'}/</code> → <code>_Game_Export</code> · <code>_Previews</code> · <code>_Source</code> · <code>{CONFIG_FILENAME}</code></span>
           </div>
         </div>
       </div>
 
       <div className="ps-section">
         <div className="ps-section-head">Add element</div>
+        <div className="ps-palette">
+          <button
+            className={`ps-chip ps-chip-template${presentTop('Template') ? ' ps-chip-on' : ''}`}
+            type="button"
+            onClick={addTemplate}
+            disabled={presentTop('Template')}
+            title="A blank feature blueprint (Export/Source art + preview), pinned to 00_ — copy it when adding a new folder."
+          >
+            {presentTop('Template') ? '✓ ' : '+ '}00_Template
+          </button>
+        </div>
         <div className="ps-palette">
           {BASE_ELEMENTS.map((name) => (
             <button key={name} className={`ps-chip ps-chip-base${presentTop(name) ? ' ps-chip-on' : ''}`} type="button" onClick={() => addTop(name, 'base')} disabled={presentTop(name)}>
@@ -712,7 +750,7 @@ export function ProjectScaffoldTool() {
           />
           <button className="btn" type="button" onClick={addCustomTop}>+ Add</button>
         </div>
-        <div className="ps-hint">Expand any folder (▾) to nest subfolders inside it. Leaf folders get the standard <code>Export / Source</code> set — tick which ones are required; <code>Export</code> routes to <code>_Game</code>, <code>Source</code> to <code>_Source</code>, and they keep the full feature path. The <b>preview</b> toggle (→ <code>_Previews</code>) is on by default for top-level elements and off for nested ones — enable it only when an individual sub-element needs its own preview. Folders with children become pure groups. Every ticked folder is created <b>and</b> recorded as mandatory.</div>
+        <div className="ps-hint">Expand any folder (▾) to nest subfolders inside it. Leaf folders get the standard <code>Export / Source</code> set — tick which ones are required; <code>Export</code> routes to <code>_Game_Export</code>, <code>Source</code> to <code>_Source</code>, and they keep the full feature path. The <b>preview</b> toggle (→ <code>_Previews</code>) is on by default for top-level elements and off for nested ones — enable it only when an individual sub-element needs its own preview. Folders with children become pure groups. Every ticked folder is created <b>and</b> recorded as mandatory.</div>
       </div>
 
       <div className="ps-section">
@@ -733,7 +771,7 @@ export function ProjectScaffoldTool() {
             <div className="ps-empty">(empty — add an element from the palette above)</div>
           ) : (
             tree.map((n, i) => (
-              <TreeRow key={n.id} node={n} depth={0} index={i} autoInherited={true} underFont={false} ops={ops} />
+              <TreeRow key={n.id} node={n} depth={0} index={i} autoInherited={true} underFont={false} topName={topLevelName(n, tree, i)} ops={ops} />
             ))
           )}
         </div>
@@ -776,6 +814,7 @@ export function ProjectScaffoldTool() {
         .ps-chip:disabled{cursor:default;opacity:.55}
         .ps-chip-base{color:var(--accent)}
         .ps-chip-common{color:var(--accent2)}
+        .ps-chip-template{color:#c89bff;border-color:rgba(200,155,255,.4)}
         .ps-chip-on{opacity:.5}
         .ps-tree-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
         .ps-tree-actions{display:flex;gap:.3rem}
@@ -790,6 +829,7 @@ export function ProjectScaffoldTool() {
         .ps-edit-input{background:var(--bg);border:1px solid var(--accent2);color:var(--text);font-family:var(--font-mono);font-size:.72rem;padding:.1rem .35rem;border-radius:3px;outline:none}
         .ps-badge{font-size:.55rem;padding:.08rem .3rem;border-radius:2px;color:#9aa;border:1px solid #333;text-transform:uppercase;letter-spacing:.05em}
         .ps-badge-font{color:#e0a86b;border-color:rgba(224,168,107,.4)}
+        .ps-badge-template{color:#c89bff;border-color:rgba(200,155,255,.4)}
         .ps-prev{display:flex;align-items:center;gap:.3rem;margin-left:auto;font-family:var(--font-mono);font-size:.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;padding:.08rem .35rem;border:1px solid var(--border);border-radius:3px;background:var(--surface2);white-space:nowrap}
         .ps-prev input{accent-color:var(--accent2)}
         .ps-prev-on{color:var(--accent2);border-color:rgba(71,200,255,.4)}

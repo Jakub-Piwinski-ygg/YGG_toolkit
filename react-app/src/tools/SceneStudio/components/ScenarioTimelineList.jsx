@@ -4,6 +4,9 @@
 //
 // Drag payload mime: application/x-ygg-timeline-ref → JSON { sceneId, timelineId }.
 
+import { kindClass } from '../engine/objectColors.js';
+import { SpinnerName } from './SpinnerName.jsx';
+
 export const TIMELINE_REF_MIME = 'application/x-ygg-timeline-ref';
 
 function fmtDur(s) {
@@ -55,6 +58,10 @@ export function ScenarioTimelineList({ timelines = [], activeScenario = null, on
             <div className="ss-scenario-list-scene">🎬 {group.sceneName}</div>
             {group.items.map((t) => {
               const used = usageCount.get(`${t.sceneId}::${t.timelineId}`) || 0;
+              const kc = kindClass(t.colorKind);
+              const winStyle = t.colorKind === 'win' ? { '--win-glow': t.winGlow } : undefined;
+              const nameCls = 'ss-tl-name ' + kc
+                + (t.colorKind === 'win' ? ' ss-win-glow' + (t.bigWin ? ' is-big-win' : '') : '');
               return (
                 <div
                   key={t.timelineId}
@@ -62,10 +69,13 @@ export function ScenarioTimelineList({ timelines = [], activeScenario = null, on
                   draggable
                   onDragStart={(e) => onDragStart(e, t)}
                   onDoubleClick={() => onJumpToTimeline?.(t.sceneId, t.timelineId)}
+                  style={winStyle}
                   title="Drag onto the graph to add a node · double-click to edit in animate mode"
                 >
-                  <span className="ss-tl-dot" />
-                  <span className="ss-tl-name">{t.timelineDisplayName || t.timelineName}</span>
+                  <span className={'ss-tl-dot ' + kc} />
+                  {t.colorKind === 'spinner'
+                    ? <SpinnerName name={t.timelineDisplayName || t.timelineName} className="ss-tl-name" />
+                    : <span className={nameCls}>{t.timelineDisplayName || t.timelineName}</span>}
                   <span className="ss-tl-meta">{t.trackCount} trk · {fmtDur(t.duration)}</span>
                   {used > 0 && <span className="ss-tl-badge" title={`Used ${used}× in this scenario`}>×{used}</span>}
                   <button

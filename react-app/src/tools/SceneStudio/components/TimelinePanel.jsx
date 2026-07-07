@@ -7,6 +7,8 @@ import { neighbourBounds as resolveNeighbourBounds, resolveClipDrop } from '../e
 import { spinnerClipDurationAction } from './SpinnerInspectorSections.jsx';
 import { NumberField } from '../../../components/NumberField.jsx';
 import { elementZoom, rootZoom } from '../../../utils/domZoom.js';
+import { assetColorKind, kindClass } from '../engine/objectColors.js';
+import { SpinnerName } from './SpinnerName.jsx';
 
 /**
  * Compute the clip length that matches the content a clip points at — one spine
@@ -1159,6 +1161,15 @@ export function TimelinePanel({
     return `${layerName} · ${track.name || `track ${idx + 1}`}`;
   };
 
+  // Colour kind of a track = the kind of the object it animates (spine /
+  // static / win / spinner / group). Drives the label text colour so the
+  // timeline reads the same as the hierarchy.
+  const trackKind = (track) => {
+    const layer = scene.layers.find((l) => l.id === track.layerId);
+    const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
+    return assetColorKind(asset);
+  };
+
   const labelForClip = (track, clip) => {
     if (clip.name) return clip.name;
     const layer = scene.layers.find((l) => l.id === track.layerId);
@@ -1425,7 +1436,11 @@ export function TimelinePanel({
                 onClick={() => onSelectLayer?.(track.layerId)}
                 title={labelForTrack(track)}
               >
-                <span className="scene-timeline-label-text">{labelForTrack(track)}</span>
+                {trackKind(track) === 'spinner' ? (
+                  <SpinnerName name={labelForTrack(track)} className="scene-timeline-label-text" />
+                ) : (
+                  <span className={'scene-timeline-label-text ' + kindClass(trackKind(track))}>{labelForTrack(track)}</span>
+                )}
                 <button
                   className="scene-icon-btn scene-track-action"
                   title="Move this track up (above the track over it)"

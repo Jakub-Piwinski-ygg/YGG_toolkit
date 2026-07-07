@@ -984,6 +984,16 @@ export function syncTransforms(app, handles, scene) {
   if (app?.renderer) app.render();
 }
 
+// Snap a skeleton's slots back to their setup-pose attachments. Module-level so
+// BOTH applyRuntimeConfigs and applySpineMultiTrack can use it — it used to be a
+// local const in applyRuntimeConfigs only, which made every applySpineMultiTrack
+// call site throw `resetSlots is not defined`. That ReferenceError was swallowed
+// by the surrounding try/catch, so a clip's setAnimation never ran and the layer
+// default animation kept playing (the "manual spines ignore their clip" bug).
+function resetSpineSlots(skeleton) {
+  (skeleton.setupPoseSlots || skeleton.setSlotsToSetupPose)?.call(skeleton);
+}
+
 /**
  * Live-patch pass for RUNTIME config edits — fields that previously forced a
  * full rebuild but are either consumed per-frame from the scene or trivially
@@ -1014,9 +1024,7 @@ export function applyRuntimeConfigs(handles, scene, studioMode) {
   let patched = 0;
   const spinnerGizmoLayerId = scene.flow?.runtime?.spinnerCellGizmoLayerId || null;
   const assetById = new Map((scene.assets || []).map((a) => [a.id, a]));
-  const resetSlots = (skeleton) => {
-    (skeleton.setupPoseSlots || skeleton.setSlotsToSetupPose)?.call(skeleton);
-  };
+  const resetSlots = resetSpineSlots;
   for (const layer of scene.layers) {
     const obj = handles.get(layer.id);
     if (!obj || obj.destroyed) continue;
@@ -1473,7 +1481,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
       try {
         if (skin) obj.skeleton.setSkinByName(skin);
         else obj.skeleton.setSkin(null);
-        resetSlots(obj.skeleton);
+        resetSpineSlots(obj.skeleton);
         if (anim) {
           const e = obj.state.setAnimation(si, anim, !!loop);
           if (e) {
@@ -1544,7 +1552,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
       try {
         if (heldSkin) obj.skeleton.setSkinByName(heldSkin);
         else obj.skeleton.setSkin(null);
-        resetSlots(obj.skeleton);
+        resetSpineSlots(obj.skeleton);
         const e = obj.state.setAnimation(si, heldAnim, !!loop);
         if (e) { e.mixDuration = 0; e.alpha = heldAlpha; }
       } catch { /* anim missing — ignore */ }
@@ -1616,7 +1624,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
       try {
         if (skin) obj.skeleton.setSkinByName(skin);
         else obj.skeleton.setSkin(null);
-        resetSlots(obj.skeleton);
+        resetSpineSlots(obj.skeleton);
         const e = obj.state.setAnimation(0, defaultAnim, !!loop);
         if (e) { e.mixDuration = 0; e.alpha = 1; }
       } catch { /* anim missing — ignore */ }
