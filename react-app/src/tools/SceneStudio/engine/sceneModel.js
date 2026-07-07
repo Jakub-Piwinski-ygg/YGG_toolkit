@@ -1090,6 +1090,10 @@ export function normalizeClip(c) {
     drawOrderThreshold: Number.isFinite(Number(c.drawOrderThreshold)) ? Math.min(1, Math.max(0, Number(c.drawOrderThreshold))) : 0,
     /** Helper flag: auto-fit duration on first resolved animation. */
     autoFitDuration: c.autoFitDuration === true,
+    /**
+     * Optional per-clip Spine skin override. `null` means use layer.spine.skin.
+     */
+    skin: typeof c.skin === 'string' && c.skin ? c.skin : null,
     channels,
     /**
      * Spinner clips (layers whose asset is a `spinner`): the action this

@@ -216,6 +216,7 @@ export function spineCuesForLayer(scene, layer) {
         duration: clip.duration,
         speed: clip.speed ?? 1,
         loop: clip.loop !== false,
+        skin: clip.skin || '',
         mixDuration: clip.mixDuration,
         // Spine AnimationState track index this clip plays on (default 0). Same
         // clamp as engine/sceneModel.js normalizeClip. Consumed by prefab.js +

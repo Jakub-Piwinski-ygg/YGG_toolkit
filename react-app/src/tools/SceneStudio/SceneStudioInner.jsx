@@ -983,6 +983,16 @@ export default function SceneStudioInner() {
     }));
   }, []);
 
+  // Stable identity so the Spinner wizard's per-symbol pose thumbnails don't
+  // re-bake on every parent render. Reads projectRoot from the live scene ref.
+  const handleRenderSpinePose = useCallback(
+    (spineAsset, animName, loop, skin, atFraction) =>
+      pixiViewportRef.current?.renderSpinePosePng(
+        spineAsset, animName, loop, skin, atFraction, sceneRef.current?.projectRoot || null
+      ),
+    []
+  );
+
   const handleCreateSpinner = useCallback(({ name, spinnerConfig, newAssets }) => {
     setShowSpinnerWizard(false);
     const newLayerId = uid('L');
@@ -1950,13 +1960,26 @@ export default function SceneStudioInner() {
     const readyAsset = sceneRef.current.assets.find((a) => a.id === assetId);
     if (readyAsset?.type === 'spine' && Array.isArray(descriptor.animations) && descriptor.animations.length) {
       const pick = descriptor.animations.find((n) => /idle/i.test(n)) || descriptor.animations[0];
+      const skins = Array.isArray(descriptor.skins) ? descriptor.skins : [];
+      const byLower = new Map(skins.map((s) => [String(s).toLowerCase(), s]));
+      const pickedSkin = byLower.get('base') || byLower.get('default') || null;
       setScene((prev) => {
         let changed = false;
         const layers = prev.layers.map((l) => {
           if (l.assetId !== assetId) return l;
-          if (l.spine && Object.prototype.hasOwnProperty.call(l.spine, 'defaultAnimation')) return l;
+          const hasAnim = l.spine && Object.prototype.hasOwnProperty.call(l.spine, 'defaultAnimation');
+          const hasSkin = l.spine && Object.prototype.hasOwnProperty.call(l.spine, 'skin');
+          if (hasAnim && (hasSkin || !pickedSkin)) return l;
           changed = true;
-          return { ...l, spine: { ...(l.spine || {}), defaultAnimation: pick, loop: l.spine?.loop !== false } };
+          return {
+            ...l,
+            spine: {
+              ...(l.spine || {}),
+              ...(hasAnim ? {} : { defaultAnimation: pick }),
+              loop: l.spine?.loop !== false,
+              ...(hasSkin ? {} : { skin: pickedSkin })
+            }
+          };
         });
         return changed ? { ...prev, layers } : prev;
       });
@@ -4135,8 +4158,9 @@ export default function SceneStudioInner() {
                 onPreviewScene={setWizardPreviewScene}
                 onPreviewTime={setWizardPreviewTime}
                 previewControlsRef={wizardPreviewControlsRef}
-                onBakeSpinePose={(assetId, animName, loop, skin, sigma, feather) =>
-                  pixiViewportRef.current?.bakeSpinePosePng(assetId, animName, loop, skin, sigma, feather)}
+                onBakeSpinePose={(spineAsset, animName, loop, skin, sigma, feather) =>
+                  pixiViewportRef.current?.bakeSpinePosePng(spineAsset, animName, loop, skin, sigma, feather, sceneRef.current?.projectRoot || null)}
+                onRenderSpinePose={handleRenderSpinePose}
                 onClose={() => { setShowSpinnerWizard(false); setEditSpinnerTarget(null); }}
                 onCreate={
                   editSpinnerTarget

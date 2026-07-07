@@ -1,7 +1,7 @@
 // PixiViewport — mounts Pixi v8, owns pan/zoom + selection/move interactions.
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Assets } from 'pixi.js';
+import { Assets, autoDetectRenderer } from 'pixi.js';
 import {
   applyFlowAtTime,
   applyRuntimeConfigs,
@@ -56,6 +56,17 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   const buildIdRef = useRef(0);
   const pendingRef = useRef(Promise.resolve());
   const detachControllerRef = useRef(null);
+  // Dedicated, isolated renderer for Spinner-wizard pose thumbnails. Baking a
+  // Spine pose through the LIVE `appRef` renderer (generateTexture flips render
+  // targets + can destroy the posed container mid-flight) corrupted the
+  // displayed scene graph — the selection/hover hit-test then walked destroyed
+  // containers and threw "this._position is null" on every mouse move. This
+  // renderer shares nothing with the on-screen scene, so pose bakes can never
+  // touch it. Created lazily on first bake, destroyed on unmount.
+  const poseBakeRendererRef = useRef(null);
+  // Serializes pose bakes so concurrent thumbnail renders don't overlap
+  // generateTexture/extract on the single bake renderer.
+  const poseBakeQueueRef = useRef(Promise.resolve());
   const fittedOnceRef = useRef(false);
   const interactionGuidesRef = useRef([]);
   // True while the user is directly manipulating an object (drag / resize /
@@ -281,6 +292,10 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
       }
       if (appRef.current?.__driveRaf) appRef.current.__driveRaf();
       if (appRef.current?.__ro) { appRef.current.__ro.disconnect(); }
+      if (poseBakeRendererRef.current) {
+        try { poseBakeRendererRef.current.destroy(); } catch { /* ignore */ }
+        poseBakeRendererRef.current = null;
+      }
       destroyPixiApp(localApp || appRef.current);
       if (appRef.current === localApp) {
         appRef.current = null;
@@ -492,6 +507,23 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     return () => { cancelled = true; };
   }, [overlayMode, scene.stage.activeOrientation]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Lazily stand up the isolated pose-bake renderer (see poseBakeRendererRef).
+  // Call only from inside the poseBakeQueue so creation is serialized (no
+  // double-create race). Returns null if the renderer can't be created.
+  const ensurePoseBakeRenderer = async () => {
+    if (!poseBakeRendererRef.current) {
+      try {
+        poseBakeRendererRef.current = await autoDetectRenderer({
+          width: 256, height: 256, backgroundAlpha: 0, antialias: true,
+        });
+      } catch (e) {
+        console.warn('[SceneStudio] pose-bake renderer init failed', e);
+        return null;
+      }
+    }
+    return poseBakeRendererRef.current;
+  };
+
   useImperativeHandle(ref, () => ({
     /**
      * Reset every animated object to its clean setup state (clear Spine tracks
@@ -537,35 +569,82 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     },
 
     /**
-     * Bake a Spine animation's first frame ("idle"/landing pose) through this
-     * viewport's live renderer and run the SAME downsample-then-blur pipeline
-     * static symbol art uses (`spinnerBlur.js#blurRenderedCanvas`) — used by
-     * the Spinner wizard's "render + blur idle pose" step for
-     * animations-only symbols (no static PNG exists to source a blur from).
-     * The current `scene` prop must already reference `assetId` (the wizard's
-     * live preview scene does, via its referencedAssets set).
+     * Bake a Spine animation's first frame ("idle"/landing pose) on the
+     * dedicated, isolated renderer (NOT the on-screen one) and run the SAME
+     * downsample-then-blur pipeline static symbol art uses
+     * (`spinnerBlur.js#blurRenderedCanvas`) — used by the Spinner wizard's
+     * "render + blur idle pose" step for animations-only symbols (no static PNG
+     * exists to source a blur from). Isolated so generating blurs never blanks
+     * the live machine preview mid-flight. The caller passes the full spine
+     * asset descriptor + projectRoot, so it doesn't depend on the current scene
+     * referencing the rig.
      * @returns {Promise<Blob|null>} blurred PNG blob, or null if the renderer
      *   isn't ready yet or the pose/blur bake failed.
      */
-    async bakeSpinePosePng(assetId, animName, loop, skin, sigma, feather) {
-      const app = appRef.current;
-      if (!app?.renderer) return null;
-      const scene = sceneRef.current;
-      const createSpineContainer = makeSpineOverlayFactory(scene, rootHandleRef.current, scene?.projectRoot || null);
-      const baked = await bakeSpinePoseSharpTexture(
-        { renderer: app.renderer, createSpineContainer }, assetId, animName, loop, skin || null
-      );
-      if (!baked) return null;
-      try {
-        if (!baked.canvas) return null;
-        return await blurRenderedCanvas(baked.canvas, sigma, feather);
-      } finally {
-        // This bake is one-off (the sharp texture is only a means to the
-        // blurred canvas here, never displayed) — destroy it immediately so
-        // it doesn't leak GPU memory the way the display-bound T7 bake in
-        // spinnerRuntime.js intentionally keeps alive.
-        try { baked.sharp?.destroy?.(true); } catch { /* ignore */ }
-      }
+    async bakeSpinePosePng(spineAsset, animName, loop, skin, sigma, feather, projectRoot = null) {
+      if (!spineAsset?.id || !animName) return null;
+      const run = poseBakeQueueRef.current.then(async () => {
+        const renderer = await ensurePoseBakeRenderer();
+        if (!renderer) return null;
+        const synthScene = { assets: [spineAsset], projectRoot };
+        const createSpineContainer = makeSpineOverlayFactory(synthScene, rootHandleRef.current, projectRoot || null);
+        const baked = await bakeSpinePoseSharpTexture(
+          { renderer, createSpineContainer }, spineAsset.id, animName, loop, skin || null
+        );
+        if (!baked) return null;
+        try {
+          if (!baked.canvas) return null;
+          return await blurRenderedCanvas(baked.canvas, sigma, feather);
+        } finally {
+          // One-off — the sharp texture is only a means to the blurred canvas
+          // here, never displayed; free it immediately.
+          try { baked.sharp?.destroy?.(true); } catch { /* ignore */ }
+        }
+      });
+      poseBakeQueueRef.current = run.catch(() => {});
+      return run;
+    },
+
+    /**
+     * Render a clean (un-blurred) PNG of a Spine pose on the dedicated, isolated
+     * renderer (never the on-screen one) — used by the Spinner wizard to show
+     * the actual land/win pose in each symbol's preview strip instead of the
+     * raw animation name.
+     * `atFraction` picks where in the clip to pose: 0 = first frame (land),
+     * 0.5 = mid-clip (win). The caller passes the full spine asset descriptor +
+     * projectRoot and we build a throwaway one-asset scene for the overlay
+     * factory, so it works even when the wizard's preview scene is empty (e.g.
+     * fewer than 2 symbols, so no spinner is shown yet).
+     * @returns {Promise<Blob|null>} PNG blob, or null when the renderer isn't
+     *   ready or the pose can't be baked.
+     */
+    async renderSpinePosePng(spineAsset, animName, loop, skin, atFraction = 0, projectRoot = null) {
+      if (!spineAsset?.id || !animName) return null;
+      // Serialize bakes: generateTexture/extract on one renderer must not
+      // overlap, and every thumbnail fires this concurrently on mount.
+      const run = poseBakeQueueRef.current.then(async () => {
+        const renderer = await ensurePoseBakeRenderer();
+        if (!renderer) return null;
+        const synthScene = { assets: [spineAsset], projectRoot };
+        const createSpineContainer = makeSpineOverlayFactory(synthScene, rootHandleRef.current, projectRoot || null);
+        const baked = await bakeSpinePoseSharpTexture(
+          { renderer, createSpineContainer }, spineAsset.id, animName, loop, skin || null, atFraction
+        );
+        if (!baked) return null;
+        try {
+          const canvas = baked.canvas;
+          if (!canvas) return null;
+          if (typeof canvas.toBlob === 'function')
+            return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+          if (typeof canvas.convertToBlob === 'function')
+            return await canvas.convertToBlob({ type: 'image/png' }); // OffscreenCanvas
+          return null;
+        } finally {
+          try { baked.sharp?.destroy?.(true); } catch { /* ignore */ }
+        }
+      });
+      poseBakeQueueRef.current = run.catch(() => {});
+      return run;
     },
 
     /**

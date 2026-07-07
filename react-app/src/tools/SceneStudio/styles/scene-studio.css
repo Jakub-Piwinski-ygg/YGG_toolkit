@@ -2906,10 +2906,11 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
 .spinner-sym-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px; /* clear separation between each symbol's card panel */
   max-height: 420px; /* was 260px — bigger preview thumbnails need more room per row */
   overflow-y: auto;
   margin-bottom: 4px;
+  padding: 2px; /* room for card focus/hover outline without clipping */
 }
 
 .spinner-sym-row {
@@ -2945,10 +2946,21 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   font-size: 10px;
 }
 
+/* Each symbol's settings are grouped in their own card panel so it's obvious
+   where one symbol's configuration begins and ends (name + PNGs + previews +
+   anim row all read as one unit). */
 .spinner-sym-entry {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--bg-2, #1e2029);
+  border: 1px solid var(--border, #2e3340);
+  border-radius: 8px;
+}
+
+.spinner-sym-entry:hover {
+  border-color: var(--border-2, #3a4152);
 }
 
 .spinner-sym-anim-row {

@@ -240,6 +240,7 @@ namespace Ygg.SceneStudio
     {
         public string target;
         public string animationName;
+        public string skin;
         public float start;
         public float duration;
         public float speed = 1f;
@@ -385,6 +386,17 @@ namespace Ygg.SceneStudio
                 var stateProp = type.GetProperty("AnimationState", BindingFlags.Public | BindingFlags.Instance);
                 var state = stateProp != null ? stateProp.GetValue(comp) : null;
                 if (state == null) { Debug.LogWarning($"[YggScenePlayer] {type.Name} on {child.name} has no AnimationState (SkeletonDataAsset assigned?)"); return; }
+                if (!string.IsNullOrEmpty(cue.skin))
+                {
+                    var skelProp = type.GetProperty("Skeleton", BindingFlags.Public | BindingFlags.Instance);
+                    var skeleton = skelProp != null ? skelProp.GetValue(comp) : null;
+                    if (skeleton != null)
+                    {
+                        var skType = skeleton.GetType();
+                        skType.GetMethod("SetSkin", new[] { typeof(string) })?.Invoke(skeleton, new object[] { cue.skin });
+                        skType.GetMethod("SetSlotsToSetupPose")?.Invoke(skeleton, null);
+                    }
+                }
                 var setAnim = state.GetType().GetMethod("SetAnimation", new[] { typeof(int), typeof(string), typeof(bool) });
                 if (setAnim == null) return;
                 var entry = setAnim.Invoke(state, new object[] { cue.trackIndex, cue.animationName, cue.loop });

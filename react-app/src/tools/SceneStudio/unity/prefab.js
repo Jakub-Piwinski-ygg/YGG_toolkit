@@ -641,6 +641,7 @@ function scenePlayerYaml(id, goId, opts) {
     duration: ${f(c.duration)}
     speed: ${f(c.speed ?? 1)}
     loop: ${c.loop ? 1 : 0}
+    skin: ${c.skin || ''}
     mixDuration: ${c.mixDuration == null ? -1 : f(c.mixDuration)}
     trackIndex: ${c.trackIndex ?? 0}
     holdPrevious: ${c.holdPrevious ? 1 : 0}

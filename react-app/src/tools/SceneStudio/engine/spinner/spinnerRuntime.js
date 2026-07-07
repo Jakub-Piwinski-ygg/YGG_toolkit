@@ -21,7 +21,7 @@
 //     fx Container            ← land/win overlays — OUTSIDE the mask (overflow)
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
-import { normalizeSpinnerConfig } from './spinnerModel.js';
+import { normalizeSpinnerConfig, pickPoseAnimConf } from './spinnerModel.js';
 import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey, pickSpinnerActionTrack } from './spinnerEval.js';
 import { blurRenderedCanvas } from './spinnerBlur.js';
 
@@ -59,13 +59,17 @@ import { blurRenderedCanvas } from './spinnerBlur.js';
  * the caller anchor the sprite at the origin fraction instead, so idle ↔
  * land/win lines up on the same point the Spine data was authored around.
  */
-export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop, skin = null) {
+export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop, skin = null, atFraction = 0) {
   if (!deps.renderer || !deps.createSpineContainer) return null;
   let inst = null;
   try {
     inst = await deps.createSpineContainer(assetId, animName, loop, skin);
     if (!inst) return null;
-    inst.setTrackTime(0); // first frame = the idle/resting pose
+    // atFraction 0 = first frame (idle/landing pose); >0 samples further into
+    // the clip (the wizard's win thumbnail uses 0.5 to catch a mid-anim pose).
+    const dur = Number(inst.duration) || 0;
+    const frac = Math.max(0, Math.min(1, Number(atFraction) || 0));
+    inst.setTrackTime(dur > 0 ? dur * frac : 0);
     // Same bounds computation generateTexture uses internally to crop —
     // capture it first so we know where (0,0) fell inside the crop.
     const bounds = inst.container.getLocalBounds();
@@ -127,6 +131,13 @@ function useSpineOverlay(spinePool, key, x, y, stateT, scale = 1) {
   inst.setTrackTime(stateT);
   return true;
 }
+
+// Win symbol animations play ONCE and hold their final pose (loop forced off):
+// the present-win window can outlast the clip, and a looping track would wrap
+// via setTrackTime and visibly replay. Land keeps its configured loop flag.
+// Centralized so the overlay-pool build key, the duration-map key, and the
+// per-frame lookup key always agree (a mismatch = overlay silently not shown).
+const effectiveAnimLoop = (animConf, isWin) => (isWin ? false : animConf?.loop !== false);
 
 function redrawCellGizmo(sp) {
   if (!sp?.cellGizmo) return;
@@ -200,10 +211,10 @@ export async function buildSpinnerObject(asset, layer, deps) {
   // only fires for symbols that haven't been through the wizard step yet.
   for (const sym of config.symbols) {
     if (sym.assetId) continue; // has a real static — nothing to bake
-    const animConf = sym.landAnim?.kind === 'spine' ? sym.landAnim
-      : sym.winAnim?.kind === 'spine' ? sym.winAnim
-      : null;
-    if (!animConf?.assetId || !animConf?.anim) continue; // no anim either — stays Texture.WHITE
+    // Land's first frame is the idle; falls back to the win clip's first frame
+    // when there's no usable land anim (shared with the wizard blur step).
+    const animConf = pickPoseAnimConf(sym);
+    if (!animConf) continue; // no usable anim either — stays Texture.WHITE
     const existing = textures.get(sym.id);
     const hasPersistedBlur = !!sym.blurAssetId && existing?.blurTex && existing.blurTex !== Texture.WHITE;
     const baked = await bakeSpinePoseSharpTexture(deps, animConf.assetId, animConf.anim, animConf.loop !== false, sym.skin || null);
@@ -292,9 +303,11 @@ export async function buildSpinnerObject(asset, layer, deps) {
   if (createSpine) {
     const specs = new Map();
     for (const sym of config.symbols) {
-      for (const animConf of [sym.landAnim, sym.winAnim]) {
+      const kindAnims = [sym.landAnim, sym.winAnim];
+      for (let ai = 0; ai < kindAnims.length; ai++) {
+        const animConf = kindAnims[ai];
         if (!animConf || animConf.kind !== 'spine') continue;
-        const loop = animConf.loop !== false;
+        const loop = effectiveAnimLoop(animConf, ai === 1); // index 1 = winAnim
         const skin = sym.skin || '';
         const key = `${animConf.assetId}:${animConf.anim}:${loop ? '1' : '0'}:${skin}`;
         if (!specs.has(key)) specs.set(key, { assetId: animConf.assetId, anim: animConf.anim, loop, skin });
@@ -320,10 +333,10 @@ export async function buildSpinnerObject(asset, layer, deps) {
     const persist = {};
     for (const sym of config.symbols) {
       let win = 0, land = 0;
-      const animKey = (a) => (a && a.kind === 'spine'
-        ? `${a.assetId}:${a.anim}:${a.loop !== false ? '1' : '0'}:${sym.skin || ''}` : null);
-      const wk = animKey(sym.winAnim);
-      const lk = animKey(sym.landAnim);
+      const animKey = (a, isWin) => (a && a.kind === 'spine'
+        ? `${a.assetId}:${a.anim}:${effectiveAnimLoop(a, isWin) ? '1' : '0'}:${sym.skin || ''}` : null);
+      const wk = animKey(sym.winAnim, true);
+      const lk = animKey(sym.landAnim, false);
       if (wk && animDur.has(wk)) { win = animDur.get(wk); sym.winAnim.duration = win; }
       if (lk && animDur.has(lk)) { land = animDur.get(lk); sym.landAnim.duration = land; }
       if (win > 0 || land > 0) persist[sym.id] = { win, land };
@@ -501,7 +514,7 @@ export function applySpinnerAtTime(obj, layer, tracks, t, startBoard = null, out
         ? (data.state === 'landing' ? sym?.landAnim : data.state === 'win' ? sym?.winAnim : null)
         : null;
       if (animConf?.kind === 'spine') {
-        const loop = animConf.loop !== false;
+        const loop = effectiveAnimLoop(animConf, data.state === 'win');
         const off = Number(animConf.offset) || 0;
         const localT = data.stateT - off;
         if (localT >= 0) {

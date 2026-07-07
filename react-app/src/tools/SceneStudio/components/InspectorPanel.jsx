@@ -586,7 +586,7 @@ function SpineSection({ layer, descriptor, onPatchLayer }) {
           onChange={(v) => setSpine({ defaultMix: v })}
         />
       </label>
-      {skins.length > 1 && (
+      {skins.length > 0 && (
         <label className="scene-field">
           <span>skin</span>
           <select
@@ -664,6 +664,7 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
   };
 
   const animations = descriptor?.animations || [];
+  const skins = descriptor?.skins || [];
   const isSpine = asset?.type === 'spine';
   const isSpinner = asset?.type === 'spinner';
   const isWinSeq = asset?.type === 'winseq';
@@ -759,6 +760,16 @@ function ClipSection({ scene, layer, asset, basePose, track, clip, flowTime, sel
           <select value={clip.anim ?? ''} onChange={(e) => setClipAnimation(e.target.value)}>
             <option value="">— layer default —</option>
             {animations.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
+      )}
+
+      {isSpine && skins.length > 0 && (
+        <label className="scene-field">
+          <span>skin</span>
+          <select value={clip.skin ?? ''} onChange={(e) => patchClip({ skin: e.target.value || null })}>
+            <option value="">— layer default —</option>
+            {skins.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
       )}

@@ -1188,6 +1188,12 @@ function autoMixDurationForTransition(obj, layer, track, clip) {
   return prevInterrupted ? 0.12 : 0;
 }
 
+function spineClipSkin(clip, layer) {
+  const clipSkin = typeof clip?.skin === 'string' && clip.skin ? clip.skin : null;
+  if (clipSkin !== null) return clipSkin;
+  return layer?.spine?.skin ?? null;
+}
+
 function skeletonDefaultMix(obj) {
   const dm = Number(obj?.state?.data?.defaultMix);
   return Number.isFinite(dm) && dm >= 0 ? dm : 0;
@@ -1452,6 +1458,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
   const applyActiveClipToIndex = (si, clip, track) => {
     const cache = perTrack.get(si) || {};
     const anim = clip.anim ?? layer.spine?.defaultAnimation ?? null;
+    const skin = spineClipSkin(clip, layer);
     const animDuration = getSpineAnimationDuration(obj, anim);
     const loop = clip.loop !== false;
     const mixDuration = resolveMixDuration(obj, layer, track, clip);
@@ -1462,8 +1469,11 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     const clipAlpha = baseAlpha * clipWeightEnvelope(clip, t);
     // `cache.held` → the previous frame was a frozen post-clip hold on this
     // slot; re-arm the animation so timeScale / mix reset cleanly.
-    if (cache.activeClipId !== clip.id || cache.anim !== anim || cache.loop !== loop || cache.held) {
+    if (cache.activeClipId !== clip.id || cache.anim !== anim || cache.loop !== loop || cache.skin !== skin || cache.held) {
       try {
+        if (skin) obj.skeleton.setSkinByName(skin);
+        else obj.skeleton.setSkin(null);
+        resetSlots(obj.skeleton);
         if (anim) {
           const e = obj.state.setAnimation(si, anim, !!loop);
           if (e) {
@@ -1485,7 +1495,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
           obj.state.setEmptyAnimation(si, mixDuration);
         }
       } catch { /* anim missing — ignore */ }
-      perTrack.set(si, { activeClipId: clip.id, anim, loop, mixDuration, held: false });
+      perTrack.set(si, { activeClipId: clip.id, anim, loop, skin, mixDuration, held: false });
     }
     try {
       const tr = obj.state?.tracks?.[si];
@@ -1508,6 +1518,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
   const applyHeldClipToIndex = (si, held) => {
     const cache = perTrack.get(si) || {};
     const heldAnim = held.anim ?? layer.spine?.defaultAnimation ?? null;
+    const heldSkin = spineClipSkin(held, layer);
     const shouldHold = (held.dontEnd === true || held.clearAfterEnd !== true) && !!heldAnim;
     if (!shouldHold) {
       // Use a 0-second empty animation so it snaps deterministically even
@@ -1529,12 +1540,15 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     // stays faded instead of snapping back to full alpha at the boundary.
     const baseHeldAlpha = Number.isFinite(Number(held.alpha)) ? Math.min(1, Math.max(0, Number(held.alpha))) : 1;
     const heldAlpha = baseHeldAlpha * clipWeightEnvelope(held, heldT);
-    if (cache.activeClipId !== held.id || cache.anim !== heldAnim || cache.loop !== loop || cache.held !== true) {
+    if (cache.activeClipId !== held.id || cache.anim !== heldAnim || cache.loop !== loop || cache.skin !== heldSkin || cache.held !== true) {
       try {
+        if (heldSkin) obj.skeleton.setSkinByName(heldSkin);
+        else obj.skeleton.setSkin(null);
+        resetSlots(obj.skeleton);
         const e = obj.state.setAnimation(si, heldAnim, !!loop);
         if (e) { e.mixDuration = 0; e.alpha = heldAlpha; }
       } catch { /* anim missing — ignore */ }
-      perTrack.set(si, { activeClipId: held.id, anim: heldAnim, loop, mixDuration: 0, held: true });
+      perTrack.set(si, { activeClipId: held.id, anim: heldAnim, loop, skin: heldSkin, mixDuration: 0, held: true });
     }
     try {
       const tr = obj.state?.tracks?.[si];
@@ -1596,13 +1610,17 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
   if (defaultAnim && !referencedIndices.has(0)) {
     const cache = perTrack.get(0) || {};
     const loop = layer.spine?.loop ?? true;
+    const skin = layer.spine?.skin ?? null;
     const duration = getSpineAnimationDuration(obj, defaultAnim);
-    if (cache.activeClipId !== '__default__' || cache.anim !== defaultAnim || cache.loop !== loop) {
+    if (cache.activeClipId !== '__default__' || cache.anim !== defaultAnim || cache.loop !== loop || cache.skin !== skin) {
       try {
+        if (skin) obj.skeleton.setSkinByName(skin);
+        else obj.skeleton.setSkin(null);
+        resetSlots(obj.skeleton);
         const e = obj.state.setAnimation(0, defaultAnim, !!loop);
         if (e) { e.mixDuration = 0; e.alpha = 1; }
       } catch { /* anim missing — ignore */ }
-      perTrack.set(0, { activeClipId: '__default__', anim: defaultAnim, loop, mixDuration: 0 });
+      perTrack.set(0, { activeClipId: '__default__', anim: defaultAnim, loop, skin, mixDuration: 0 });
     }
     try {
       const tr = obj.state?.tracks?.[0];
@@ -1624,7 +1642,7 @@ function applySpineMultiTrack(obj, layer, tracks, t) {
     const cache = perTrack.get(si);
     if (cache && cache.activeClipId !== null) {
       try { obj.state.setEmptyAnimation(si, 0); } catch { /* ignore */ }
-      perTrack.set(si, { activeClipId: null, anim: null, loop: null, mixDuration: 0 });
+      perTrack.set(si, { activeClipId: null, anim: null, loop: null, skin: null, mixDuration: 0 });
     }
     seen.add(si);
   }

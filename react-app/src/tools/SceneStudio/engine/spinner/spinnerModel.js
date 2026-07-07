@@ -143,6 +143,22 @@ function normalizeSymbol(s) {
 }
 
 /**
+ * Pick the Spine animation config an animations-only symbol's idle/resting +
+ * blur texture should be baked from (always the clip's FIRST frame). Land is
+ * preferred as the idle source, but only if it actually has a resolved
+ * animation NAME — a land slot with a spine assigned but no clip name yet
+ * (common right after auto-fill) falls back to the win clip's first frame, so
+ * a symbol that only ships a win animation still gets a baked idle + blur.
+ * Returns null when neither slot has a usable (assetId + anim) pair.
+ * Shared by the wizard's blur generation and the runtime's idle-pose bake so
+ * both agree on which pose is the idle.
+ */
+export function pickPoseAnimConf(sym) {
+  const usable = (a) => (a?.kind === 'spine' && a.assetId && a.anim ? a : null);
+  return usable(sym?.landAnim) || usable(sym?.winAnim) || null;
+}
+
+/**
  * Normalize a spinner config. Returns null when unusable (no symbols or
  * degenerate grid). Strips and initialBoard are regenerated from the seed
  * when missing or shaped wrong, so a hand-authored partial config is valid.

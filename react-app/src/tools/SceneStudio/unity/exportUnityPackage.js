@@ -471,7 +471,9 @@ export async function exportUnityPackage({ scene, rootHandle, sceneBasePath, set
               if (aInfo?.kind !== 'spine' || !aInfo.spineName) return null;
               return {
                 symbolId: symId, kind, spineName: aInfo.spineName,
-                anim: an.anim, loop: an.loop !== false,
+                // Win symbol anims play once and hold their final pose (parity
+                // with the web runtime's effectiveAnimLoop); land keeps its flag.
+                anim: an.anim, loop: kind === 'win' ? false : an.loop !== false,
                 skin,
                 offset: Number.isFinite(Number(an.offset)) ? Number(an.offset) : 0
               };

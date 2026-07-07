@@ -333,6 +333,7 @@ export function TimelinePanel({
       start: slot.start,
       duration: slot.duration,
       anim: null,
+      skin: null,
       // New clips default to "hold last frame" (loop = false); the inspector's
       // loop/hold toggle flips this per clip.
       loop: false,
@@ -762,7 +763,7 @@ export function TimelinePanel({
       ? { sequenceId: clip.winseq.sequenceId ?? null, hangOnLastIdle: clip.winseq.hangOnLastIdle === true }
       : null;
     const extraProps = isSpinner ? { action: spinnerAction }
-      : isSpine ? { anim: clip.anim ?? null, speed: inheritSpeed }
+      : isSpine ? { anim: clip.anim ?? null, skin: clip.skin ?? null, speed: inheritSpeed }
       : isWinSeq ? { winseq: winseqOverride }
       : null;
     const wantedDuration = defaultClipDurationForLayer(
@@ -1495,6 +1496,9 @@ export function TimelinePanel({
                   const spineAnimations = isSpine
                     ? (assetDescriptors?.[trackAsset.id]?.animations || [])
                     : [];
+                  const spineSkins = isSpine
+                    ? (assetDescriptors?.[trackAsset.id]?.skins || [])
+                    : [];
                   const winseqFlows = isWinSeq
                     ? (normalizeWinSeqConfig(trackAsset.winseq)?.sequences || [])
                     : [];
@@ -1507,6 +1511,7 @@ export function TimelinePanel({
                       isSpinner={isSpinner}
                       isWinSeq={isWinSeq}
                       spineAnimations={spineAnimations}
+                      spineSkins={spineSkins}
                       winseqFlows={winseqFlows}
                       selected={selectedSet.has(c.id)}
                       primary={c.id === selectedClipId}
@@ -1685,7 +1690,7 @@ const CH_ABBR = { position: 'pos', scale: 'sca', rotation: 'rot', alpha: 'α', t
 
 const SPINNER_ACTION_COLOR = { startSpin: '#4a8', spin: '#48c', stopSpin: '#c86', presentWin: '#c5a', holdResult: '#88a' };
 
-function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAnimations = [], winseqFlows = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, flowTime = 0, stickToPlayhead = false, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys, onSeekClipLocal }) {
+function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAnimations = [], spineSkins = [], winseqFlows = [], selected, primary, inMultiSelection, duration, siblings = [], pxPerSec, flowTime = 0, stickToPlayhead = false, onSelect, onPatch, onGroupMoveBegin, onGroupMoveUpdate, onGroupMoveEnd, snapTime, onAddLeft, onAddRight, selectedKey, selectedKeys = [], onSelectKey, onSelectKeys, onMoveKey, onTransformKeys, onSeekClipLocal }) {
   const ref = useRef(null);
   const dragRef = useRef(null);
   const sorted = [...siblings].sort((a, b) => a.start - b.start);
@@ -1881,16 +1886,30 @@ function ClipBlock({ clip, label, isSpine, isSpinner, isWinSeq = false, spineAni
               {SPINNER_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
           ) : isSpine && spineAnimations.length > 0 ? (
-            <select
-              className="scene-clip-spine-select"
-              value={clip.anim || ''}
-              title="Animation"
-              onPointerDown={(e) => e.stopPropagation()}
-              onChange={(e) => { e.stopPropagation(); onPatch?.({ anim: e.target.value || null }); }}
-            >
-              <option value="">(setup pose)</option>
-              {spineAnimations.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            <>
+              <select
+                className="scene-clip-spine-select"
+                value={clip.anim || ''}
+                title="Animation"
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => { e.stopPropagation(); onPatch?.({ anim: e.target.value || null }); }}
+              >
+                <option value="">(setup pose)</option>
+                {spineAnimations.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+              {spineSkins.length > 0 && (
+                <select
+                  className="scene-clip-spine-select"
+                  value={clip.skin || ''}
+                  title="Skin"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onChange={(e) => { e.stopPropagation(); onPatch?.({ skin: e.target.value || null }); }}
+                >
+                  <option value="">(layer skin)</option>
+                  {spineSkins.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              )}
+            </>
           ) : isWinSeq && winseqFlows.length > 0 ? (
             <select
               className="scene-clip-spine-select"

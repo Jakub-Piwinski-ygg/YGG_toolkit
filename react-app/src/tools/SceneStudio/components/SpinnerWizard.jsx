@@ -55,6 +55,7 @@ import {
   defaultSpinnerBounce,
   defaultSpinnerBlur,
   defaultSpinnerEvents,
+  pickPoseAnimConf,
 } from '../engine/spinner/spinnerModel.js';
 
 // T12: same threshold set as the director node / timeline clip inspectors —
@@ -108,7 +109,7 @@ import {
 import { BoardGridEditor } from './SpinnerInspectorSections.jsx';
 
 const STEPS = ['symbols', 'grid', 'preview'];
-const STEP_LABELS = { symbols: '1. Symbols', grid: '2. Grid', preview: '3. Preview' };
+const STEP_LABELS = { symbols: '1. Symbols', grid: '2. Grid', preview: '3. Spin!' };
 
 function uid(prefix = 's') {
   return `${prefix}${Math.random().toString(36).slice(2, 9)}`;
@@ -184,6 +185,20 @@ function findStaticForSymbol(symName, pngPool) {
     if (score > bestScore) { bestScore = score; best = a; }
   }
   return best;
+}
+
+/**
+ * T7: fallback gate for symbol auto-detection when there is NO recognizable
+ * Symbols folder structure. Without this the wizard scored every Spine rig in
+ * the whole project and turned any rig with a "win"/"land"-ish animation into a
+ * symbol — dragging in win_sequence, win_counter_multiplier and other non-symbol
+ * rigs as false positives. So the unstructured fallback only considers rigs
+ * whose file name (or a path segment) literally says "symbol". Manual land/win
+ * dropdowns still expose every Spine asset — this only bounds AUTO-detection.
+ */
+function looksLikeSymbolSpine(asset) {
+  if (/symbol/i.test(assetBaseName(asset))) return true;
+  return assetPathSegments(asset).some((s) => /symbol/i.test(s));
 }
 
 // ── Structure-driven detection ───────────────────────────────────────────────
@@ -403,21 +418,105 @@ function SpinnerPreviewTimeline({ run, time, onScrub }) {
   );
 }
 
-/** Land/win cell: spine file + resolved animation name, or what's missing. */
-function AnimBadge({ label, anim, spinePool }) {
+/** Land/win cell: renders the ACTUAL Spine pose through the live viewport
+ * (land = first frame, win = mid-clip frame) instead of just the animation
+ * name. Falls back to the resolved name / '?' / '✕' glyph while the pose bakes
+ * or when there's no renderer (overlay mode) / nothing to pose. */
+function AnimPoseThumb({ label, kind, anim, spinePool, skin, onRenderSpinePose, refreshNonce }) {
   const spineA = anim?.assetId ? spinePool.find((a) => a.id === anim.assetId) : null;
-  const state = spineA && anim?.anim ? 'ok' : spineA ? 'warn' : 'missing';
+  const animName = anim?.anim || '';
+  const state = spineA && animName ? 'ok' : spineA ? 'warn' : 'missing';
+  const [url, setUrl] = useState(null);
+  const [rendering, setRendering] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    let created = null;
+    let timer = null;
+    let tries = 0;
+    setUrl(null);
+    setRendering(false);
+    if (state !== 'ok' || !onRenderSpinePose) return undefined;
+    // land → first frame; win → mid-clip, to catch a more expressive pose.
+    const frac = kind === 'win' ? 0.5 : 0;
+    setRendering(true);
+    const attempt = async () => {
+      if (!alive) return;
+      try {
+        const blob = await onRenderSpinePose(spineA, animName, anim.loop !== false, skin || null, frac);
+        if (!alive) return;
+        if (blob) {
+          created = URL.createObjectURL(blob);
+          setUrl(created);
+          setRendering(false);
+          return;
+        }
+      } catch { /* fall through to retry / name fallback */ }
+      if (!alive) return;
+      // The preview scene may not have loaded this rig yet on the first tick —
+      // retry a few times before giving up and showing the name.
+      if (++tries < 6) timer = setTimeout(attempt, 450);
+      else setRendering(false);
+    };
+    attempt();
+    return () => {
+      alive = false;
+      if (created) URL.revokeObjectURL(created);
+      if (timer) clearTimeout(timer);
+    };
+  }, [state, anim?.assetId, animName, anim?.loop, skin, kind, onRenderSpinePose, refreshNonce]);
+
   const title =
-    state === 'ok' ? `${label}: ${assetBaseName(spineA)} → ${anim.anim}`
+    state === 'ok' ? `${label}: ${assetBaseName(spineA)} → ${animName}`
     : state === 'warn' ? `${label}: ${assetBaseName(spineA)} — animation name not resolved`
     : `${label}: no spine assigned`;
   return (
     <div className={'spinner-thumb spinner-thumb--anim spinner-thumb--' + state} title={title}>
       <span className="spinner-thumb-box">
-        {state === 'ok' ? <small>{anim.anim}</small> : state === 'warn' ? '?' : '✕'}
+        {url ? <img src={url} alt="" />
+          : state === 'ok' ? (rendering ? '…' : <small>{animName}</small>)
+          : state === 'warn' ? '?' : '✕'}
       </span>
       <em>{label}</em>
     </div>
+  );
+}
+
+/** Animation-clip picker for a symbol's land/win slot: a dropdown of the
+ * assigned rig's real animation names (parsed from its .json) so the artist
+ * picks the right clip instead of guessing the spelling. Falls back to a
+ * free-text field when the rig's animation list isn't known (unreadable json).
+ * Disabled until a Spine file is assigned in the sibling picker. */
+function AnimNamePicker({ symName, kind, conf, animOptions, onChange }) {
+  const assetId = conf?.assetId || null;
+  const value = conf?.anim || '';
+  if (assetId && animOptions.length) {
+    return (
+      <select
+        className="spinner-sym-asset spinner-sym-anim-name"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        title="Animation clip in the selected Spine skeleton"
+      >
+        <option value="">— {kind} anim —</option>
+        {animOptions.map((nm) => (
+          <option key={nm} value={nm}>{nm}</option>
+        ))}
+        {/* A value that isn't in the rig's list (renamed/edited clip) stays
+            visible + selected instead of silently blanking. */}
+        {value && !animOptions.includes(value) && <option value={value}>{value} (?)</option>}
+      </select>
+    );
+  }
+  return (
+    <input
+      className="spinner-sym-anim-name"
+      type="text"
+      placeholder={`${symName}_${kind}`}
+      value={value}
+      disabled={!assetId}
+      onChange={(e) => { if (assetId) onChange(e.target.value); }}
+    />
   );
 }
 
@@ -426,7 +525,7 @@ function AnimBadge({ label, anim, spinePool }) {
 export function SpinnerWizard({
   scene, assetItems, rootHandle, onClose, onCreate,
   existingConfig = null, existingName = null,
-  embedded = false, onPreviewScene, onPreviewTime, onBakeSpinePose, previewControlsRef = null, refreshNonce = 0,
+  embedded = false, onPreviewScene, onPreviewTime, onBakeSpinePose, onRenderSpinePose, previewControlsRef = null, refreshNonce = 0,
 }) {
   const isEdit = !!existingConfig;
   const [step, setStep] = useState('symbols');
@@ -449,6 +548,11 @@ export function SpinnerWizard({
   );
   const [assetFilter, setAssetFilter] = useState('');
   const [blurGenerating, setBlurGenerating] = useState(false);
+  // True across a "render blurs and continue" batch — spans both the static
+  // and anim-only generation passes (which each toggle blurGenerating), so the
+  // final "create spinner" button stays disabled for the whole span, not just
+  // one pass. Cleared when the batch settles (success or partial failure).
+  const [finalizingBlurs, setFinalizingBlurs] = useState(false);
   // { done, total, name } while generateBlurs runs, else null — drives the
   // progress bar so a batch of slow WASM calls doesn't look like a freeze.
   const [blurProgress, setBlurProgress] = useState(null);
@@ -540,19 +644,26 @@ export function SpinnerWizard({
   // Blur search order: detected Blurred folder first, then the whole pool.
   const blurSearchPool = structure ? [...structure.blurred, ...allPngAssets] : allPngAssets;
   // Anim search order: Spine assets from the symbols root's Animations folder
-  // first, then everything (a symbol with no in-root match stays unassigned —
-  // findSpineForSymbol matches by name, so unrelated spines don't leak in).
-  const animSearchPool = structure?.anims?.length ? structure.anims : allSpineAssets;
+  // first; otherwise fall back to only rigs that LOOK like symbols (name/path
+  // contains "symbol") — never the whole project pool, which used to admit
+  // win_sequence / win_counter_multiplier etc. as false-positive symbols.
+  const animSearchPool = structure?.anims?.length
+    ? structure.anims
+    : allSpineAssets.filter(looksLikeSymbolSpine);
 
   // ── Spine metadata (animations + skins) from the actual .json files ──────
   // assetId → { animations: string[]|null, skins: string[] }.
   const spineMetaCacheRef = useRef(new Map());
   const [spineSkinsById, setSpineSkinsById] = useState({});
+  // assetId → string[] of animation names, so the land/win pickers can offer a
+  // dropdown of the rig's real animations instead of a free-text field.
+  const [spineAnimsById, setSpineAnimsById] = useState({});
   // "Refresh assets" re-reads files from disk — drop cached anim-name lists so
   // edited spine .json files re-parse.
   useEffect(() => {
     spineMetaCacheRef.current.clear();
     setSpineSkinsById({});
+    setSpineAnimsById({});
   }, [refreshNonce]);
 
   const parseSpineSkins = (doc) => {
@@ -593,6 +704,13 @@ export function SpinnerWizard({
         const prevVal = prev[spineAsset.id] || [];
         if (prevVal.length === meta.skins.length && prevVal.every((v, i) => v === meta.skins[i])) return prev;
         return { ...prev, [spineAsset.id]: meta.skins };
+      });
+    }
+    if (Array.isArray(meta.animations) && meta.animations.length) {
+      setSpineAnimsById((prev) => {
+        const prevVal = prev[spineAsset.id] || [];
+        if (prevVal.length === meta.animations.length && prevVal.every((v, i) => v === meta.animations[i])) return prev;
+        return { ...prev, [spineAsset.id]: meta.animations };
       });
     }
     return meta;
@@ -831,13 +949,12 @@ export function SpinnerWizard({
   };
 
   // Symbols with no static PNG but a usable land/win Spine anim to pose from
-  // — the same condition spinnerRuntime.js's T7 idle-pose bake uses (keyed on
-  // `!assetId`, not the `animOnly` flag, which auto-detect sets but a
-  // manually-added symbol never gets).
-  const poseAnimConfFor = (sym) =>
-    sym.landAnim?.kind === 'spine' ? sym.landAnim
-    : sym.winAnim?.kind === 'spine' ? sym.winAnim
-    : null;
+  // — the same condition + land-before-win-first-frame preference the runtime's
+  // idle-pose bake uses (shared pickPoseAnimConf), keyed on `!assetId` not the
+  // `animOnly` flag (which auto-detect sets but a manually-added symbol never
+  // gets). Land is the idle source only when it has a resolved clip name; a
+  // symbol with only a win anim still bakes from the win clip's first frame.
+  const poseAnimConfFor = (sym) => pickPoseAnimConf(sym);
 
   // ── Generate blur variants for animation-only symbols ───────────────────────
   // Mirrors generateBlurs above, but the source isn't a static PNG — there
@@ -860,8 +977,9 @@ export function SpinnerWizard({
       setBlurProgress({ done: i, total: targets.length, name: sym.name || `symbol ${i + 1}` });
       await new Promise(requestAnimationFrame); // let the progress update (and Pixi) paint first
       const animConf = poseAnimConfFor(sym);
+      const spineA = allSpineAssets.find((a) => a.id === animConf.assetId) || null;
       try {
-        const blob = await onBakeSpinePose(animConf.assetId, animConf.anim, animConf.loop !== false, sym.skin || null, blur.sigma, blur.feather);
+        const blob = await onBakeSpinePose(spineA, animConf.anim, animConf.loop !== false, sym.skin || null, blur.sigma, blur.feather);
         if (!blob) throw new Error('idle-pose render returned nothing');
         const blobUrl = URL.createObjectURL(blob);
         const blurId  = uid('gen');
@@ -884,6 +1002,23 @@ export function SpinnerWizard({
   const symbolsWithStatic = symbols.filter((s) => s.assetId).length;
   const poseBakeSymbols = validSymbols.filter((s) => !s.assetId && poseAnimConfFor(s));
   const poseBlurNeeding = poseBakeSymbols.filter((s) => !s.blurAssetId).length;
+  const blursOutstanding = symbolsNeedingBlur > 0 || poseBlurNeeding > 0;
+
+  // Symbols-step primary action: generate the missing blurs (static + anim-only
+  // pose) while STAYING on the Symbols page (so the machine preview + progress
+  // bar stay put), then advance to Grid once the whole batch settles. Offered
+  // only when there's actually work left; once every symbol has a matched blur
+  // the plain "next →" takes over. `finalizingBlurs` spans both passes.
+  const renderBlursAndContinue = async () => {
+    setFinalizingBlurs(true);
+    try {
+      await generateBlurs(true);
+      await generateAnimOnlyBlurs(true);
+    } finally {
+      setFinalizingBlurs(false);
+      goToStep('grid');
+    }
+  };
   const skinOptionsForSymbol = (sym) => {
     const ids = [sym.landAnim?.assetId, sym.winAnim?.assetId].filter(Boolean);
     if (!ids.length) return [];
@@ -939,7 +1074,7 @@ export function SpinnerWizard({
   const [testRun, setTestRun] = useState(null); // { clips, total } | null
   // T12: the wizard's own re-roll surface — same seeded-outcome path as the
   // director node and timeline clip inspectors (spinnerModel.buildSpinnerTestClips).
-  const [testOutcome, setTestOutcome] = useState('default');
+  const [testOutcome, setTestOutcome] = useState('bigWin');
   const [testReroll, setTestReroll] = useState(0);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [previewTime, setPreviewTime] = useState(0);
@@ -1022,14 +1157,23 @@ export function SpinnerWizard({
     onPreviewScene(previewScene);
   }, [embedded, onPreviewScene, previewScene]);
 
+  // Auto-spin the moment the Spin! step is entered (first time AND on every
+  // re-entry), so the spinner demonstrates itself and the transport timeline
+  // appears without the artist having to click. Previously this required a
+  // spin to ALREADY be running (`if (!testRun) return`), so a fresh wizard
+  // never span on first entry. `wantAutoSpinRef` defers the spin until the
+  // (debounced) previewSpinnerConfig is actually ready.
+  const prevStepRef = useRef(step);
+  const wantAutoSpinRef = useRef(false);
   useEffect(() => {
-    if (!testRun || !previewSpinnerConfig || step !== 'preview') return;
-    setTestRun(buildSpinnerTestClips(previewSpinnerConfig, null, 0, initialBoard));
-    setPreviewPlaying(true);
-    testTimeRef.current = 0;
-    setPreviewTime(0);
-    onPreviewTime?.(0);
-  }, [step, previewSpinnerConfig, initialBoard]);
+    if (step === 'preview' && prevStepRef.current !== 'preview') wantAutoSpinRef.current = true;
+    prevStepRef.current = step;
+    if (wantAutoSpinRef.current && step === 'preview' && previewSpinnerConfig && validSymbols.length >= 2) {
+      wantAutoSpinRef.current = false;
+      runTestSpin();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, previewSpinnerConfig, validSymbols.length]);
 
   // Drive the preview clock; autoplay in the preview step and hold at the end.
   useEffect(() => {
@@ -1071,12 +1215,13 @@ export function SpinnerWizard({
     return () => { previewControlsRef.current = null; };
   }, [previewControlsRef, onPreviewTime]);
 
-  // Outcome selection and the resting board are now the SAME concept
-  // (2026-07-04): picking a Result / re-rolling computes a concrete board
-  // for that threshold and writes it straight into `initialBoard`, so the
-  // BoardGridEditor and the live preview at rest update immediately — no
-  // need to spin to see it. `Spin` below then just plays the animation
-  // landing on exactly that already-displayed board.
+  // Picking a Result / re-rolling computes a concrete board for that threshold,
+  // writes it straight into `initialBoard`, and then AUTO-SPINS onto it: rather
+  // than dropping the frozen frame and leaving the timeline empty (which forced
+  // a manual "rerun spin"), we request a fresh spin so the transport rebuilds
+  // and plays automatically. The spin itself is deferred to the auto-spin effect
+  // (via wantAutoSpinRef) so it runs once previewSpinnerConfig has caught up to
+  // the new board.
   const applyOutcomeBoard = useCallback((outcome, rerollSeed) => {
     // Uses the same live (non-debounced) grid/symbol values BoardGridEditor
     // itself renders with (previewConfig), not the debounced `bakedStruct`
@@ -1090,9 +1235,7 @@ export function SpinnerWizard({
       : generateOutcomeBoard(previewConfig, outcome, boardSeed);
     if (!board) return;
     setInitialBoard(board);
-    // Revert any frozen test-spin frame so the live preview shows the new
-    // board at rest immediately, instead of holding on a stale spin result.
-    setTestRun(null);
+    wantAutoSpinRef.current = true; // auto-spin onto the new board
   }, [validSymbols, reels, rows, seed, previewConfig]);
 
   const runTestSpin = () => {
@@ -1122,8 +1265,10 @@ export function SpinnerWizard({
   const goToStep = (next) => {
     if (next === 'preview') {
       const ids = validSymbols.map((s) => s.id);
-      if (ids.length >= 2)
-        setInitialBoard((prev) => prev || generateNonWinningBoard(ids, reels, rows, seed));
+      // First time into Spin!: seed the board from the default Result (big win)
+      // so the auto-spin lands on a win, not a blank non-winning board. On
+      // re-entry (board already set, possibly a hand-picked Result) leave it be.
+      if (ids.length >= 2 && !initialBoard) applyOutcomeBoard(testOutcome, 0);
     }
     setStep(next);
   };
@@ -1404,10 +1549,18 @@ export function SpinnerWizard({
                     </div>
 
                     <div className="spinner-sym-previews">
-                      <SymbolThumb label="static" asset={allPngAssets.find((a) => a.id === sym.assetId) || null} rootHandle={rootHandle} />
+                      {/* Animations-only symbols have no static art — don't show
+                          an empty ✕ box for them; the static thumb appears only
+                          once a static PNG is actually assigned (fill from statics
+                          or a manual pick). */}
+                      {sym.assetId && (
+                        <SymbolThumb label="static" asset={allPngAssets.find((a) => a.id === sym.assetId) || null} rootHandle={rootHandle} />
+                      )}
                       <SymbolThumb label="blur" asset={allPngAssets.find((a) => a.id === sym.blurAssetId) || null} rootHandle={rootHandle} />
-                      <AnimBadge label="land" anim={sym.landAnim} spinePool={allSpineAssets} />
-                      <AnimBadge label="win" anim={sym.winAnim} spinePool={allSpineAssets} />
+                      <AnimPoseThumb label="land" kind="land" anim={sym.landAnim} spinePool={allSpineAssets}
+                        skin={sym.skin} onRenderSpinePose={onRenderSpinePose} refreshNonce={refreshNonce} />
+                      <AnimPoseThumb label="win" kind="win" anim={sym.winAnim} spinePool={allSpineAssets}
+                        skin={sym.skin} onRenderSpinePose={onRenderSpinePose} refreshNonce={refreshNonce} />
                     </div>
 
                     {allSpineAssets.length > 0 && (
@@ -1443,14 +1596,14 @@ export function SpinnerWizard({
                             <option key={a.id} value={a.id}>{assetBaseName(a) || a.id}</option>
                           ))}
                         </select>
-                        <input
-                          className="spinner-sym-anim-name"
-                          type="text"
-                          placeholder={`${sym.name}_land`}
-                          value={sym.landAnim?.anim || ''}
-                          onChange={(e) => {
+                        <AnimNamePicker
+                          symName={sym.name}
+                          kind="land"
+                          conf={sym.landAnim}
+                          animOptions={spineAnimsById[sym.landAnim?.assetId] || []}
+                          onChange={(v) => {
                             if (sym.landAnim?.assetId)
-                              patchSymbol(i, { landAnim: { ...sym.landAnim, anim: e.target.value } });
+                              patchSymbol(i, { landAnim: { ...sym.landAnim, anim: v } });
                           }}
                         />
                         <NumberField
@@ -1476,14 +1629,14 @@ export function SpinnerWizard({
                             <option key={a.id} value={a.id}>{assetBaseName(a) || a.id}</option>
                           ))}
                         </select>
-                        <input
-                          className="spinner-sym-anim-name"
-                          type="text"
-                          placeholder={`${sym.name}_win`}
-                          value={sym.winAnim?.anim || ''}
-                          onChange={(e) => {
+                        <AnimNamePicker
+                          symName={sym.name}
+                          kind="win"
+                          conf={sym.winAnim}
+                          animOptions={spineAnimsById[sym.winAnim?.assetId] || []}
+                          onChange={(v) => {
                             if (sym.winAnim?.assetId)
-                              patchSymbol(i, { winAnim: { ...sym.winAnim, anim: e.target.value } });
+                              patchSymbol(i, { winAnim: { ...sym.winAnim, anim: v } });
                           }}
                         />
                         <NumberField
@@ -1630,7 +1783,45 @@ export function SpinnerWizard({
                 </>
               )}
 
-              <div className="scene-field-group-head">
+              {/* Spin Preview — always visible in this step so the transport
+                  timeline is there from the moment you enter (auto-spins on
+                  entry). "rerun spin" sits to the LEFT of the play/reset
+                  transport controls. */}
+              {embedded && (
+                <>
+                  <div className="scene-field-group-head" style={{ marginTop: 12 }}>
+                    Spin Preview
+                    <span className="scene-pill">autoplay + scrub</span>
+                  </div>
+                  <SpinnerPreviewTimeline run={testRun} time={previewTime} onScrub={scrubPreview} />
+                  <div className="spinner-wizard-auto-row" style={{ marginTop: 4 }}>
+                    <button
+                      type="button"
+                      className="scene-btn scene-btn--primary"
+                      onClick={runTestSpin}
+                      disabled={validSymbols.length < 2}
+                      title={`startSpin → spin (${(timing.minSpinTime ?? 1)}s) → stopSpin, landing on the board below exactly`}
+                    >
+                      🎰 rerun spin ({(timing.minSpinTime ?? 1)}s)
+                    </button>
+                    <button
+                      type="button"
+                      className="scene-btn scene-btn--ghost"
+                      onClick={() => setPreviewPlaying((p) => !p)}
+                      disabled={!testRun}
+                    >
+                      {previewPlaying ? '⏸ pause' : '▶ play'}
+                    </button>
+                    <button type="button" className="scene-btn scene-btn--ghost" onClick={resetPreview} disabled={!testRun}>⏮ reset</button>
+                    <span className="scene-spinner-meta" style={{ marginLeft: 'auto' }}>
+                      {previewTime.toFixed(2)} / {Math.max(0, testRun?.total || 0).toFixed(2)}s
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {/* Result — semi-random outcome + reroll, BELOW the timeline */}
+              <div className="scene-field-group-head" style={{ marginTop: 12 }}>
                 Result
                 <span className="scene-pill">sets the board below + the preview ↑</span>
               </div>
@@ -1673,29 +1864,6 @@ export function SpinnerWizard({
                 )}
               </div>
 
-              {embedded && testRun && (
-                <>
-                  <div className="scene-field-group-head" style={{ marginTop: 12 }}>
-                    Spin Preview
-                    <span className="scene-pill">autoplay + scrub</span>
-                  </div>
-                  <SpinnerPreviewTimeline run={testRun} time={previewTime} onScrub={scrubPreview} />
-                  <div className="spinner-wizard-auto-row" style={{ marginTop: 4 }}>
-                    <button
-                      type="button"
-                      className="scene-btn scene-btn--ghost"
-                      onClick={() => setPreviewPlaying((p) => !p)}
-                    >
-                      {previewPlaying ? '⏸ pause' : '▶ play'}
-                    </button>
-                    <button type="button" className="scene-btn scene-btn--ghost" onClick={resetPreview}>⏮ reset</button>
-                    <span className="scene-spinner-meta" style={{ marginLeft: 'auto' }}>
-                      {previewTime.toFixed(2)} / {Math.max(0, testRun.total).toFixed(2)}s
-                    </span>
-                  </div>
-                </>
-              )}
-
               <div className="scene-field-group-head" style={{ marginTop: 12 }}>Initial Board</div>
               {validSymbols.length >= 2 ? (
                 <>
@@ -1708,19 +1876,6 @@ export function SpinnerWizard({
               ) : (
                 <div className="scene-spinner-meta" style={{ color: 'var(--err, #f88)' }}>
                   Go back to Symbols — need at least 2.
-                </div>
-              )}
-              {embedded && (
-                <div className="spinner-wizard-auto-row" style={{ marginTop: 8 }}>
-                  <button
-                    type="button"
-                    className="scene-btn scene-btn--primary"
-                    onClick={runTestSpin}
-                    disabled={validSymbols.length < 2}
-                    title={`startSpin → spin (${(timing.minSpinTime ?? 1)}s) → stopSpin, landing on the board above exactly`}
-                  >
-                    🎰 rerun spin ({(timing.minSpinTime ?? 1)}s)
-                  </button>
                 </div>
               )}
 
@@ -1742,17 +1897,31 @@ export function SpinnerWizard({
               onClick={() => goToStep(STEPS[stepIdx - 1])}>← back</button>
           )}
           <div style={{ flex: 1 }} />
-          {step !== 'preview' ? (
+          {step === 'preview' ? (
+            <button type="button" className="scene-btn scene-btn--primary"
+              disabled={validSymbols.length < 2 || blurGenerating || finalizingBlurs}
+              title={blurGenerating || finalizingBlurs ? 'Waiting for blur generation to finish…' : undefined}
+              onClick={handleCreate}>
+              {blurGenerating || finalizingBlurs
+                ? '⏳ rendering blurs…'
+                : isEdit ? '✓ rebuild spinner' : '＋ create spinner'}
+            </button>
+          ) : step === 'symbols' && blursOutstanding ? (
+            // Primary action while blurs are still missing: render them (staying
+            // on this page, with the progress bar above) then advance. The plain
+            // "next →" only reappears once every symbol has a matched blur — to
+            // skip blur generation entirely, use the step tabs at the top.
+            <button type="button" className="scene-btn scene-btn--primary"
+              disabled={!canNext || blurGenerating || finalizingBlurs}
+              title="Render the missing blur PNGs (static + animation-only poses), then continue to Grid"
+              onClick={renderBlursAndContinue}>
+              {blurGenerating || finalizingBlurs ? '⏳ rendering blurs…' : '⚡ render blurs and continue'}
+            </button>
+          ) : (
             <button type="button" className="scene-btn scene-btn--primary"
               disabled={!canNext}
               onClick={() => goToStep(STEPS[stepIdx + 1])}>
               next →
-            </button>
-          ) : (
-            <button type="button" className="scene-btn scene-btn--primary"
-              disabled={validSymbols.length < 2}
-              onClick={handleCreate}>
-              {isEdit ? '✓ rebuild spinner' : '＋ create spinner'}
             </button>
           )}
         </div>
