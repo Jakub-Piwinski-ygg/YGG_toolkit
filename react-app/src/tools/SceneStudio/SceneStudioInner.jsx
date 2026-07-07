@@ -1322,6 +1322,30 @@ export default function SceneStudioInner() {
     log('Scene Studio: + static square', 'ok');
   }, [log]);
 
+  // Add an empty folder — a plain container ('empty' asset, no sceneSetup) that
+  // can parent other layers. Same idea as the groups Scene Setup creates, but
+  // spawned on demand so the user can organise the hierarchy freely.
+  const handleAddFolder = useCallback(() => {
+    if (studioModeRef.current !== 'setup') { setStudioMode('setup'); studioModeRef.current = 'setup'; }
+    const newLayerId = uid('L');
+    setScene((prev) => {
+      const asset = { id: uid('a'), type: 'empty', meta: { originalName: 'Folder' } };
+      const canvasId = prev.activeCanvasId || prev.canvases[0].id;
+      const transforms = defaultTransformsForNewLayer(prev.stage);
+      return {
+        ...prev,
+        assets: [...prev.assets, asset],
+        layers: [...prev.layers, {
+          id: newLayerId, name: 'Folder', assetId: asset.id, canvasId, parentId: null,
+          visible: true, blend: 'normal',
+          transforms: { landscape: { ...transforms.landscape }, portrait: null },
+        }],
+      };
+    });
+    setSelectedLayerId(newLayerId);
+    log('Scene Studio: + folder', 'ok');
+  }, [log]);
+
   // Build a parented scene skeleton from the Scene Setup wizard.
   //   root (empty, stores the setup config for re-entry)
   //   └─ background (static ?? bg-anim)
@@ -4070,6 +4094,12 @@ export default function SceneStudioInner() {
                 disabled={busy}
                 title="Add an empty static object — a plain square you can scale, position and tint (colour)"
               >◻ Static</button>
+              <button
+                className="scene-btn scene-toolkit-launch"
+                onClick={handleAddFolder}
+                disabled={busy}
+                title="Add an empty folder — a plain container you can parent other layers under (like the groups Scene Setup creates)"
+              >📁 Folder</button>
               <span className="scene-toolkit-bar-hint">click / drop assets from the workspace to add statics</span>
             </div>
           )}
