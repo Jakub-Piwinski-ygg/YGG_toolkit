@@ -4466,6 +4466,7 @@ export default function SceneStudioInner() {
             onMoveKeyByFrame={handleMoveKeyByFrame}
             onPatchLayer={handlePatchLayer}
             onPatchTransform={handlePatchTransform}
+            onAddKeys={handleAddKeys}
             onResetPortrait={handleResetPortrait}
             onPatchFlow={patchFlow}
             onFlowAction={handleFlowAction}

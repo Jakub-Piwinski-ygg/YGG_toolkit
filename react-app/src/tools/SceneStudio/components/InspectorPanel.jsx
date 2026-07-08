@@ -127,6 +127,7 @@ export function InspectorPanel({
   onMoveKeyByFrame,
   onPatchLayer,
   onPatchTransform,
+  onAddKeys,
   onResetPortrait,
   onPatchFlow,
   onFlowAction,
@@ -366,44 +367,53 @@ export function InspectorPanel({
         </div>
 
         <TransformField
-          label="x" prop="x" value={disp.x - cx} step={1}
+          label="x" prop="x" channel="position" value={disp.x - cx} step={1}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
+          onAddKey={onAddKeys}
           onChange={(v) => onPatchTransform(layer.id, { x: v + cx })}
         />
         <TransformField
-          label="y" prop="y" value={disp.y - cy} step={1}
+          label="y" prop="y" channel="position" value={disp.y - cy} step={1}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.position}
+          onAddKey={onAddKeys}
           onChange={(v) => onPatchTransform(layer.id, { y: v + cy })}
         />
         <TransformField
-          label="scale x" prop="scaleX" value={disp.scaleX} step={0.01} min={0.01}
+          label="scale x" prop="scaleX" channel="scale" value={disp.scaleX} step={0.01} min={0.01}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.scale}
+          onAddKey={onAddKeys}
           onChange={(v) => onPatchTransform(layer.id, { scaleX: v })}
         />
         <TransformField
-          label="scale y" prop="scaleY" value={disp.scaleY} step={0.01} min={0.01}
+          label="scale y" prop="scaleY" channel="scale" value={disp.scaleY} step={0.01} min={0.01}
           recording={!!recordingClip} hasChannel={!!recordingChannels?.scale}
+          onAddKey={onAddKeys}
           onChange={(v) => onPatchTransform(layer.id, { scaleY: v })}
         />
         <TransformField
-          label="rotation" prop="rotation"
+          label="rotation" prop="rotation" channel="rotation"
           value={(disp.rotation * 180) / Math.PI} step={1} suffix="°"
           recording={!!recordingClip} hasChannel={!!recordingChannels?.rotation}
+          onAddKey={onAddKeys}
           onChange={(v) => onPatchTransform(layer.id, { rotation: (v * Math.PI) / 180 })}
         />
 
         <ColorField
           label="tint"
+          channel="tint"
           value={disp.tint}
           recording={!!recordingClip}
           hasChannel={!!recordingChannels?.tint}
+          onAddKey={onAddKeys}
           onChange={(rgb) => onPatchTransform(layer.id, { tint: rgb })}
         />
 
         <AlphaSlider
+          channel="alpha"
           value={disp.alpha}
           recording={!!recordingClip}
           hasChannel={!!recordingChannels?.alpha}
+          onAddKey={onAddKeys}
           onChange={(v) => onPatchTransform(layer.id, { alpha: Math.max(0, Math.min(1, v)) })}
         />
 
@@ -459,25 +469,42 @@ export function InspectorPanel({
 }
 
 /**
- * Thin wrapper over DragNumberField that shows a small diamond next to
- * the label when the selected clip has a channel for this property
- * (= editing here writes a keyframe instead of the base pose).
+ * Keyframe diamond, rendered FIRST on a property row (left of the label).
+ * Solid gold ◆ = this channel is keyed on the recording clip; hollow ◇ =
+ * recording but not yet keyed. Clicking it explicitly adds/updates a key for
+ * the whole `channel` at the playhead (via onAddKey → handleAddKeys) — the
+ * same result as "add key above timeline", but per-property and one click.
+ * When not recording there's no clip to key into, so we render an inert
+ * placeholder that just reserves the slot to keep labels aligned.
  */
-function TransformField({ label, prop, value, step, min, max, suffix, recording, hasChannel, onChange }) {
-  const indicator = hasChannel ? '◆' : (recording ? '◇' : null);
+function KeyIndicator({ prop, channel, recording, hasChannel, onAddKey }) {
+  if (!recording) {
+    return <span className="scene-kf-indicator scene-kf-indicator--empty" aria-hidden="true" />;
+  }
+  return (
+    <button
+      type="button"
+      className={'scene-kf-indicator scene-kf-indicator--btn' + (hasChannel ? ' is-keyed' : '')}
+      title={hasChannel
+        ? `${prop} is keyframed on this clip — click to add/update a key at the playhead`
+        : `${prop} is not keyframed yet — click to add a key at the playhead`}
+      onClick={(e) => { e.stopPropagation(); onAddKey?.(channel); }}
+    >
+      {hasChannel ? '◆' : '◇'}
+    </button>
+  );
+}
+
+/**
+ * Thin wrapper over DragNumberField that shows the keyframe diamond to the
+ * left of the label when a clip is being recorded on this layer. Editing the
+ * field writes a keyframe (auto-key); clicking the diamond adds one directly.
+ */
+function TransformField({ label, prop, channel, value, step, min, max, suffix, recording, hasChannel, onAddKey, onChange }) {
   return (
     <div className="scene-field-row-wrap">
+      <KeyIndicator prop={prop} channel={channel} recording={recording} hasChannel={hasChannel} onAddKey={onAddKey} />
       <DragNumberField label={label} value={value} step={step} min={min} max={max} suffix={suffix} onChange={onChange} />
-      {indicator && (
-        <span
-          className={'scene-kf-indicator' + (hasChannel ? ' is-keyed' : '')}
-          title={hasChannel
-            ? `${prop} is keyframed on this clip — next edit updates a key at the playhead`
-            : `${prop} is not keyframed yet — next edit creates a key on this clip at the playhead`}
-        >
-          {indicator}
-        </span>
-      )}
     </div>
   );
 }
@@ -487,26 +514,16 @@ function TransformField({ label, prop, value, step, min, max, suffix, recording,
  * keyframe diamond indicator so artists see whether tint is currently
  * keyframed on the active clip.
  */
-function ColorField({ label, value, recording, hasChannel, onChange }) {
+function ColorField({ label, channel, value, recording, hasChannel, onAddKey, onChange }) {
   const hex = tintToHex(value);
-  const indicator = hasChannel ? '◆' : (recording ? '◇' : null);
   return (
     <div className="scene-field-row-wrap">
+      <KeyIndicator prop="tint" channel={channel} recording={recording} hasChannel={hasChannel} onAddKey={onAddKey} />
       <label className="scene-field scene-field--inline scene-field--color">
         <span className="scene-field-scrub-handle" title="Pick a tint colour">{label}</span>
         <ColorPicker value={hex} onChange={(nextHex) => onChange(hexToTint(nextHex))} title="Pick a tint colour" />
         <em className="scene-field-suffix">{hex.toUpperCase()}</em>
       </label>
-      {indicator && (
-        <span
-          className={'scene-kf-indicator' + (hasChannel ? ' is-keyed' : '')}
-          title={hasChannel
-            ? 'tint is keyframed on this clip — next colour change updates a key at the playhead'
-            : 'tint is not keyframed yet — next colour change creates a key on this clip at the playhead'}
-        >
-          {indicator}
-        </span>
-      )}
     </div>
   );
 }
@@ -519,11 +536,11 @@ function ColorField({ label, value, recording, hasChannel, onChange }) {
  * field, so the "no clamp while typing" rule doesn't apply — it drives the
  * value live on input.
  */
-function AlphaSlider({ value, recording, hasChannel, onChange }) {
+function AlphaSlider({ channel, value, recording, hasChannel, onAddKey, onChange }) {
   const a = Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1;
-  const indicator = hasChannel ? '◆' : (recording ? '◇' : null);
   return (
     <div className="scene-field-row-wrap">
+      <KeyIndicator prop="alpha" channel={channel} recording={recording} hasChannel={hasChannel} onAddKey={onAddKey} />
       <label className="scene-field scene-field--inline scene-field--alpha">
         <span className="scene-field-scrub-handle" title="Object opacity — 0 hides it (and closes the hierarchy eye)">alpha</span>
         <input
@@ -537,16 +554,6 @@ function AlphaSlider({ value, recording, hasChannel, onChange }) {
         />
         <em className="scene-field-suffix">{a.toFixed(2)}</em>
       </label>
-      {indicator && (
-        <span
-          className={'scene-kf-indicator' + (hasChannel ? ' is-keyed' : '')}
-          title={hasChannel
-            ? 'alpha is keyframed on this clip — next change updates a key at the playhead'
-            : 'alpha is not keyframed yet — next change creates a key on this clip at the playhead'}
-        >
-          {indicator}
-        </span>
-      )}
     </div>
   );
 }

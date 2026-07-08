@@ -1830,8 +1830,28 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   text-align: center;
   font-size: 10px;
   color: var(--text-2, #6a7288);
-  margin-left: 4px;
+  margin-right: 4px;
   flex-shrink: 0;
+}
+/* Clickable diamond: adds/updates a key for this property at the playhead. */
+.scene-kf-indicator--btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.1s, transform 0.1s;
+}
+.scene-kf-indicator--btn:hover {
+  color: #ffd166;
+  transform: scale(1.25);
+}
+.scene-kf-indicator--btn:active {
+  transform: scale(0.95);
+}
+/* Inert slot when not recording — reserves width so labels stay aligned. */
+.scene-kf-indicator--empty {
+  pointer-events: none;
 }
 .scene-kf-indicator.is-keyed {
   color: #ffd166;

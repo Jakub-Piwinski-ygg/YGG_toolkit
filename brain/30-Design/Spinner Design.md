@@ -3,7 +3,7 @@ type: design
 tool: Spinner
 category: 🎬 Scene Studio
 status: shipped
-updated: 2026-07-07
+updated: 2026-07-08
 source: react-app/SPINNER.md
 tags: [design, scene-studio, spinner, slot]
 ---
@@ -14,7 +14,16 @@ tags: [design, scene-studio, spinner, slot]
 > Full design + milestone status: [`react-app/SPINNER.md`](../../react-app/SPINNER.md).
 > Unity-export work is logged across [[Spinner Unity Phase 2]] → [[Spinner Unity Phase 5]].
 
-> [!note] Latest (2026-07-07)
+> [!note] Latest (2026-07-08)
+> Per-symbol **idle-frame** selector — any skeleton animation, first/last frame,
+> as the resting texture + blur source (`resolveIdlePose`; defaults land→last,
+> win→first). **One Spine skeleton per symbol** (single dropdown; land+win clips
+> come from it). **Preview perf**: idle edits live-re-bake one texture instead of
+> a full rebuild, baked textures cached, GPU readback + overlay-pool build
+> deferred. New scene-view **background-activity bar** during structural rebuilds.
+> See [[Session 2026-07-08 Scene Studio Spinner Idle Frame and Preview Perf]].
+
+> [!note] Prev (2026-07-07)
 > Wizard round: land/win preview cells render the real Spine pose + an anim-clip
 > dropdown; pose baking moved to an isolated renderer (fixed scene-graph
 > corruption + preview blanking); win anims play once & hold; idle/blur falls

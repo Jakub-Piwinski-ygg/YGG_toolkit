@@ -3,7 +3,7 @@ type: session
 tool: Scene Studio
 category: 🎬 Scene Studio
 status: in-progress
-updated: 2026-07-04
+updated: 2026-07-08
 lang: en
 source: react-app/SCENE_STUDIO_PHASE_STATUS.md
 tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, tracks]
@@ -14,6 +14,31 @@ tags: [session, scene-studio, changelog, spinner, win-sequences, unity, spine, t
 > [!info] Translated from Polish
 > English translation of [`react-app/SCENE_STUDIO_PHASE_STATUS.md`](../../react-app/SCENE_STUDIO_PHASE_STATUS.md)
 > (the session-by-session, most-current log). Technical detail preserved verbatim.
+
+## Spinner Wizard — per-symbol idle frame, single skeleton, preview perf, activity bar (2026-07-08)
+
+Full session note: [[Session 2026-07-08 Scene Studio Spinner Idle Frame and Preview Perf]].
+Everything builds; `spinnerEval` 66/66, `structuralHash` 18/18, prefab spinner 5/5,
+spinnerTrack 19/19, persist 10/10.
+
+- **Per-symbol idle-frame selector.** Animation-only symbols choose which animation
+  frame is their resting texture + blur source — **any animation in the symbol's
+  skeleton**, first or last frame. Lives where the static-PNG dropdown was; that
+  dropdown is hidden for anim symbols. `resolveIdlePose` is the single source of
+  truth (wizard display + `pickPoseAnimConf` bake + live-patch), model
+  `idlePose: { anim, frame } | null`. Defaults: land → last frame, else win → first
+  frame. Fixed a loop-wrap bug (last == first) and a UI/bake value mismatch.
+- **Single Spine skeleton per symbol.** One skeleton dropdown (after the name)
+  replaces the separate land/win spine pickers; land + win clips come from it
+  (`assignSymbolSkeleton`). Data shape unchanged → runtime/export untouched.
+- **Preview perf.** Idle-frame edits are no longer structural — live-re-baked via
+  `refreshSpinnerIdle` (no full rebuild / overlay-pool rebuild). Baked idle/blur
+  textures cached module-side; GPU readback deferred into the blur queue; overlay-
+  pool build deferred to the background for the wizard preview
+  (`scene.__previewSpinner`).
+- **Scene-view activity bar.** `.scene-rebuild-bar` shows along the bottom while any
+  structural rebuild (skeleton/texture loads) is in flight (`PixiViewport`
+  `rebuilding`).
 
 ## T7 (2–4/4): animations-only spinner symbol pipeline (2026-07-04)
 

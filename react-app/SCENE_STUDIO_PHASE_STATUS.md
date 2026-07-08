@@ -1,4 +1,58 @@
-# Scene Studio — status po sesji (2026-07-07)
+# Scene Studio — status po sesji (2026-07-08)
+
+## Spinner Wizard — wybór klatki idle, jeden szkielet na symbol, wydajność podglądu, pasek postępu (2026-07-08)
+
+Sesja skupiona na kreatorze Spinnera (symbole animacyjne) + jedna zmiana ogólna
+w widoku sceny. Wszystko zbudowane (`npm run build` OK); `spinnerEval` 66/66,
+`structuralHash` 18/18, prefab spinner 5/5, spinnerTrack 19/19, persist 10/10
+(po drodze naprawiono przestarzały test domyślnej `sigma` bluru: 8→36).
+
+- **Wybór klatki „idle" per symbol ✅.** Symbol bez statycznego PNG (animacyjny)
+  dostał selektor, która klatka animacji jest jego teksturą spoczynkową (idle) i
+  źródłem blura. Początkowo tylko land/win pierwsza/ostatnia; docelowo **dowolna
+  animacja ze szkieletu** (pierwsza/ostatnia klatka każdej). Jedno źródło prawdy
+  `resolveIdlePose` (`engine/spinner/spinnerModel.js`) dzielone przez UI, bake
+  (`pickPoseAnimConf`) i live-patch — muszą się zgadzać, inaczej UI pokazuje jedną
+  klatkę, a render piecze inną. Domyślne (gdy nieustawione): **land → OSTATNIA
+  klatka** (poza po wylądowaniu), inaczej **win → PIERWSZA klatka** (neutralna;
+  ostatnia klatka win to pełny wybuch FX — kiepskie idle i wielka/wolna tekstura).
+  Model `idlePose: { anim, frame } | null` (stara forma `{source, frame}` nadal
+  mapowana). Selektor przeniesiony na miejsce dropdowna statycznego PNG; dla
+  symboli animacyjnych dropdown statyczny jest ukryty.
+
+- **Dwa błędy przy okazji ✅.** (1) Migawka pozy zapętlała się —
+  `setTrackTime(dur)` na zapętlonym torze zawijał do klatki 0, więc „ostatnia" ==
+  „pierwsza"; teraz bake wymusza `loop=false`. (2) Wartość dropdowna nie zgadzała
+  się z piczoną klatką (UI pokazywał „win first", a piekło „win last").
+
+- **Jeden szkielet Spine na symbol ✅.** Dwa osobne dropdowny (land/win) zastąpione
+  JEDNYM dropdownem szkieletu (po nazwie symbolu, na lewo od selektora idle); klipy
+  land/win wybierane z tego jednego szkieletu (`assignSymbolSkeleton` ustawia oba
+  `landAnim.assetId` + `winAnim.assetId` na to samo). Kształt modelu bez zmian, więc
+  runtime/eksport nietknięte.
+
+- **Wydajność podglądu ✅.** Zmiana klatki idle NIE jest już strukturalna
+  (`spinnerStructuralSig` bez `idlePose`) — `applyRuntimeConfigs` piecze na żywo
+  tylko jedną zmienioną teksturę (`refreshSpinnerIdle`) zamiast pełnego przebudowania
+  (+ całej puli overlayów). Bakowane tekstury idle/blur cache'owane modułowo
+  (klucz `assetId~anim~skin~frame` [+ sigma/feather]); czyszczone przy niszczeniu
+  aplikacji i przy „refresh assets". Odczyt GPU (`extract.canvas`) przeniesiony z
+  ścieżki krytycznej do kolejki bluru. Budowa ciężkiej puli overlayów land/win
+  odroczona w tło dla podglądu kreatora (`scene.__previewSpinner`) — maszyna
+  pojawia się natychmiast.
+
+- **Pasek aktywności w tle ✅.** Na dole widoku sceny pojawia się pasek postępu
+  (`PixiViewport` stan `rebuilding` → `.scene-rebuild-bar`), gdy trwa jakakolwiek
+  przebudowa strukturalna (ładowanie/przeładowanie szkieletów, tekstur), żeby
+  użytkownik wiedział, że coś się dzieje. Tylko najnowszy build czyści pasek.
+
+Pliki: `engine/spinner/spinnerModel.js` (`resolveIdlePose`, `pickPoseAnimConf`,
+`normalizeIdlePose`), `engine/spinner/spinnerRuntime.js` (cache, defer extract,
+defer puli, `refreshSpinnerIdle`, `clearSpinnerBakeCache`, `bakeSpinePoseSharpTexture`
+`wantCanvas`), `engine/structuralHash.js`, `engine/pixiApp.js` (live-patch idle,
+czyszczenie cache), `components/SpinnerWizard.jsx` (selektor idle, dropdown szkieletu,
+`assignSymbolSkeleton`), `components/PixiViewport.jsx` (`rebuilding` + pasek),
+`styles/scene-studio.css`, `SPINNER.md`, testy `spinnerEval.test.js`.
 
 ## Spinner Wizard — podgląd póz, autospin, izolowany bake i renderowanie blurów (2026-07-07)
 
