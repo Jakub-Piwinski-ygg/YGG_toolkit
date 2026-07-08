@@ -171,22 +171,6 @@ function findSpineForSymbol(symName, spinePool) {
   return best;
 }
 
-/** T7: the inverse of findSpineForSymbol — an OPTIONAL static PNG match for a
- * symbol discovered from its animation, when the animations-only pipeline is
- * the entry point. Returns null (not an error) when there simply isn't one —
- * that's the expected, common case for an animations-only symbol. */
-function findStaticForSymbol(symName, pngPool) {
-  if (!symName || !pngPool.length) return null;
-  let best = null;
-  let bestScore = 0;
-  for (const a of pngPool) {
-    if (isBlurVariant(a)) continue;
-    const score = spineMatchScore(symName, assetBaseName(a));
-    if (score > bestScore) { bestScore = score; best = a; }
-  }
-  return best;
-}
-
 /**
  * T7: fallback gate for symbol auto-detection when there is NO recognizable
  * Symbols folder structure. Without this the wizard scored every Spine rig in
@@ -781,14 +765,15 @@ export function SpinnerWizard({
     setSymbols(built);
   };
 
-  // T7: animations-only pipeline, now the DEFAULT/primary auto-fill — one
-  // symbol per Spine rig (the common "one file per symbol, land+win anims
-  // inside it" convention), with a static PNG attached only as an OPTIONAL
-  // enrichment when one happens to match by name. Skips static-art rendering
-  // for symbols entirely: the resting/idle texture is baked at build time
-  // from the land (or win) animation's first frame — see
-  // spinnerRuntime.bakeSpinePoseTexture — and post-win the symbol holds its
-  // last computed pose instead of needing a static to revert to.
+  // T7: animations-only pipeline, the DEFAULT/primary auto-fill — one symbol
+  // per Spine rig (the common "one file per symbol, land+win anims inside it"
+  // convention). Statics are NEVER auto-attached here: the resting/idle texture
+  // is baked at build time from the land (or win) animation's first frame (see
+  // spinnerRuntime.bakeSpinePoseTexture) and post-win the symbol holds its last
+  // computed pose. Auto-attaching a name-matched PNG from the whole project pool
+  // used to fuzzy-match backgrounds/UI/false positives — some symbols ended up
+  // with a static (4-icon panel), some without (3-icon), inconsistently. The
+  // artist can still add a static by hand via the per-symbol dropdown.
   const autoFillFromAnimations = async () => {
     if (!animSearchPool.length) return;
     const built = await Promise.all(
@@ -796,19 +781,13 @@ export function SpinnerWizard({
         const symName = assetBaseName(spineA);
         const anims = await resolveAnimsFor(symName, spineA);
         if (!anims.landAnim?.anim && !anims.winAnim?.anim) return null; // this rig has neither — not a symbol
-        const staticA = findStaticForSymbol(symName, allPngAssets);
-        const blurAsset = staticA ? findBlurPair(staticA, blurSearchPool) : null;
         return {
           id: uid('sym'),
           name: symName,
-          assetId: staticA?.id || null,
-          blurAssetId: blurAsset?.id || null,
+          assetId: null,       // animations-first → no static art, idle pose baked from anim
+          blurAssetId: null,   // blur is generated from the baked pose, not a static PNG
           skin: anims.skin || null,
-          // A matching static was found anyway (mixed project) — treat this
-          // symbol as an ordinary static one; only mark animOnly when there
-          // really is no static art, so hold-last-pose timing (spinnerEval's
-          // isAnimOnlySymbol) only ever applies to symbols that mean it.
-          animOnly: !staticA,
+          animOnly: true,
           ...anims,
         };
       })
