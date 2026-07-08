@@ -17,6 +17,8 @@ import {
   buildSpinnerTestClips,
   defaultSpinnerTiming,
   defaultSpinnerBlur,
+  pickPoseAnimConf,
+  resolveIdlePose,
   mulberry32
 } from './spinnerModel.js';
 import {
@@ -51,6 +53,64 @@ function standardTrack(extra = {}) {
     ]
   };
 }
+
+// ── Idle-pose frame selection (pickPoseAnimConf) ───────────────────────
+
+const landA = { kind: 'spine', assetId: 'rig', anim: 'land', loop: true };
+const winA = { kind: 'spine', assetId: 'rig', anim: 'win', loop: false };
+
+test('idle pose: defaults to last frame of landing when no idlePose set', () => {
+  const conf = pickPoseAnimConf({ landAnim: landA, winAnim: winA });
+  assert.equal(conf.anim, 'land');
+  assert.equal(conf.poseFrac, 1);
+});
+
+test('idle pose: first-frame selection yields poseFrac 0', () => {
+  const conf = pickPoseAnimConf({ landAnim: landA, winAnim: winA, idlePose: { source: 'land', frame: 'first' } });
+  assert.equal(conf.anim, 'land');
+  assert.equal(conf.poseFrac, 0);
+});
+
+test('idle pose: win source picks the win clip', () => {
+  const conf = pickPoseAnimConf({ landAnim: landA, winAnim: winA, idlePose: { source: 'win', frame: 'last' } });
+  assert.equal(conf.anim, 'win');
+  assert.equal(conf.poseFrac, 1);
+});
+
+test('idle pose: win-only symbol defaults to the FIRST win frame (neutral pose)', () => {
+  const conf = pickPoseAnimConf({ landAnim: null, winAnim: winA });
+  assert.equal(conf.anim, 'win');
+  assert.equal(conf.poseFrac, 0);
+});
+
+test('idle pose: legacy source falls back to the other clip but keeps the chosen frame', () => {
+  // asked for land (absent) → win; explicit frame:'last' preserved
+  const conf = pickPoseAnimConf({ landAnim: null, winAnim: winA, idlePose: { source: 'land', frame: 'last' } });
+  assert.equal(conf.anim, 'win');
+  assert.equal(conf.poseFrac, 1);
+});
+
+test('idle pose: any skeleton animation can be the idle (arbitrary anim name)', () => {
+  const conf = pickPoseAnimConf({ landAnim: landA, winAnim: winA, idlePose: { anim: 'idle_special', frame: 'last' } });
+  assert.equal(conf.assetId, 'rig');
+  assert.equal(conf.anim, 'idle_special');
+  assert.equal(conf.poseFrac, 1);
+});
+
+test('idle pose: returns null when there is no skeleton to pose from', () => {
+  assert.equal(pickPoseAnimConf({ landAnim: null, winAnim: null }), null);
+  assert.equal(resolveIdlePose({ landAnim: null, winAnim: null }), null);
+});
+
+test('idle pose: resolveIdlePose defaults — land→last, win→first (with skeleton id)', () => {
+  assert.deepEqual(resolveIdlePose({ landAnim: landA, winAnim: winA }), { assetId: 'rig', anim: 'land', frame: 'last' });
+  assert.deepEqual(resolveIdlePose({ landAnim: null, winAnim: winA }), { assetId: 'rig', anim: 'win', frame: 'first' });
+});
+
+test('idle pose: normalizeSpinnerConfig leaves idlePose null when unset', () => {
+  const cfg = makeConfig();
+  assert.equal(cfg.symbols[0].idlePose, null);
+});
 
 // ── Ways win evaluation ────────────────────────────────────────────────
 
@@ -876,7 +936,7 @@ test('defaultSpinnerTiming matches the updated design defaults', () => {
 });
 
 test('grid schema: blur sigma/feather default and clamp, shared by static-symbol generation and the animOnly runtime bake', () => {
-  assert.deepEqual(defaultSpinnerBlur(), { enabled: true, vLo: 4, vHi: 9, sigma: 8, feather: 4 });
+  assert.deepEqual(defaultSpinnerBlur(), { enabled: true, vLo: 4, vHi: 9, sigma: 36, feather: 4 });
   const cfg = makeConfig({ blur: { sigma: 0, feather: -5 } });
   assert.equal(cfg.blur.sigma, 1, 'clamped to the [1, 64] minimum');
   assert.equal(cfg.blur.feather, 0, 'clamped to the [0, 32] minimum');

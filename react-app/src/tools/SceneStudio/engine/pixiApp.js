@@ -21,8 +21,8 @@ import { CHANNEL_DEFS, CHANNEL_NAMES, channelFirstKeyTime, clipLocalSeconds, eva
 import { resolvePointHandles } from './animation/pathSpline.js';
 import { Spine } from '@esotericsoftware/spine-pixi-v8';
 import { buildSpineFromUrls, loadSkeletonData, applySpineState, describeSpine, snapshotSpineBounds } from './spineLoader.js';
-import { buildSpinnerObject, applySpinnerAtTime, relayoutSpinnerGeometry, setSpinnerCellGizmoVisible } from './spinner/spinnerRuntime.js';
-import { normalizeSpinnerConfig } from './spinner/spinnerModel.js';
+import { buildSpinnerObject, applySpinnerAtTime, relayoutSpinnerGeometry, setSpinnerCellGizmoVisible, refreshSpinnerIdle, clearSpinnerBakeCache } from './spinner/spinnerRuntime.js';
+import { normalizeSpinnerConfig, pickPoseAnimConf } from './spinner/spinnerModel.js';
 import { spinnerStructuralSig, winseqNumberSig } from './structuralHash.js';
 
 // The rebuild-gate model lives in structuralHash.js (pure, unit-testable);
@@ -170,6 +170,9 @@ export function loadDeviceGuideTexture(mode) {
 
 export function destroyPixiApp(app) {
   if (!app) return;
+  // The spinner idle/blur texture cache holds textures owned by this app's
+  // renderer — they're invalid once its GL context is gone.
+  try { clearSpinnerBakeCache(); } catch { /* ignore */ }
   try {
     app.destroy(true, { children: true, texture: false });
   } catch {
@@ -1125,6 +1128,24 @@ export function applyRuntimeConfigs(handles, scene, studioMode) {
           sp.config = next;
           sp.symbolMap = new Map(next.symbols.map((s) => [s.id, s]));
           sp.resolveKey = null; // force re-resolve on the next apply
+          // Idle-frame edits are NOT structural (spinnerStructuralSig) so they
+          // reach here instead of rebuilding — re-bake just the changed animOnly
+          // symbol's resting texture (cache hit = instant; miss = one cheap
+          // sharp bake), then re-apply so it shows.
+          for (const s of next.symbols) {
+            if (s.assetId) continue; // static symbol: idle is the PNG
+            const a = pickPoseAnimConf(prevSym.get(s.id));
+            const b = pickPoseAnimConf(s);
+            const ka = a ? `${a.assetId}~${a.anim}~${a.poseFrac}` : '-';
+            const kb = b ? `${b.assetId}~${b.anim}~${b.poseFrac}` : '-';
+            if (ka === kb) continue;
+            const pr = refreshSpinnerIdle(sp, s.id);
+            if (pr) pr.then(() => {
+              if (studioMode === 'setup' && !obj.destroyed) {
+                try { applySpinnerAtTime(obj, layer, [], 0); } catch { /* ignore */ }
+              }
+            }).catch(() => {});
+          }
           // Cell size / spacing are geometry, not topology — resize the built
           // containers in place (reel/row counts are sig-guarded above).
           const g = next.grid;

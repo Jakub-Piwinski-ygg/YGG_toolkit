@@ -1107,6 +1107,13 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   outline: 2px dashed var(--accent, #4f9eff);
   outline-offset: -8px;
 }
+.scene-pixi-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
 .scene-pixi-host {
   position: relative;
   width: 100%;
@@ -1115,6 +1122,58 @@ body.fullbleed-tool-active .main-panel { flex: 1; }
   min-height: 0;
   overflow: hidden;
   pointer-events: auto;
+}
+
+/* Background-activity bar: shown along the bottom of the scene view while a
+   structural rebuild (skeleton/texture loads) is in flight. */
+.scene-rebuild-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: rgba(13, 14, 17, 0.82);
+  border-top: 1px solid rgba(116, 217, 255, 0.35);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+  animation: scene-rebuild-fade 0.12s ease-out;
+}
+.scene-rebuild-bar-label {
+  flex: 0 0 auto;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: #74d9ff;
+  opacity: 0.9;
+}
+.scene-rebuild-bar-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 3px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(116, 217, 255, 0.16);
+}
+.scene-rebuild-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 35%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(116, 217, 255, 0.2), #74d9ff, rgba(116, 217, 255, 0.2));
+  animation: scene-rebuild-slide 1.1s ease-in-out infinite;
+}
+@keyframes scene-rebuild-slide {
+  0%   { left: -35%; }
+  100% { left: 100%; }
+}
+@keyframes scene-rebuild-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .scene-pixi-host canvas {
   cursor: default;

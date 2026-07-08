@@ -20,7 +20,7 @@ import {
   setStageFrameZOrder,
   syncTransforms
 } from '../engine/pixiApp.js';
-import { bakeSpinePoseSharpTexture } from '../engine/spinner/spinnerRuntime.js';
+import { bakeSpinePoseSharpTexture, clearSpinnerBakeCache } from '../engine/spinner/spinnerRuntime.js';
 import { blurRenderedCanvas } from '../engine/spinner/spinnerBlur.js';
 import { attachViewportController, fitViewportToStage } from '../engine/viewportController.js';
 import { pickVideoMime, recordCanvasFrames, grabCanvasFrames } from '../engine/webmExport.js';
@@ -74,6 +74,9 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
   // is set, so a running timeline can't stomp the gesture (PLAN_2026-07 B3).
   const interactingRef = useRef(false);
   const [pixiTick, setPixiTick] = useState(0);
+  // True while a structural rebuild (skeleton/texture loads, scene graph
+  // rebuild) is in flight — drives the scene-view background-activity bar.
+  const [rebuilding, setRebuilding] = useState(false);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
   const rootHandleRef = useRef(rootHandle);
@@ -334,6 +337,11 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     pixiTick
   ]);
 
+  // "Refresh assets" re-reads spine files from disk — drop cached baked idle/
+  // blur textures (keyed by assetId:anim:skin:frame, which don't change when the
+  // file's CONTENT does) so the following rebuild re-bakes from the fresh data.
+  useEffect(() => { clearSpinnerBakeCache(); }, [refreshNonce]);
+
   // Structural parts/hash — only change on true topology or GPU-resource
   // identity edits (asset add/remove/src swap, layer add/remove/reorder/
   // reparent, canvas set/active switch, spinner grid+symbol set, winseq glyph
@@ -369,6 +377,11 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     prevBuildRef.current = { parts: structParts, rootHandle, refreshNonce, pixiTick };
     pendingReasonsRef.current.push(...reasons);
     const myBuild = ++buildIdRef.current;
+    // Surface background work (skeleton (re)loads, texture builds, any
+    // structural rebuild) via the scene-view progress bar so the user knows
+    // something's happening. The LATEST build clears it (superseded builds bail
+    // before the finally); a newer edit that supersedes keeps it up seamlessly.
+    setRebuilding(true);
     pendingRef.current = pendingRef.current.catch(() => {}).then(async () => {
       if (myBuild !== buildIdRef.current) return;
       try {
@@ -409,6 +422,10 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         }
       } catch (e) {
         console.warn('[SceneStudio] rebuild failed', e);
+      } finally {
+        // Only the current (newest) build clears the indicator — a superseded
+        // build finishing must not hide the bar while its replacement runs.
+        if (myBuild === buildIdRef.current) setRebuilding(false);
       }
     });
   }, [structHash, rootHandle, pixiTick, refreshNonce]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -581,7 +598,7 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
      * @returns {Promise<Blob|null>} blurred PNG blob, or null if the renderer
      *   isn't ready yet or the pose/blur bake failed.
      */
-    async bakeSpinePosePng(spineAsset, animName, loop, skin, sigma, feather, projectRoot = null) {
+    async bakeSpinePosePng(spineAsset, animName, loop, skin, sigma, feather, atFraction = 0, projectRoot = null) {
       if (!spineAsset?.id || !animName) return null;
       const run = poseBakeQueueRef.current.then(async () => {
         const renderer = await ensurePoseBakeRenderer();
@@ -589,7 +606,7 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
         const synthScene = { assets: [spineAsset], projectRoot };
         const createSpineContainer = makeSpineOverlayFactory(synthScene, rootHandleRef.current, projectRoot || null);
         const baked = await bakeSpinePoseSharpTexture(
-          { renderer, createSpineContainer }, spineAsset.id, animName, loop, skin || null
+          { renderer, createSpineContainer }, spineAsset.id, animName, loop, skin || null, atFraction
         );
         if (!baked) return null;
         try {
@@ -857,5 +874,15 @@ export const PixiViewport = forwardRef(function PixiViewport({ scene, rootHandle
     }
   }), []);
 
-  return <div ref={hostRef} className="scene-pixi-host" />;
+  return (
+    <div className="scene-pixi-wrap">
+      <div ref={hostRef} className="scene-pixi-host" />
+      {rebuilding && (
+        <div className="scene-rebuild-bar" role="status" aria-live="polite" aria-label="Loading scene">
+          <span className="scene-rebuild-bar-label">Loading…</span>
+          <div className="scene-rebuild-bar-track"><div className="scene-rebuild-bar-fill" /></div>
+        </div>
+      )}
+    </div>
+  );
 });

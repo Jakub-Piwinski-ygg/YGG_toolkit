@@ -25,6 +25,88 @@ import { normalizeSpinnerConfig, pickPoseAnimConf } from './spinnerModel.js';
 import { resolveSpinnerTrack, evaluateSpinner, spinnerResolveKey, pickSpinnerActionTrack } from './spinnerEval.js';
 import { blurRenderedCanvas } from './spinnerBlur.js';
 
+// ── Baked idle/blur texture cache (perf) ──────────────────────────────────
+// buildSpinnerObject re-bakes every animOnly symbol's idle (and its runtime
+// motion-blur) texture on each structural rebuild. Both are pure functions of
+// (assetId, anim, skin, frame) [+ sigma/feather for blur], so cache them at
+// module scope and reuse across rebuilds AND wizard re-entries — a rebuild
+// then re-bakes only genuinely new (symbol, frame) combos, and an idle-frame
+// change re-bakes just the one changed symbol (see refreshSpinnerIdle). Safe
+// because teardown destroys containers with `destroy({ children:true })`,
+// which leaves textures intact (texture:false). Cleared on app destroy (the
+// renderer / GL context these textures belong to is gone) — clearSpinnerBakeCache.
+const idleTexCache = new Map();  // key → { tex, anchor }
+const blurTexCache = new Map();  // `${key}~${sigma}~${feather}` → blurTex
+const idleKeyOf = (assetId, anim, skin, frac) => `${assetId}~${anim}~${skin || ''}~${frac}`;
+
+/** Drop all cached baked textures — call when the owning renderer is destroyed. */
+export function clearSpinnerBakeCache() {
+  idleTexCache.clear();
+  blurTexCache.clear();
+}
+
+/**
+ * Bake (or reuse from cache) an animations-only symbol's idle SHARP texture and
+ * write it into `textures` for the symbol, then queue its directional motion
+ * blur off the critical path (unless a persisted blur is supplied). Returns a
+ * promise resolving true when the idle texture was set. A cache hit resolves
+ * without touching the GPU; a miss awaits only the cheap sharp bake (the GPU
+ * readback + WASM blur happen later, in queueBlurBake). Shared by the initial
+ * build loop and the live idle-frame refresh (refreshSpinnerIdle).
+ */
+async function bakeIdleForSymbol(deps, textures, sym, blurConf, persistedBlurTex = null, onBlurReady = null) {
+  const animConf = pickPoseAnimConf(sym);
+  if (!animConf) return false;
+  const frac = animConf.poseFrac ?? 0;
+  const skin = sym.skin || '';
+  const key = idleKeyOf(animConf.assetId, animConf.anim, skin, frac);
+  let entry = idleTexCache.get(key);
+  if (!entry) {
+    // wantCanvas=false: skip the GPU readback here — it's deferred into the
+    // blur queue below (off the critical path). loop forced off inside the bake.
+    const baked = await bakeSpinePoseSharpTexture(deps, animConf.assetId, animConf.anim, false, skin || null, frac, false);
+    if (!baked?.sharp) return false;
+    entry = { tex: baked.sharp, anchor: baked.anchor };
+    idleTexCache.set(key, entry);
+  }
+  if (persistedBlurTex) {
+    textures.set(sym.id, { tex: entry.tex, blurTex: persistedBlurTex, anchor: entry.anchor });
+    return true;
+  }
+  const sigma = blurConf?.sigma ?? 8;
+  const feather = blurConf?.feather ?? 4;
+  const bkey = `${key}~${sigma}~${feather}`;
+  const cachedBlur = blurTexCache.get(bkey);
+  textures.set(sym.id, { tex: entry.tex, blurTex: cachedBlur || entry.tex, anchor: entry.anchor });
+  if (!cachedBlur && deps.loadTexture) {
+    queueBlurBake(deps, entry.tex, sigma, feather)
+      .then((blurTex) => {
+        if (!blurTex) return;
+        blurTexCache.set(bkey, blurTex);
+        const cur = textures.get(sym.id);
+        if (cur && cur.tex === entry.tex) textures.set(sym.id, { ...cur, blurTex });
+        onBlurReady?.(sym.id);
+      })
+      .catch(() => { /* keep the sharp texture as the blur stand-in */ });
+  }
+  return true;
+}
+
+/**
+ * Live-swap ONE animations-only symbol's idle texture after its idle-frame
+ * selection changed — used by the applyRuntimeConfigs live-patch pass so an
+ * idle-frame edit re-bakes a single texture instead of rebuilding the whole
+ * spinner (+ its overlay pool). Returns a promise (resolves true when swapped)
+ * or null when there's nothing to do / no bake capability was stashed.
+ */
+export function refreshSpinnerIdle(sp, symId) {
+  const sym = sp?.symbolMap?.get(symId) || sp?.config?.symbols?.find((s) => s.id === symId);
+  if (!sym || sym.assetId) return null; // static symbols: the PNG IS the idle
+  const deps = sp.bakeDeps;
+  if (!deps?.renderer || !deps?.createSpineContainer) return null;
+  return bakeIdleForSymbol(deps, sp.textures, sym, sp.config?.blur || null, null);
+}
+
 /**
  * T7 (animations-only symbols): bake a static texture from a spine pose at
  * `animName`'s first frame, so a symbol authored with ONLY land/win Spine
@@ -59,14 +141,19 @@ import { blurRenderedCanvas } from './spinnerBlur.js';
  * the caller anchor the sprite at the origin fraction instead, so idle ↔
  * land/win lines up on the same point the Spine data was authored around.
  */
-export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop, skin = null, atFraction = 0) {
+export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop, skin = null, atFraction = 0, wantCanvas = true) {
   if (!deps.renderer || !deps.createSpineContainer) return null;
   let inst = null;
   try {
-    inst = await deps.createSpineContainer(assetId, animName, loop, skin);
+    // A single-frame pose snapshot must NOT loop: on a looping track,
+    // setTrackTime(duration) wraps modulo the clip length back to trackTime 0,
+    // so atFraction=1 ("last frame") would render identical to the first frame.
+    // Force loop off here (the caller's `loop` is about the live overlay, not
+    // this static capture) so trackTime=duration clamps to the true last frame.
+    inst = await deps.createSpineContainer(assetId, animName, false, skin);
     if (!inst) return null;
-    // atFraction 0 = first frame (idle/landing pose); >0 samples further into
-    // the clip (the wizard's win thumbnail uses 0.5 to catch a mid-anim pose).
+    // atFraction 0 = first frame (idle/landing pose); 1 = last frame (the
+    // settled land pose — the default idle); 0.5 = mid-clip (win thumbnail).
     const dur = Number(inst.duration) || 0;
     const frac = Math.max(0, Math.min(1, Number(atFraction) || 0));
     inst.setTrackTime(dur > 0 ? dur * frac : 0);
@@ -78,12 +165,17 @@ export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop, s
       : { x: 0.5, y: 0.5 };
     const sharp = deps.renderer.generateTexture(inst.container);
     let canvas = null;
+    // `wantCanvas` callers (thumbnails / wizard blur PNG) need the pixels now;
+    // the build/live idle path passes false and defers this GPU readback into
+    // the blur queue (extractCanvasFromTexture) so it's off the critical path.
     // Extract from the TEXTURE we just generated, not the raw (unattached,
     // off-stage) container a second time through a different Pixi subsystem —
     // `sharp` already has well-defined bounds/dimensions since generateTexture
     // just produced it, whereas an arbitrary un-parented container's bounds
     // for `extract` are less certain to resolve the same way.
-    try { canvas = deps.renderer.extract.canvas(sharp); } catch { /* blur bake becomes unavailable; sharp texture still works */ }
+    if (wantCanvas) {
+      try { canvas = deps.renderer.extract.canvas(sharp); } catch { /* blur bake becomes unavailable; sharp texture still works */ }
+    }
     return { sharp, canvas, anchor };
   } catch (e) {
     console.warn('[SceneStudio] spinner idle-pose bake failed', assetId, animName, e);
@@ -105,10 +197,18 @@ export async function bakeSpinePoseSharpTexture(deps, assetId, animName, loop, s
 // promise gets both: callers fire-and-forget, and the actual WASM work still
 // happens one bake at a time.
 let blurBakeQueue = Promise.resolve();
-function queueBlurBake(deps, canvas, sigma, feather) {
+function queueBlurBake(deps, sharpTex, sigma, feather) {
   const result = blurBakeQueue
-    .then(() => blurRenderedCanvas(canvas, sigma, feather))
-    .then((blob) => deps.loadTexture(URL.createObjectURL(blob)));
+    .then(async () => {
+      // Deferred GPU readback (moved off bakeSpinePoseSharpTexture's critical
+      // path): extract the pixels from the already-generated sharp texture
+      // here, inside the serialized queue, right before the WASM blur.
+      let canvas = null;
+      try { canvas = deps.renderer.extract.canvas(sharpTex); } catch { return null; }
+      if (!canvas) return null;
+      const blob = await blurRenderedCanvas(canvas, sigma, feather);
+      return deps.loadTexture(URL.createObjectURL(blob));
+    });
   // Keep the shared queue alive even if this particular bake fails, so bakes
   // queued after it still run.
   blurBakeQueue = result.catch(() => {});
@@ -201,9 +301,10 @@ export async function buildSpinnerObject(asset, layer, deps) {
   }
 
   // T7: "animations-only" symbols — no static PNG authored, but a land/win
-  // Spine animation exists — get their idle/resting texture baked from that
-  // animation's first frame (landAnim preferred, winAnim as fallback) instead
-  // of sitting on the near-invisible Texture.WHITE default above. The BLUR
+  // Spine animation exists — get their idle/resting texture baked from the
+  // frame the symbol's `idlePose` selects (default: last frame of landing;
+  // pickPoseAnimConf resolves source clip + poseFrac) instead of sitting on
+  // the near-invisible Texture.WHITE default above. The BLUR
   // texture may already be a real, persisted asset the wizard's "render +
   // blur idle pose" step generated (loaded like any other symbol in the loop
   // above, via `sym.blurAssetId`) — in that case it's kept as-is and the
@@ -211,29 +312,15 @@ export async function buildSpinnerObject(asset, layer, deps) {
   // only fires for symbols that haven't been through the wizard step yet.
   for (const sym of config.symbols) {
     if (sym.assetId) continue; // has a real static — nothing to bake
-    // Land's first frame is the idle; falls back to the win clip's first frame
-    // when there's no usable land anim (shared with the wizard blur step).
-    const animConf = pickPoseAnimConf(sym);
-    if (!animConf) continue; // no usable anim either — stays Texture.WHITE
+    // The symbol's idlePose selects which clip + which frame is the idle
+    // (pickPoseAnimConf → poseFrac). A persisted blur asset (sym.blurAssetId,
+    // loaded above) is kept as-is; otherwise bakeIdleForSymbol reuses/cached-
+    // bakes the idle sharp texture and queues the directional blur in the
+    // background. Cache hits make this near-instant on rebuilds / re-entry.
     const existing = textures.get(sym.id);
-    const hasPersistedBlur = !!sym.blurAssetId && existing?.blurTex && existing.blurTex !== Texture.WHITE;
-    const baked = await bakeSpinePoseSharpTexture(deps, animConf.assetId, animConf.anim, animConf.loop !== false, sym.skin || null);
-    if (!baked?.sharp) continue;
-    // Sharp texture stands in for the idle/resting slot immediately — the
-    // scene can render right now. A persisted blur asset (if any) is used
-    // as-is; otherwise the real directional blur (slow) lands later via the
-    // background queue, once ready, without anyone waiting on it.
-    textures.set(sym.id, { tex: baked.sharp, blurTex: hasPersistedBlur ? existing.blurTex : baked.sharp, anchor: baked.anchor });
-    if (baked.canvas && !hasPersistedBlur) {
-      const symId = sym.id;
-      const sharpTex = baked.sharp;
-      const anchor = baked.anchor;
-      queueBlurBake(deps, baked.canvas, config.blur?.sigma ?? 8, config.blur?.feather ?? 4)
-        // The blur canvas is a uniform downsample of the SAME crop as `sharpTex`
-        // (spinnerBlur.js never re-crops), so the anchor fraction is unchanged.
-        .then((blurTex) => { if (blurTex) textures.set(symId, { tex: sharpTex, blurTex, anchor }); })
-        .catch((e) => console.warn('[SceneStudio] spinner idle-pose blur bake failed — keeping unblurred', symId, e));
-    }
+    const persistedBlur = (!!sym.blurAssetId && existing?.blurTex && existing.blurTex !== Texture.WHITE)
+      ? existing.blurTex : null;
+    await bakeIdleForSymbol(deps, textures, sym, config.blur, persistedBlur);
   }
 
   const root = new Container();
@@ -300,7 +387,15 @@ export async function buildSpinnerObject(asset, layer, deps) {
   // no persistence) and surfaced to the host via deps.onSpinnerAnimDurations
   // (persists to the model so the inspector + Unity bake see real lengths).
   const animDur = new Map(); // `${specKey}` → duration
-  if (createSpine) {
+  // Build the land/win overlay pool (up to min(reels·rows,12) Spine instances
+  // per unique anim spec). This is the heaviest part of a rebuild — hundreds
+  // of `new Spine()` on a busy board. For the WIZARD PREVIEW it's DEFERRED to
+  // the background (fire-and-forget): the at-rest preview only needs idle
+  // textures, so the object appears immediately and overlays populate before
+  // the artist reaches the Spin! step. The main editor still awaits it (a
+  // timeline spin could fire the instant a rebuild lands).
+  const buildOverlayPool = async () => {
+    if (!createSpine) return;
     const specs = new Map();
     for (const sym of config.symbols) {
       const kindAnims = [sym.landAnim, sym.winAnim];
@@ -320,6 +415,7 @@ export async function buildSpinnerObject(asset, layer, deps) {
       for (let i = 0; i < poolCount; i++) {
         const inst = await createSpine(spec.assetId, spec.anim, spec.loop, spec.skin || null);
         if (!inst) break;
+        if (fx.destroyed) { try { inst.container?.destroy({ children: true }); } catch { /* ignore */ } return; }
         if (inst.duration > 0) dur = inst.duration;
         inst.container.visible = false;
         fx.addChild(inst.container);
@@ -345,7 +441,9 @@ export async function buildSpinnerObject(asset, layer, deps) {
       try { deps.onSpinnerAnimDurations(persist); }
       catch (e) { console.warn('[SceneStudio] onSpinnerAnimDurations failed', e); }
     }
-  }
+  };
+  if (deps.scene?.__previewSpinner) buildOverlayPool().catch(() => {});
+  else await buildOverlayPool();
 
   // Selection metrics + transform-code compatibility (same stubs as Spine).
   root.__baseBounds = { x: -W / 2, y: -H / 2, width: W, height: H };
@@ -369,6 +467,10 @@ export async function buildSpinnerObject(asset, layer, deps) {
     resolved: null,
     symbolMap,
     spinePool,
+    // Bake capability kept so the live-patch pass (applyRuntimeConfigs →
+    // refreshSpinnerIdle) can re-bake ONE symbol's idle texture on an idle-frame
+    // edit without a full rebuild.
+    bakeDeps: { renderer: deps.renderer, createSpineContainer: deps.createSpineContainer, loadTexture: deps.loadTexture },
     W,
     H,
     showCellGizmo: false

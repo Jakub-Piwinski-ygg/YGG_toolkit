@@ -56,6 +56,7 @@ import {
   defaultSpinnerBlur,
   defaultSpinnerEvents,
   pickPoseAnimConf,
+  resolveIdlePose,
 } from '../engine/spinner/spinnerModel.js';
 
 // T12: same threshold set as the director node / timeline clip inspectors —
@@ -75,6 +76,11 @@ function buildSpinnerPreviewScene(spinnerConfig, refAssets, testTrack, projectRo
   if (!spinnerConfig) return null;
   const base = createEmptyScene('Spinner preview');
   base.projectRoot = projectRoot;
+  // Flag read by buildSpinnerObject to DEFER the heavy land/win overlay-pool
+  // build to the background — the at-rest wizard preview only needs idle
+  // textures, so the machine appears immediately instead of blocking on
+  // hundreds of Spine instantiations. Overlays populate before the Spin! step.
+  base.__previewSpinner = true;
   // STABLE ids — createEmptyScene mints random canvas/ids each call, which would
   // change the viewport's structural hash on every rebuild (e.g. arming the test
   // track) and force a full Pixi rebuild → texture reload flash. Pinning them so
@@ -116,7 +122,9 @@ function uid(prefix = 's') {
 }
 
 function defaultSymbol(n) {
-  return { id: uid('sym'), name: `sym${n + 1}`, assetId: null, blurAssetId: null, landAnim: null, winAnim: null, skin: null };
+  // idlePose left null so resolveIdlePose applies availability-aware defaults
+  // (land→last frame, win→first frame) until the artist explicitly picks one.
+  return { id: uid('sym'), name: `sym${n + 1}`, assetId: null, blurAssetId: null, landAnim: null, winAnim: null, skin: null, idlePose: null };
 }
 
 function preferredDefaultSkin(skins) {
@@ -218,7 +226,12 @@ function detectSymbolsStructure(pngPool, spinePool) {
   const ensureGroup = (segs, i) => {
     const rootKey = segs.slice(0, i + 1).join('/').toLowerCase();
     if (!groups.has(rootKey))
-      groups.set(rootKey, { rootKey, rootLabel: segs[i], statics: [], blurred: [], loose: [], spines: [] });
+      groups.set(rootKey, {
+        rootKey,
+        rootLabel: segs[i],                       // just the Symbols segment
+        rootPath: segs.slice(0, i + 1).join('/'), // full path up to & incl. it (original case)
+        statics: [], blurred: [], loose: [], spines: [],
+      });
     return groups.get(rootKey);
   };
   for (const a of pngPool) {
@@ -274,6 +287,7 @@ function detectSymbolsStructure(pngPool, spinePool) {
 
   return {
     rootLabel: best.rootLabel,
+    rootPath: best.rootPath,
     statics: statics.slice().sort((a, b) => assetBaseName(a).localeCompare(assetBaseName(b))),
     blurred: best.blurred,
     anims,
@@ -850,37 +864,47 @@ export function SpinnerWizard({
     );
   };
 
-  // Manual spine pick in a land/win dropdown: assign the file immediately,
-  // then resolve the real animation name from it asynchronously.
-  const assignSpineAnim = (symId, kind, assetId) => {
-    const field = kind + 'Anim';
+  // Single spine skeleton per symbol: both land + win clips MUST come from the
+  // same skeleton .json. Picking a skeleton points both landAnim and winAnim at
+  // it (preserving each side's loop/offset), then async-resolves the real clip
+  // names + default skin from that one skeleton. Clearing it drops both anims.
+  const symbolSkeletonId = (sym) => sym.landAnim?.assetId || sym.winAnim?.assetId || '';
+  const assignSymbolSkeleton = (symId, assetId) => {
     setSymbols((prev) =>
-      prev.map((s) =>
-        s.id === symId
-          ? { ...s, [field]: assetId ? { kind: 'spine', assetId, anim: '' } : null }
-          : s
-      )
+      prev.map((s) => {
+        if (s.id !== symId) return s;
+        if (!assetId) return { ...s, landAnim: null, winAnim: null };
+        const mk = (cur, isWin) => ({
+          kind: 'spine', assetId, anim: '',
+          loop: cur?.loop ?? !isWin, // win holds its final pose; land loops by default
+          offset: cur?.offset || 0,
+        });
+        return { ...s, landAnim: mk(s.landAnim, false), winAnim: mk(s.winAnim, true) };
+      })
     );
     if (!assetId) return;
     const spineA = allSpineAssets.find((a) => a.id === assetId);
     const symName = symbols.find((s) => s.id === symId)?.name || '';
     loadSpineMeta(spineA).then((meta) => {
       const names = meta?.animations ?? null;
-      const picked = names ? pickAnimName(names, kind, symName) : null;
-      const anim = picked ?? (names ? '' : `${symName}_${kind}`);
+      const resolve = (kind) => {
+        const picked = names ? pickAnimName(names, kind, symName) : null;
+        return picked ?? (names ? '' : `${symName}_${kind}`);
+      };
+      const landName = resolve('land');
+      const winName = resolve('win');
       const skin = preferredDefaultSkin(meta?.skins);
-      if (!anim && !skin) return;
       setSymbols((prev) =>
         prev.map((s) => {
           if (s.id !== symId) return s;
-          const cur = s[field];
-          // Bail if the user re-picked or typed a name in the meantime.
-          if (!cur || cur.assetId !== assetId || cur.anim) return s;
-          return {
-            ...s,
-            skin: s.skin || skin || null,
-            [field]: { ...cur, anim }
-          };
+          const next = { ...s };
+          // Only fill clip names we still own + haven't been hand-edited since.
+          if (next.landAnim?.assetId === assetId && !next.landAnim.anim)
+            next.landAnim = { ...next.landAnim, anim: landName };
+          if (next.winAnim?.assetId === assetId && !next.winAnim.anim)
+            next.winAnim = { ...next.winAnim, anim: winName };
+          if (!next.skin && skin) next.skin = skin;
+          return next;
         })
       );
     });
@@ -979,7 +1003,7 @@ export function SpinnerWizard({
       const animConf = poseAnimConfFor(sym);
       const spineA = allSpineAssets.find((a) => a.id === animConf.assetId) || null;
       try {
-        const blob = await onBakeSpinePose(spineA, animConf.anim, animConf.loop !== false, sym.skin || null, blur.sigma, blur.feather);
+        const blob = await onBakeSpinePose(spineA, animConf.anim, animConf.loop !== false, sym.skin || null, blur.sigma, blur.feather, animConf.poseFrac ?? 0);
         if (!blob) throw new Error('idle-pose render returned nothing');
         const blobUrl = URL.createObjectURL(blob);
         const blurId  = uid('gen');
@@ -1023,6 +1047,28 @@ export function SpinnerWizard({
     const ids = [sym.landAnim?.assetId, sym.winAnim?.assetId].filter(Boolean);
     if (!ids.length) return [];
     return [...new Set(ids.flatMap((id) => spineSkinsById[id] || []))];
+  };
+
+  // Idle-frame options for an animations-only symbol: EVERY animation in the
+  // symbol's skeleton (first + last frame of each), so a bespoke idle clip not
+  // wired to land/win can be chosen too. The skeleton's clip list comes from
+  // spineAnimsById once parsed; the land/win clip names are folded in up front
+  // so the picker isn't empty during the brief parse window. Value encoding is
+  // `anim\nframe` (newline separator — never appears in an animation name).
+  const IDLE_SEP = '\n';
+  const idlePoseOptionsFor = (sym) => {
+    const skel = symbolSkeletonId(sym);
+    if (!skel) return [];
+    const names = new Set();
+    if (sym.landAnim?.kind === 'spine' && sym.landAnim.anim) names.add(sym.landAnim.anim);
+    if (sym.winAnim?.kind === 'spine' && sym.winAnim.anim) names.add(sym.winAnim.anim);
+    for (const nm of (spineAnimsById[skel] || [])) names.add(nm);
+    const opts = [];
+    for (const nm of names) {
+      opts.push({ v: `${nm}${IDLE_SEP}first`, l: `${nm} · first frame` });
+      opts.push({ v: `${nm}${IDLE_SEP}last`, l: `${nm} · last frame` });
+    }
+    return opts;
   };
 
   // Fill default symbol skin when metadata lands later (or after reassignment),
@@ -1093,7 +1139,7 @@ export function SpinnerWizard({
   // slider drags update the preview immediately AND keep the object stable
   // during a test spin (no texture reload → no blank/blur flash).
   const contentHash = useMemo(() => hash32(JSON.stringify({
-    s: validSymbols.map((s) => [s.id, s.assetId, s.blurAssetId, s.skin || null, s.landAnim, s.winAnim]),
+    s: validSymbols.map((s) => [s.id, s.assetId, s.blurAssetId, s.skin || null, s.landAnim, s.winAnim, s.idlePose || null]),
     g: { reels, rows },
   })) || 1, [symbols, reels, rows]);
   const [bakedStruct, setBakedStruct] = useState(() => ({
@@ -1441,7 +1487,7 @@ export function SpinnerWizard({
 
                   {structure && !assetFilter.trim() && (
                     <div className="scene-spinner-meta" style={{ marginBottom: 6 }}>
-                      📁 <strong>{structure.rootLabel}</strong> detected —{' '}
+                      📁 <strong style={{ wordBreak: 'break-all' }}>{structure.rootPath || structure.rootLabel}</strong> detected —{' '}
                       {structure.statics.length} static{structure.statics.length !== 1 ? 's' : ''}
                       {' · '}{structure.blurred.length} blurred
                       {' · '}{structure.anims.length} spine anim{structure.anims.length !== 1 ? 's' : ''}
@@ -1517,20 +1563,67 @@ export function SpinnerWizard({
                         placeholder={`sym${i + 1}`}
                         onChange={(e) => patchSymbol(i, { name: e.target.value })}
                       />
-                      <select
-                        className="spinner-sym-asset"
-                        value={sym.assetId || ''}
-                        onChange={(e) => patchSymbol(i, { assetId: e.target.value || null })}
-                        title="Static PNG"
-                      >
-                        <option value="">— static PNG —</option>
-                        {allPngAssets.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {assetBaseName(a) || a.id}
-                            {a.meta?.generated ? ' (gen)' : a.meta?._fromBrowser ? ' ◈' : ''}
-                          </option>
-                        ))}
-                      </select>
+                      {/* Single spine skeleton for this symbol — land + win clips
+                          both come from it (picked in the anim row below). */}
+                      {allSpineAssets.length > 0 && (
+                        <select
+                          className="spinner-sym-asset"
+                          value={symbolSkeletonId(sym)}
+                          onChange={(e) => assignSymbolSkeleton(sym.id, e.target.value || null)}
+                          title="Spine skeleton (.json) — land and win animations both come from this one skeleton"
+                        >
+                          <option value="">— spine skeleton —</option>
+                          {allSpineAssets.map((a) => (
+                            <option key={a.id} value={a.id}>{assetBaseName(a) || a.id}</option>
+                          ))}
+                        </select>
+                      )}
+                      {/* Animations-only symbols (from "fill from animations")
+                          show the idle-frame picker HERE instead of a static-PNG
+                          dropdown — there's no static to pick; the resting texture
+                          is baked from the chosen anim frame. Symbols that use a
+                          static PNG keep the static dropdown (the PNG IS the idle). */}
+                      {(() => {
+                        const idleOpts = !sym.assetId ? idlePoseOptionsFor(sym) : [];
+                        if (idleOpts.length) {
+                          const r = resolveIdlePose(sym);
+                          const cur = r ? `${r.anim}${IDLE_SEP}${r.frame}` : idleOpts[0].v;
+                          const effective = idleOpts.some((o) => o.v === cur) ? cur : idleOpts[0].v;
+                          return (
+                            <select
+                              className="spinner-sym-asset"
+                              value={effective}
+                              onChange={(e) => {
+                                const sep = e.target.value.lastIndexOf(IDLE_SEP);
+                                const anim = e.target.value.slice(0, sep);
+                                const frame = e.target.value.slice(sep + IDLE_SEP.length);
+                                patchSymbol(i, { idlePose: { anim, frame } });
+                              }}
+                              title="Idle frame — which skeleton animation + frame is this symbol's resting texture + motion-blur source. Default: last landing frame (or first win frame when there's no landing anim)."
+                            >
+                              {idleOpts.map((o) => (
+                                <option key={o.v} value={o.v}>idle: {o.l}</option>
+                              ))}
+                            </select>
+                          );
+                        }
+                        return (
+                          <select
+                            className="spinner-sym-asset"
+                            value={sym.assetId || ''}
+                            onChange={(e) => patchSymbol(i, { assetId: e.target.value || null })}
+                            title="Static PNG"
+                          >
+                            <option value="">— static PNG —</option>
+                            {allPngAssets.map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {assetBaseName(a) || a.id}
+                                {a.meta?.generated ? ' (gen)' : a.meta?._fromBrowser ? ' ◈' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        );
+                      })()}
                       <select
                         className="spinner-sym-asset"
                         value={sym.blurAssetId || ''}
@@ -1586,21 +1679,11 @@ export function SpinnerWizard({
                           );
                         })()}
                         <span className="spinner-sym-anim-label">land</span>
-                        <select
-                          className="spinner-sym-asset spinner-sym-asset--sm"
-                          value={sym.landAnim?.assetId || ''}
-                          onChange={(e) => assignSpineAnim(sym.id, 'land', e.target.value || null)}
-                        >
-                          <option value="">— spine —</option>
-                          {allSpineAssets.map((a) => (
-                            <option key={a.id} value={a.id}>{assetBaseName(a) || a.id}</option>
-                          ))}
-                        </select>
                         <AnimNamePicker
                           symName={sym.name}
                           kind="land"
                           conf={sym.landAnim}
-                          animOptions={spineAnimsById[sym.landAnim?.assetId] || []}
+                          animOptions={spineAnimsById[symbolSkeletonId(sym)] || []}
                           onChange={(v) => {
                             if (sym.landAnim?.assetId)
                               patchSymbol(i, { landAnim: { ...sym.landAnim, anim: v } });
@@ -1619,21 +1702,11 @@ export function SpinnerWizard({
                           }}
                         />
                         <span className="spinner-sym-anim-label">win</span>
-                        <select
-                          className="spinner-sym-asset spinner-sym-asset--sm"
-                          value={sym.winAnim?.assetId || ''}
-                          onChange={(e) => assignSpineAnim(sym.id, 'win', e.target.value || null)}
-                        >
-                          <option value="">— spine —</option>
-                          {allSpineAssets.map((a) => (
-                            <option key={a.id} value={a.id}>{assetBaseName(a) || a.id}</option>
-                          ))}
-                        </select>
                         <AnimNamePicker
                           symName={sym.name}
                           kind="win"
                           conf={sym.winAnim}
-                          animOptions={spineAnimsById[sym.winAnim?.assetId] || []}
+                          animOptions={spineAnimsById[symbolSkeletonId(sym)] || []}
                           onChange={(v) => {
                             if (sym.winAnim?.assetId)
                               patchSymbol(i, { winAnim: { ...sym.winAnim, anim: v } });

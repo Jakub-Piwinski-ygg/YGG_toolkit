@@ -176,6 +176,35 @@
 > `https?:` as directly-loadable, same as `data:`. New `engine/persist.test.mjs`
 > (3 tests) covers it.
 
+> **2026-07-08 (per-symbol idle frame + preview perf) — SHIPPED.** Each
+> animations-only symbol now has a per-symbol **idle-frame** selector (shown in
+> the wizard where the static-PNG dropdown sits — the static dropdown is hidden
+> for anim symbols since there's no static to pick) choosing which anim frame is
+> its resting texture + motion-blur source: first/last of landing, first/last of
+> win, gated to the clips that exist. `resolveIdlePose` is the single source of
+> truth (wizard display + `pickPoseAnimConf` bake + rebuild gate) with
+> availability-aware defaults — **land→last frame** (settled pose), **win→first
+> frame** (neutral; the last win frame is a full FX burst → poor idle AND a
+> huge/slow bake). Two bugs fixed along the way: the pose snapshot looped
+> (`setTrackTime(dur)` wrapped to frame 0, so "last" == "first") — now baked
+> loop-off; and the dropdown's shown value disagreed with the baked frame.
+> **Perf:** idle-frame edits are no longer structural — `applyRuntimeConfigs`
+> live-re-bakes just the one changed symbol's texture (`refreshSpinnerIdle`)
+> instead of a full rebuild + overlay-pool rebuild. Baked idle/blur textures are
+> cached module-side (keyed assetId:anim:skin:frame [+sigma/feather]); the GPU
+> readback (`extract.canvas`) is deferred off the sharp-bake critical path into
+> the blur queue; and the heavy land/win overlay pool build is deferred to the
+> background for the wizard preview (`scene.__previewSpinner`) so the machine
+> appears immediately. A **background-activity bar** now shows along the bottom
+> of the scene view (`PixiViewport` `rebuilding` state → `.scene-rebuild-bar`)
+> while any structural rebuild is in flight (skeleton/texture (re)loads etc.),
+> so the user knows work is happening. **Single skeleton per symbol:** the wizard's two separate
+> land/win spine-file dropdowns are replaced by ONE "spine skeleton" dropdown
+> (after the symbol name, left of the idle selector) — land + win clips are
+> picked from that one skeleton (`assignSymbolSkeleton` points both
+> `landAnim.assetId` + `winAnim.assetId` at it; the data model shape is
+> unchanged, so runtime/export are untouched).
+>
 > **2026-07-07 (wizard: pose previews, Spin! step, isolated pose-bake) — SHIPPED.**
 > ① Land/win preview cells now render the ACTUAL Spine pose (land = first frame,
 > win = mid-clip) via `AnimPoseThumb`, and the anim-name field is a dropdown of
@@ -331,6 +360,23 @@ asset.spinner = {
   symbols: [{ id, name, assetId, blurAssetId,
               landAnim: {kind:'spine'|'pop'|'none', assetId?, anim?},
               winAnim:  {kind:'spine'|'pop'|'none', assetId?, anim?},
+              idlePose: { anim:string, frame:'first'|'last' } | null,
+                        // (2026-07-08) which skeleton animation + frame is an
+                        // animOnly symbol's resting/idle texture + its motion-blur
+                        // source. `anim` = ANY animation in the symbol's single
+                        // skeleton (not just land/win). null = availability-aware
+                        // defaults (resolveIdlePose): land clip→LAST frame (settled
+                        // pose), else win clip→FIRST frame (neutral pre-celebration
+                        // pose — the last win frame is a full FX burst, a poor idle
+                        // AND a huge/slow bake). Legacy {source:'land'|'win',frame}
+                        // is still accepted + mapped to the clip's name.
+                        // resolveIdlePose is the single source of truth shared
+                        // by the wizard dropdown, pickPoseAnimConf (→ poseFrac →
+                        // bakeSpinePoseSharpTexture atFraction) AND the rebuild
+                        // gate (spinnerStructuralSig) so all three agree. NEVER
+                        // backfilled to a concrete value — a stored default
+                        // would override the source-aware frame default. Per-
+                        // symbol dropdown in the wizard, animOnly symbols only.
               animOnly  // (2026-07-04, T7) explicit flag — no static PNG;
                         // idle/resting texture is BAKED from landAnim's (or
                         // winAnim's) first frame at build time

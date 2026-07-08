@@ -98,6 +98,24 @@ function num(v, fallback, min = -Infinity, max = Infinity) {
   return Math.min(max, Math.max(min, n));
 }
 
+/**
+ * Normalize a symbol's idle-frame selection. Returns null when unset so the
+ * availability-aware defaults in `resolveIdlePose` apply — never backfills a
+ * concrete value (a stored default would override those defaults).
+ *
+ * Two shapes are accepted:
+ *  - `{ anim, frame }`      — any animation in the symbol's skeleton (current).
+ *  - `{ source, frame }`    — legacy 'land'|'win' selector; preserved so older
+ *                             configs keep resolving (resolveIdlePose maps it).
+ */
+function normalizeIdlePose(p) {
+  if (!p || typeof p !== 'object') return null;
+  const frame = p.frame === 'first' ? 'first' : p.frame === 'last' ? 'last' : null;
+  if (typeof p.anim === 'string' && p.anim) return { anim: p.anim, frame: frame || 'last' };
+  if (p.source === 'land' || p.source === 'win') return { source: p.source, frame };
+  return null;
+}
+
 function normalizeSymbol(s) {
   if (!s || typeof s !== 'object' || !s.id) return null;
   const anim = (a) => {
@@ -131,6 +149,14 @@ function normalizeSymbol(s) {
     skin: typeof s.skin === 'string' && s.skin ? s.skin : null,
     landAnim: anim(s.landAnim),
     winAnim: anim(s.winAnim),
+    // Which animation frame defines this symbol's resting (idle) texture, and
+    // the source frame its motion blur is baked from — only meaningful for
+    // animations-only symbols (no static PNG). `source` picks the land or win
+    // clip; `frame` picks its first or last frame. Default = the LAST frame of
+    // the LANDING clip (the settled pose the land anim comes to rest on), which
+    // is the natural resting look — falling back to whichever clip actually
+    // exists at resolve time (pickPoseAnimConf). See spinnerRuntime idle bake.
+    idlePose: normalizeIdlePose(s.idlePose),
     // T7: explicit "animations-only" marker — a symbol with no static PNG
     // whose idle texture is instead baked from its land/win animation's
     // first frame (spinnerRuntime.bakeSpinePoseTexture), and which holds its
@@ -143,19 +169,64 @@ function normalizeSymbol(s) {
 }
 
 /**
+ * Resolve which skeleton animation + frame define an animations-only symbol's
+ * idle/resting texture, honouring the symbol's `idlePose` selection when set,
+ * else applying availability-aware defaults. This is the SINGLE source of truth
+ * shared by the wizard dropdown (what it displays), pickPoseAnimConf (what gets
+ * baked), and the live-patch idle diff — they MUST agree, or the UI shows one
+ * frame while the render bakes another.
+ *
+ * The idle can be ANY animation in the symbol's (single) skeleton — not just
+ * the land/win clips — so a rig with a bespoke "idle" animation can use it.
+ *
+ * Rules:
+ *  - explicit `{ anim, frame }`  → that animation of the symbol's skeleton.
+ *  - legacy `{ source, frame }`  → the land/win clip (mapped to its name).
+ *  - default (unset)             → land clip LAST frame (the settled pose the
+ *    landing comes to rest on); else win clip FIRST frame (neutral pre-
+ *    celebration pose — the last win frame is a full FX burst, a poor idle AND
+ *    a huge/slow texture+blur to bake).
+ *
+ * Returns { assetId, anim, frame } or null when there's no skeleton / clip to
+ * pose from.
+ */
+export function resolveIdlePose(sym) {
+  const usable = (a) => (a?.kind === 'spine' && a.assetId && a.anim ? a : null);
+  const land = usable(sym?.landAnim);
+  const win = usable(sym?.winAnim);
+  // Single skeleton per symbol — land + win share it; either carries its id.
+  const assetId = sym?.landAnim?.assetId || sym?.winAnim?.assetId || null;
+  if (!assetId) return null;
+  const p = sym?.idlePose;
+  // Explicit arbitrary-animation selection.
+  if (p?.anim) return { assetId, anim: p.anim, frame: p.frame === 'first' ? 'first' : 'last' };
+  // Legacy land/win source selector.
+  if (p?.source === 'land' || p?.source === 'win') {
+    const chosen = (p.source === 'win' ? win : land) || win || land;
+    if (chosen) {
+      const frame = p.frame === 'first' || p.frame === 'last' ? p.frame : (chosen === land ? 'last' : 'first');
+      return { assetId, anim: chosen.anim, frame };
+    }
+  }
+  // Default: land last, else win first.
+  if (land) return { assetId, anim: land.anim, frame: 'last' };
+  if (win) return { assetId, anim: win.anim, frame: 'first' };
+  return null;
+}
+
+/**
  * Pick the Spine animation config an animations-only symbol's idle/resting +
- * blur texture should be baked from (always the clip's FIRST frame). Land is
- * preferred as the idle source, but only if it actually has a resolved
- * animation NAME — a land slot with a spine assigned but no clip name yet
- * (common right after auto-fill) falls back to the win clip's first frame, so
- * a symbol that only ships a win animation still gets a baked idle + blur.
- * Returns null when neither slot has a usable (assetId + anim) pair.
- * Shared by the wizard's blur generation and the runtime's idle-pose bake so
- * both agree on which pose is the idle.
+ * blur texture is baked from — resolves {assetId, anim, frame} via
+ * `resolveIdlePose` and returns it as a spine anim conf extended with `poseFrac`
+ * (0 = first frame, 1 = last frame), which callers pass straight to
+ * bakeSpinePoseSharpTexture's `atFraction`. Returns null when there's nothing
+ * to pose from. Shared by the wizard's blur generation and the runtime's
+ * idle-pose bake so both agree on which pose is the idle.
  */
 export function pickPoseAnimConf(sym) {
-  const usable = (a) => (a?.kind === 'spine' && a.assetId && a.anim ? a : null);
-  return usable(sym?.landAnim) || usable(sym?.winAnim) || null;
+  const r = resolveIdlePose(sym);
+  if (!r) return null;
+  return { kind: 'spine', assetId: r.assetId, anim: r.anim, loop: false, poseFrac: r.frame === 'first' ? 0 : 1 };
 }
 
 /**

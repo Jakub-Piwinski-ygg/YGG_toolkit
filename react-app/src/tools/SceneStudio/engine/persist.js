@@ -412,6 +412,124 @@ export async function repairSceneSpineAssets(scene, rootHandle, sceneBasePath = 
   return { scene: repaired.length ? { ...scene, assets } : scene, repaired };
 }
 
+/**
+ * Relink stale asset paths to the current workspace by FILENAME.
+ *
+ * When a project's on-disk folder layout changes after it was saved, every
+ * asset's stored `src` (a path relative to the project root) stops resolving.
+ * The scene graph itself is fine — layers reference assets by id, not path —
+ * but the asset records point at files that no longer live where they used to,
+ * so overlays silently fail to render and the Spinner wizard reconstructs the
+ * OLD folder structure from those dead paths. This re-points each unresolvable
+ * asset at the file of the same name found in the live folder scan
+ * (`scanProjectAssets` items).
+ *
+ * Only assets that DON'T resolve against the current scan are touched — a
+ * currently-valid asset is never disturbed, so a duplicate filename elsewhere
+ * can't hijack a working reference. When a filename matches more than one
+ * scanned file, the one sharing the longest run of trailing path segments with
+ * the old `src` wins; a genuine tie is left alone and reported as ambiguous.
+ *
+ * Pure (no I/O): resolvability is judged against the scan, which already
+ * enumerates every file under the root.
+ *
+ * @param {object} scene      scene with .assets + .projectRoot
+ * @param {Array}  scanItems  scanProjectAssets() output for the current root
+ * @returns {{scene:object, relinked:string[], ambiguous:string[], missing:string[]}}
+ */
+const fileNameOf = (p) => splitRelPath(p).pop() || '';
+const lc = (s) => String(s || '').toLowerCase();
+
+/** True for assets whose `src` is a resolvable project-relative path (not data:/blob:/http, and a linkable type). */
+function isPathAsset(a) {
+  return !!a && typeof a.src === 'string' && !/^(data:|blob:|https?:)/.test(a.src)
+    && (a.type === 'spine' || a.type === 'png' || a.type === 'video');
+}
+
+/**
+ * Build the shared scan index used by both relink and unresolved-listing:
+ * `resolvable(src)` mirrors buildResolutionCandidates (path verbatim ± the
+ * projectRoot prefix), and `byName[type]` maps a lowercased filename to the
+ * scan items that carry it.
+ */
+function buildScanResolver(scene, scanItems) {
+  const scanPaths = new Set();
+  const byName = { png: new Map(), spine: new Map(), video: new Map() };
+  const push = (map, key, val) => { const a = map.get(key); if (a) a.push(val); else map.set(key, [val]); };
+  for (const it of scanItems || []) {
+    if (it.type === 'spine') {
+      [it.jsonPath, it.atlasPath, it.texturePath].forEach((p) => p && scanPaths.add(normalizeRelPath(p)));
+      if (it.jsonPath) push(byName.spine, lc(fileNameOf(it.jsonPath)), it);
+    } else if ((it.type === 'png' || it.type === 'video') && it.path) {
+      scanPaths.add(normalizeRelPath(it.path));
+      push(byName[it.type], lc(fileNameOf(it.path)), it);
+    }
+  }
+  const base = normalizeRelPath(scene?.projectRoot || '');
+  const resolvable = (src) => {
+    const n = normalizeRelPath(src);
+    return scanPaths.has(n) || (!!base && scanPaths.has(`${base}/${n}`));
+  };
+  return { resolvable, byName };
+}
+
+export function relinkSceneAssetsToScan(scene, scanItems) {
+  if (!scene || !Array.isArray(scene.assets) || !Array.isArray(scanItems) || !scanItems.length)
+    return { scene, relinked: [], ambiguous: [], missing: [] };
+
+  const { resolvable, byName } = buildScanResolver(scene, scanItems);
+
+  // Among same-name candidates prefer the longest shared trailing-segment run
+  // with the old src; null on a tie (ambiguous).
+  const disambiguate = (cands, oldSrc) => {
+    if (cands.length === 1) return cands[0];
+    const oldTail = splitRelPath(oldSrc).reverse().map(lc);
+    let best = null, bestScore = -1, tie = false;
+    for (const c of cands) {
+      const tail = splitRelPath(c.type === 'spine' ? c.jsonPath : c.path).reverse().map(lc);
+      let n = 0;
+      while (n < oldTail.length && n < tail.length && oldTail[n] === tail[n]) n++;
+      if (n > bestScore) { bestScore = n; best = c; tie = false; }
+      else if (n === bestScore) tie = true;
+    }
+    return tie ? null : best;
+  };
+
+  const relinked = [], ambiguous = [], missing = [];
+  let changed = false;
+  const assets = scene.assets.map((a) => {
+    if (!isPathAsset(a)) return a;
+    if (resolvable(a.src)) return a; // still valid — never disturb
+
+    const label = a.meta?.originalName || fileNameOf(a.src) || a.src;
+    const cands = byName[a.type]?.get(lc(fileNameOf(a.src))) || [];
+    if (!cands.length) { missing.push(label); return a; }
+    const pick = disambiguate(cands, a.src);
+    if (!pick) { ambiguous.push(label); return a; }
+
+    changed = true;
+    relinked.push(label);
+    return a.type === 'spine'
+      ? { ...a, src: pick.jsonPath, atlas: pick.atlasPath || a.atlas, texture: pick.texturePath || a.texture }
+      : { ...a, src: pick.path };
+  });
+
+  return { scene: changed ? { ...scene, assets } : scene, relinked, ambiguous, missing };
+}
+
+/**
+ * List the scene's path-based assets that do NOT resolve against the current
+ * workspace scan — i.e. what auto-relink couldn't fix (no filename match, or an
+ * ambiguous one). These are surfaced to the user for a manual relink / leave-as
+ * decision. Returns the asset records themselves (empty when scan is absent, so
+ * callers don't flag everything as missing before the scan has run).
+ */
+export function listUnresolvedAssets(scene, scanItems) {
+  if (!scene || !Array.isArray(scene.assets) || !Array.isArray(scanItems) || !scanItems.length) return [];
+  const { resolvable } = buildScanResolver(scene, scanItems);
+  return scene.assets.filter((a) => isPathAsset(a) && !resolvable(a.src));
+}
+
 function normalizeRelPath(path) {
   return splitRelPath(path).join('/');
 }

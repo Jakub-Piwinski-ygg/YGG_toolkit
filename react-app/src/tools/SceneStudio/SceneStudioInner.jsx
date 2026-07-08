@@ -29,6 +29,7 @@ import { ScenarioGraphPanel } from './components/ScenarioGraphPanel.jsx';
 import { ScenarioInspectorSections } from './components/ScenarioInspectorSections.jsx';
 import { UnityExportDialog } from './components/UnityExportDialog.jsx';
 import { WebMExportDialog } from './components/WebMExportDialog.jsx';
+import { RelinkAssetsDialog } from './components/RelinkAssetsDialog.jsx';
 import { scanProjectAssets } from './engine/assetBrowser.js';
 import {
   createEmptyScene,
@@ -100,7 +101,9 @@ import {
   isDropDirectorySupported,
   loadProjectFromFile,
   loadProjectFromHandle,
+  listUnresolvedAssets,
   pickProjectRoot,
+  relinkSceneAssetsToScan,
   repairSceneSpineAssets,
   saveProject,
   serializeProject
@@ -972,6 +975,66 @@ export default function SceneStudioInner() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, rootHandle]);
+
+  // ── Auto-relink: recover assets whose folder path changed since save ──────
+  // Reopening a project whose on-disk folder structure was remodeled leaves
+  // every stored asset `src` pointing at a path that no longer exists — assets
+  // silently fail to render and the Spinner wizard rebuilds the OLD folder
+  // layout from those dead paths. Once the live folder scan (assetItems) is in,
+  // re-point each unresolvable asset at the file of the same name in the
+  // current workspace. Runs once per distinct asset-id set (relink only mutates
+  // src/atlas/texture, never ids, so it converges without looping).
+  const relinkSeenRef = useRef(new Set());
+  useEffect(() => {
+    if (!rootHandle || !assetItems.length || !scene.assets?.length) return;
+    const key = scene.assets.map((a) => a.id).join(',');
+    if (relinkSeenRef.current.has(key)) return;
+    relinkSeenRef.current.add(key);
+
+    const { scene: relinkedScene, relinked, ambiguous, missing } =
+      relinkSceneAssetsToScan(sceneRef.current, assetItemsRef.current);
+    if (relinked.length) {
+      const byId = new Map(relinkedScene.assets.map((a) => [a.id, a]));
+      // Merge by id onto the live pool so a concurrent spine-repair can't clobber.
+      setProjectInternal((prev) => ({ ...prev, assets: prev.assets.map((a) => byId.get(a.id) || a) }));
+      log(`Scene Studio: relinked ${relinked.length} moved asset(s) by name — ${relinked.join(', ')}`);
+    }
+    if (ambiguous.length)
+      log(`Scene Studio: ${ambiguous.length} asset(s) matched multiple files by name, left as-is — ${ambiguous.join(', ')}`, 'warn');
+    if (missing.length)
+      log(`Scene Studio: ${missing.length} asset(s) not found in the current workspace — ${missing.join(', ')}`, 'warn');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, rootHandle, assetItems]);
+
+  // Assets that auto-relink couldn't recover — surfaced in a banner + manual
+  // relink dialog. Recomputed live, so fixing one (manually or by rescanning)
+  // shrinks the list. Empty until the scan is in, so nothing flags prematurely.
+  const [showRelinkDialog, setShowRelinkDialog] = useState(false);
+  const [relinkBannerDismissed, setRelinkBannerDismissed] = useState(false);
+  const unresolvedAssets = useMemo(
+    () => (rootHandle && assetItems.length ? listUnresolvedAssets(scene, assetItems) : []),
+    [scene, assetItems, rootHandle]
+  );
+  // A fresh workspace re-surfaces the banner even if a previous one was dismissed.
+  useEffect(() => { setRelinkBannerDismissed(false); setShowRelinkDialog(false); }, [rootHandle]);
+
+  const handleApplyRelink = useCallback((mappings) => {
+    const patch = new Map();
+    for (const { assetId, item } of mappings) {
+      if (!item) continue;
+      patch.set(assetId, item.type === 'spine'
+        ? { src: item.jsonPath, atlas: item.atlasPath || null, texture: item.texturePath || null }
+        : { src: item.path });
+    }
+    if (patch.size) {
+      setProjectInternal((prev) => ({
+        ...prev,
+        assets: prev.assets.map((a) => (patch.has(a.id) ? { ...a, ...patch.get(a.id) } : a)),
+      }));
+      log(`Scene Studio: manually relinked ${patch.size} asset(s)`);
+    }
+    setShowRelinkDialog(false);
+  }, [log]);
 
   const handlePatchLayer = useCallback((layerId, patch) => {
     setScene((prev) => ({
@@ -3917,31 +3980,57 @@ export default function SceneStudioInner() {
           {sessionDraft.schemaVersion === PROJECT_SCHEMA ? (
             <>
               <span className="scene-session-banner__text">
-                Poprzednia sesja: <strong>{sessionDraft.scene?.name || 'scena'}</strong>
-                {' '}({sessionDraft.scene?.layers?.length || 0} warstw
+                Previous session: <strong>{sessionDraft.project?.name || 'Untitled'}</strong>
+                {' '}({sessionLayerCount(sessionDraft.project)} layer{sessionLayerCount(sessionDraft.project) !== 1 ? 's' : ''}
                 {sessionDraft.savedAt ? `, ${new Date(sessionDraft.savedAt).toLocaleString()}` : ''})
               </span>
               <button className="scene-btn scene-btn--primary scene-btn--sm" onClick={handleRestoreSession}>
-                Przywróć
+                Restore
               </button>
               <button className="scene-btn scene-btn--sm" onClick={handleDismissSession}>
-                Nowa scena
+                Discard
               </button>
             </>
           ) : (
             <>
               <span className="scene-session-banner__text">
-                Zapisana sesja pochodzi z innej wersji ({sessionDraft.schemaVersion}).
+                Saved session is from a different version ({sessionDraft.schemaVersion}).
               </span>
               <button className="scene-btn scene-btn--sm" onClick={handleDownloadOldSession}>
-                Pobierz kopię
+                Download copy
               </button>
               <button className="scene-btn scene-btn--ghost scene-btn--sm" onClick={handleDismissSession}>
-                Odrzuć
+                Discard
               </button>
             </>
           )}
         </div>
+      )}
+
+      {/* Missing-asset banner — folder structure changed since the project was
+          saved and auto-relink couldn't match some assets by name. */}
+      {unresolvedAssets.length > 0 && !relinkBannerDismissed && (
+        <div className="scene-session-banner" style={{ borderColor: 'var(--warn, #e0b34a)' }}>
+          <span className="scene-session-banner__text">
+            ⚠ {unresolvedAssets.length} asset{unresolvedAssets.length !== 1 ? 's' : ''} in this project
+            {' '}could not be located in the current workspace.
+          </span>
+          <button className="scene-btn scene-btn--primary scene-btn--sm" onClick={() => setShowRelinkDialog(true)}>
+            Relink…
+          </button>
+          <button className="scene-btn scene-btn--ghost scene-btn--sm" onClick={() => setRelinkBannerDismissed(true)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {showRelinkDialog && (
+        <RelinkAssetsDialog
+          assets={unresolvedAssets}
+          scanItems={assetItems}
+          onApply={handleApplyRelink}
+          onClose={() => setShowRelinkDialog(false)}
+        />
       )}
 
       {/* New project confirm dialog */}
@@ -4303,8 +4392,8 @@ export default function SceneStudioInner() {
                 onPreviewScene={setWizardPreviewScene}
                 onPreviewTime={setWizardPreviewTime}
                 previewControlsRef={wizardPreviewControlsRef}
-                onBakeSpinePose={(spineAsset, animName, loop, skin, sigma, feather) =>
-                  pixiViewportRef.current?.bakeSpinePosePng(spineAsset, animName, loop, skin, sigma, feather, sceneRef.current?.projectRoot || null)}
+                onBakeSpinePose={(spineAsset, animName, loop, skin, sigma, feather, atFraction) =>
+                  pixiViewportRef.current?.bakeSpinePosePng(spineAsset, animName, loop, skin, sigma, feather, atFraction ?? 0, sceneRef.current?.projectRoot || null)}
                 onRenderSpinePose={handleRenderSpinePose}
                 onClose={() => { setShowSpinnerWizard(false); setEditSpinnerTarget(null); }}
                 onCreate={

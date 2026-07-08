@@ -26,6 +26,10 @@ function srcSig(s) {
 export function spinnerStructuralSig(spinner) {
   if (!spinner) return '-';
   const anim = (a) => (a && a.kind === 'spine' ? `${a.assetId}~${a.anim}~${a.loop !== false ? 1 : 0}` : '-');
+  // NOTE: idlePose is deliberately NOT here. An idle-frame change only re-bakes
+  // ONE animOnly symbol's resting texture, which applyRuntimeConfigs does live
+  // (refreshSpinnerIdle) — making it structural would force a full rebuild
+  // (incl. the whole overlay pool) for a one-texture swap.
   const syms = (spinner.symbols || [])
     .map((s) => [s.id, s.assetId || '-', s.blurAssetId || '-', s.skin || '-', anim(s.landAnim), anim(s.winAnim)].join(','))
     .join(';');
