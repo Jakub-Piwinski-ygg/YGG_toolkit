@@ -195,7 +195,11 @@ export function flowStop(state) {
 
 export function flowSeek(scene, state, time) {
   const duration = clampFinite(scene?.stage?.duration, 0.01, 300, 5);
-  const t = clampFinite(time, 0, duration, state?.time || 0);
+  // Auto-length timelines let the playhead scrub past the last clip (up to the
+  // 300s hard cap) so an artist can drop a clip further out; a manually-set
+  // length stays clamped to that length.
+  const max = scene?.stage?.manualDuration ? duration : 300;
+  const t = clampFinite(time, 0, max, state?.time || 0);
   // Seeking invalidates the signal history (we may have jumped backward
   // past an earlier emit). Clearing keeps replay semantics consistent.
   return { ...state, time: t, hold: null, emitted: [], signalsSeen: new Set() };

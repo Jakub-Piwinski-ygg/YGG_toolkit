@@ -255,11 +255,29 @@ export function TimelinePanel({
   const fps = scene.stage.fps || 60;
   const duration = clampFinite(scene.stage.duration, 0.01, 300, 5);
 
+  // Manual vs automatic timeline length. Once the user types a length, the
+  // scene flips to manual and clips are bounded by it; otherwise the length
+  // auto-grows/shrinks to the content (handled in SceneStudioInner) and clips
+  // may extend up to the absolute cap so a drag can grow the timeline.
+  const manualDuration = !!scene.stage?.manualDuration;
+  const dragMax = manualDuration ? duration : 300;
+  // The visible time range. In auto-length mode we pad past the content end
+  // (and past the playhead if it's been scrubbed out there) so the playhead can
+  // be dragged — and a clip dropped — beyond the last clip. Capped at 300s.
+  const viewDuration = manualDuration
+    ? duration
+    : Math.min(300, Math.max(duration, flowState?.time || 0) + Math.max(1, duration * 0.5));
+
   const tracks = scene.flow?.tracks || [];
   const lanesScrollRef = useRef(null);
   const scrubbingRef = useRef(false);
   const [pxPerSec, setPxPerSec] = useState(DEFAULT_PX_PER_SEC);
   const [dragPreview, setDragPreview] = useState(null);
+  // Track-reorder-by-name drag (separate from clip drags — its own MIME so the
+  // clip lanes ignore it). trackDropTarget marks the row the pointer is over and
+  // whether it would land above or below it.
+  const [trackDrag, setTrackDrag] = useState(null); // { id }
+  const [trackDropTarget, setTrackDropTarget] = useState(null); // { id, mode: 'above'|'below' }
   // Two independent "magnet" modes, both on by default:
   //  - stickPlayheadToItems: while scrubbing, the playhead snaps to keyframes
   //    and clip starts/ends.
@@ -267,20 +285,13 @@ export function TimelinePanel({
   //    current playhead time.
   const [stickPlayheadToItems, setStickPlayheadToItems] = useState(true);
   const [stickItemsToPlayhead, setStickItemsToPlayhead] = useState(true);
-  const totalW = Math.max(600, Math.min(36000, Math.round(duration * pxPerSec)));
+  const totalW = Math.max(600, Math.min(36000, Math.round(viewDuration * pxPerSec)));
   const setFlow = useCallback((nextFlow) => onPatchFlow?.(nextFlow), [onPatchFlow]);
 
   // Zoom-aware gridlines (seconds / sub-second / per-frame). The ruler labels
   // the second + sub-second lines; the lane overlay draws all three faintly.
-  const gridlines = useMemo(() => buildGridlines(duration, pxPerSec, fps), [duration, pxPerSec, fps]);
+  const gridlines = useMemo(() => buildGridlines(viewDuration, pxPerSec, fps), [viewDuration, pxPerSec, fps]);
   const rulerTicks = useMemo(() => gridlines.filter((g) => g.level !== 'frame'), [gridlines]);
-
-  // Manual vs automatic timeline length. Once the user types a length, the
-  // scene flips to manual and clips are bounded by it; otherwise the length
-  // auto-grows/shrinks to the content (handled in SceneStudioInner) and clips
-  // may extend up to the absolute cap so a drag can grow the timeline.
-  const manualDuration = !!scene.stage?.manualDuration;
-  const dragMax = manualDuration ? duration : 300;
 
   // Per-track row height. A track stays a compact single row UNLESS it holds the
   // selected clip — then it expands to fit that clip's full per-channel keyframe
@@ -379,8 +390,10 @@ export function TimelinePanel({
     const isSpinner = asset?.type === 'spinner';
     const spinnerAction = isSpinner ? nextActionForSpinnerTrack(track.clips) : null;
     const wantedDuration = defaultClipDurationForLayer(track.layerId, 1, null, spinnerAction);
-    // Trim against the next clip on the track / end of timeline.
-    let maxEnd = duration;
+    // Trim against the next clip on the track / end of timeline. In auto-length
+    // mode allow up to the hard cap so a clip can be created past the last clip
+    // (e.g. after scrubbing the playhead out there).
+    let maxEnd = manualDuration ? duration : dragMax;
     for (const c of [...(track.clips || [])].sort((a, b) => a.start - b.start)) {
       if (c.start >= start) { maxEnd = Math.min(maxEnd, c.start); break; }
     }
@@ -401,7 +414,7 @@ export function TimelinePanel({
     const asset = layer ? scene.assets.find((a) => a.id === layer.assetId) : null;
     const isSpinner = asset?.type === 'spinner';
     const spinnerAction = isSpinner ? nextActionForSpinnerTrack(track.clips) : null;
-    addClipToTrack(track.id, slot, null, isSpinner ? { action: spinnerAction } : null);
+    addClipToTrack(track.id, slot, null, isSpinner ? { action: spinnerAction } : null, true);
   };
 
   /**
@@ -422,6 +435,17 @@ export function TimelinePanel({
       return e.dataTransfer.getData('application/x-ygg-layer-id')
         || e.dataTransfer.getData('text/plain') || null;
     } catch { return null; }
+  };
+
+  // A multi-select hierarchy drag serializes the whole selection as a JSON list
+  // in a companion MIME; single drags fall back to the primary id.
+  const layerIdsFromDrop = (e) => {
+    try {
+      const raw = e.dataTransfer.getData('application/x-ygg-layer-ids');
+      if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr) && arr.length) return arr.filter(Boolean); }
+    } catch { /* fall through */ }
+    const one = layerIdFromDrop(e);
+    return one ? [one] : [];
   };
 
   /**
@@ -464,7 +488,7 @@ export function TimelinePanel({
     const z = elementZoom(wrap); // undo CSS ui-scale zoom on the pointer term
     // Lane content starts after the frozen label column inside the scroller.
     const xInScroll = (clientX - rect.left) / z + wrap.scrollLeft - LABEL_COL_W;
-    return clamp(xInScroll / pxPerSec, 0, duration);
+    return clamp(xInScroll / pxPerSec, 0, viewDuration);
   };
 
   const computeDropPreview = (targetTrack, e) => {
@@ -538,8 +562,14 @@ export function TimelinePanel({
     e.preventDefault();
     e.stopPropagation();
     clearDragPreview();
-    const layerId = layerIdFromDrop(e);
-    if (!layerId) return;
+    const ids = layerIdsFromDrop(e);
+    if (!ids.length) return;
+    // A multi-select drop always fans out to a new track per layer.
+    if (ids.length > 1) {
+      createTracksForLayers(ids, sceneXFromClient(e.clientX));
+      return;
+    }
+    const layerId = ids[0];
     // If the dropped layer differs from the track's layer, route to
     // "new track" instead — dropping warstwa A na lane warstwy B
     // tworzy nowy track dla A na końcu listy.
@@ -547,9 +577,9 @@ export function TimelinePanel({
       createTrackForLayer(layerId, sceneXFromClient(e.clientX));
       return;
     }
-    const slot = findFreeSlot(track, sceneXFromClient(e.clientX), 1);
+    const slot = findFreeSlot(track, sceneXFromClient(e.clientX), 1, manualDuration ? duration : dragMax);
     if (!slot) return;
-    addClipToTrack(track.id, slot);
+    addClipToTrack(track.id, slot, null, null, true);
   };
 
   /** Drop on empty area (no track yet, or below all tracks): new track. */
@@ -558,15 +588,15 @@ export function TimelinePanel({
     e.preventDefault();
     e.stopPropagation();
     clearDragPreview();
-    const layerId = layerIdFromDrop(e);
-    if (!layerId) return;
-    createTrackForLayer(layerId, sceneXFromClient(e.clientX));
+    const ids = layerIdsFromDrop(e);
+    if (!ids.length) return;
+    createTracksForLayers(ids, sceneXFromClient(e.clientX));
   };
 
   const createTrackForLayer = (layerId, atTime) => {
     const newTrack = { id: uid('T'), layerId, name: null, clips: [] };
     const wantedDuration = defaultClipDurationForLayer(layerId);
-    const slot = findFreeSlot(newTrack, atTime, wantedDuration);
+    const slot = findFreeSlot(newTrack, atTime, wantedDuration, manualDuration ? duration : dragMax);
     if (!slot) return;
     // PNG clips start with no `channels` — the user enables a chip
     // ("animate: x") in the inspector once they want to keyframe a
@@ -576,6 +606,28 @@ export function TimelinePanel({
     newTrack.clips.push(clip);
     setFlow({ ...(scene.flow || {}), tracks: [...tracks, newTrack] });
     onSelectLayer?.(layerId);
+  };
+
+  /**
+   * Create one new track (with a starter clip) per dropped layer, in a single
+   * flow update — dropping a multi-selection from the hierarchy lands a clip on
+   * each object at once. Built in one batch so successive setFlow calls don't
+   * clobber each other off a stale `tracks` snapshot.
+   */
+  const createTracksForLayers = (layerIds, atTime) => {
+    const maxBound = manualDuration ? duration : dragMax;
+    const newTracks = [];
+    for (const layerId of layerIds) {
+      const t = { id: uid('T'), layerId, name: null, clips: [] };
+      const wantedDuration = defaultClipDurationForLayer(layerId);
+      const slot = findFreeSlot(t, atTime, wantedDuration, maxBound);
+      if (!slot) continue;
+      t.clips.push(defaultClipForLayer(layerId, slot));
+      newTracks.push(t);
+    }
+    if (!newTracks.length) return;
+    setFlow({ ...(scene.flow || {}), tracks: [...tracks, ...newTracks] });
+    onSelectLayer?.(layerIds[layerIds.length - 1]);
   };
 
   const addClipToTrack = (trackId, slot, extraChannels = null, extraProps = null, allowGrow = false) => {
@@ -653,6 +705,59 @@ export function TimelinePanel({
     [next[idx], next[swap]] = [next[swap], next[idx]];
     setFlow({ ...(scene.flow || {}), tracks: next });
   };
+
+  /** Move `draggedId` to sit above/below `targetId` in the track order. */
+  const reorderTrackTo = (draggedId, targetId, mode) => {
+    if (!draggedId || !targetId || draggedId === targetId) return;
+    const from = tracks.findIndex((t) => t.id === draggedId);
+    if (from < 0 || tracks.findIndex((t) => t.id === targetId) < 0) return;
+    const next = [...tracks];
+    const [moved] = next.splice(from, 1);
+    let insertAt = next.findIndex((t) => t.id === targetId);
+    if (insertAt < 0) return;
+    if (mode === 'below') insertAt += 1;
+    next.splice(insertAt, 0, moved);
+    setFlow({ ...(scene.flow || {}), tracks: next });
+  };
+
+  // ── Drag a track by its name/label to reorder rows (Unity-style) ──
+  const TRACK_DND_MIME = 'application/x-ygg-track-id';
+  const isTrackReorderDrag = (e) => {
+    const types = e.dataTransfer?.types;
+    if (!types) return false;
+    return typeof types.includes === 'function'
+      ? types.includes(TRACK_DND_MIME)
+      : Array.from(types).indexOf(TRACK_DND_MIME) >= 0;
+  };
+  const onTrackLabelDragStart = (track) => (e) => {
+    // The row-action buttons (▲▼＋✕) are not drag handles.
+    if (e.target.closest('.scene-track-action')) { e.preventDefault(); return; }
+    e.stopPropagation();
+    setTrackDrag({ id: track.id });
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData(TRACK_DND_MIME, track.id); } catch {}
+    try { e.dataTransfer.setData('text/plain', track.id); } catch {}
+  };
+  const onTrackLabelDragOver = (track) => (e) => {
+    if (!isTrackReorderDrag(e) || !trackDrag || trackDrag.id === track.id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mode = (e.clientY - rect.top) < rect.height / 2 ? 'above' : 'below';
+    if (trackDropTarget?.id !== track.id || trackDropTarget?.mode !== mode) setTrackDropTarget({ id: track.id, mode });
+  };
+  const onTrackLabelDrop = (track) => (e) => {
+    if (!isTrackReorderDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    let draggedId = trackDrag?.id;
+    if (!draggedId) { try { draggedId = e.dataTransfer.getData(TRACK_DND_MIME); } catch {} }
+    const dt = trackDropTarget;
+    setTrackDrag(null);
+    setTrackDropTarget(null);
+    if (draggedId && dt) reorderTrackTo(draggedId, dt.id, dt.mode);
+  };
+  const onTrackLabelDragEnd = () => { setTrackDrag(null); setTrackDropTarget(null); };
 
   const patchClip = (trackId, clipId, rawPatch) => {
     // Auto-fit: when a picker changes the animation / win-sequence / spinner
@@ -888,8 +993,8 @@ export function TimelinePanel({
     const z = elementZoom(wrap);
     // Lane content starts after the frozen label column inside the scroller.
     const xInScroll = (clientX - rect.left) / z + wrap.scrollLeft - LABEL_COL_W;
-    return clamp(xInScroll / pxPerSec, 0, duration);
-  }, [duration, pxPerSec]);
+    return clamp(xInScroll / pxPerSec, 0, viewDuration);
+  }, [viewDuration, pxPerSec]);
 
   // Mode A — the playhead snaps to every keyframe time and clip start/end.
   const playheadSnapTargets = useMemo(() => {
@@ -1431,10 +1536,19 @@ export function TimelinePanel({
           ) : tracks.map((track) => (
             <div key={track.id} className="scene-timeline-row" style={{ height: heightOf(track) }}>
               <div
-                className={'scene-timeline-label-cell' + selStateClass(trackSelState(track))}
+                className={'scene-timeline-label-cell' + selStateClass(trackSelState(track))
+                  + (trackDrag?.id === track.id ? ' track-dragging' : '')
+                  + (trackDropTarget?.id === track.id
+                    ? (trackDropTarget.mode === 'above' ? ' track-drop-above' : ' track-drop-below')
+                    : '')}
                 style={{ width: LABEL_COL_W, height: heightOf(track) }}
+                draggable
+                onDragStart={onTrackLabelDragStart(track)}
+                onDragOver={onTrackLabelDragOver(track)}
+                onDrop={onTrackLabelDrop(track)}
+                onDragEnd={onTrackLabelDragEnd}
                 onClick={() => onSelectLayer?.(track.layerId)}
-                title={labelForTrack(track)}
+                title={labelForTrack(track) + ' — drag to reorder'}
               >
                 {trackKind(track) === 'spinner' ? (
                   <SpinnerName name={labelForTrack(track)} className="scene-timeline-label-text" />

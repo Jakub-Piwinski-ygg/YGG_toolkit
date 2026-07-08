@@ -20,7 +20,9 @@ import { EyeOpen, EyeClosed } from './EyeIcons.jsx';
 export function HierarchyPanel({
   scene,
   selectedLayerId,
+  selectedLayerIds, // full multi-selection set (includes the primary)
   onSelect,
+  onSelectMany, // (ids, primaryId) — ctrl/shift multi-select
   onToggleVisibility,
   alphaForLayer, // (layerId) → displayed alpha 0..1 (drives the eye icon)
   // eslint-disable-next-line no-unused-vars -- re-render triggers as playhead / mode change so the eye reflects live alpha
@@ -35,12 +37,58 @@ export function HierarchyPanel({
   const activeCanvasId = scene.activeCanvasId || scene.canvases?.[0]?.id;
   const [expanded, setExpanded] = useState(() => new Set()); // collapsed by default? expanded by default? Default expanded.
   const [dragId, setDragId] = useState(null);
+  const [dragSet, setDragSet] = useState(null); // Set of ids moving together (multi-drag)
   const [dropTarget, setDropTarget] = useState(null); // { id, mode } | { canvasId, mode: 'canvasRoot' }
 
   const isExpanded = (id) => !expanded.has(id); // default = expanded; the set holds COLLAPSED ids
   const toggleExpand = (id) => setExpanded((s) => {
     const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n;
   });
+
+  // The current selection as a Set (falls back to the single primary id).
+  const selectedIds = useMemo(
+    () => new Set(selectedLayerIds && selectedLayerIds.length ? selectedLayerIds : (selectedLayerId ? [selectedLayerId] : [])),
+    [selectedLayerIds, selectedLayerId]
+  );
+
+  // Flattened id list in on-screen order (respecting collapse) — drives
+  // shift-click range selection.
+  const visibleOrder = useMemo(() => {
+    const roots = trees.get(activeCanvasId) || [];
+    const out = [];
+    const walk = (nodes) => {
+      for (const n of nodes) {
+        out.push(n.layer.id);
+        if (n.children.length && isExpanded(n.layer.id)) walk(n.children);
+      }
+    };
+    walk(roots);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trees, activeCanvasId, expanded]);
+
+  // Plain click = single; ctrl/⌘ = toggle; shift = range from the primary.
+  const handleRowClick = (layerId, e) => {
+    const additive = e.ctrlKey || e.metaKey;
+    const range = e.shiftKey;
+    if (range && selectedLayerId && onSelectMany) {
+      const i1 = visibleOrder.indexOf(selectedLayerId);
+      const i2 = visibleOrder.indexOf(layerId);
+      if (i1 >= 0 && i2 >= 0) {
+        const [lo, hi] = i1 < i2 ? [i1, i2] : [i2, i1];
+        onSelectMany(visibleOrder.slice(lo, hi + 1), layerId);
+        return;
+      }
+    }
+    if (additive && onSelectMany) {
+      const set = new Set(selectedIds);
+      if (set.has(layerId)) set.delete(layerId); else set.add(layerId);
+      const ids = [...set];
+      onSelectMany(ids, set.has(layerId) ? layerId : (ids.length ? ids[ids.length - 1] : null));
+      return;
+    }
+    onSelect(layerId);
+  };
 
   // ── DnD handlers ──
   // We tag the drag with two payloads:
@@ -51,13 +99,18 @@ export function HierarchyPanel({
   //    a layer-from-hierarchy drag from arbitrary text drops.
   const onDragStart = (id) => (e) => {
     e.stopPropagation();
+    // Dragging a member of a multi-selection moves the whole set; dragging an
+    // unselected row moves just that row.
+    const list = (selectedIds.has(id) && selectedIds.size > 1) ? [...selectedIds] : [id];
     setDragId(id);
+    setDragSet(new Set(list));
     e.dataTransfer.effectAllowed = 'move';
     try { e.dataTransfer.setData('text/plain', id); } catch {}
     try { e.dataTransfer.setData('application/x-ygg-layer-id', id); } catch {}
+    if (list.length > 1) { try { e.dataTransfer.setData('application/x-ygg-layer-ids', JSON.stringify(list)); } catch {} }
   };
   const onDragOver = (id) => (e) => {
-    if (!dragId || dragId === id) return;
+    if (!dragId || dragId === id || dragSet?.has(id)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     // Compute zone in row
@@ -73,11 +126,13 @@ export function HierarchyPanel({
   const onDropOnRow = (id) => (e) => {
     e.preventDefault();
     if (!dragId || !dropTarget) return;
-    onReorder?.(dragId, dropTarget.id, dropTarget.mode);
+    const draggedIds = dragSet && dragSet.size ? [...dragSet] : [dragId];
+    onReorder?.(draggedIds.length > 1 ? draggedIds : dragId, dropTarget.id, dropTarget.mode);
     setDragId(null);
+    setDragSet(null);
     setDropTarget(null);
   };
-  const onDragEnd = () => { setDragId(null); setDropTarget(null); };
+  const onDragEnd = () => { setDragId(null); setDragSet(null); setDropTarget(null); };
 
   // Drop into canvas root area (empty space below all rows in a canvas).
   const onCanvasDropZoneOver = (canvasId) => (e) => {
@@ -89,8 +144,10 @@ export function HierarchyPanel({
   const onCanvasDropZoneDrop = (canvasId) => (e) => {
     e.preventDefault();
     if (!dragId) return;
-    onReorder?.(dragId, null, 'canvasRoot', canvasId);
+    const draggedIds = dragSet && dragSet.size ? [...dragSet] : [dragId];
+    onReorder?.(draggedIds.length > 1 ? draggedIds : dragId, null, 'canvasRoot', canvasId);
     setDragId(null);
+    setDragSet(null);
     setDropTarget(null);
   };
 
@@ -137,11 +194,14 @@ export function HierarchyPanel({
                   assetsById,
                   studioMode,
                   selectedLayerId,
+                  selectedIds,
                   dragId,
+                  dragSet,
                   dropTarget,
                   isExpanded,
                   toggleExpand,
                   onSelect,
+                  onRowClick: handleRowClick,
                   onToggleVisibility,
                   alphaForLayer,
                   onRemove,
@@ -178,8 +238,8 @@ function renderNodes(nodes, ctx, ancestorHidden = false) {
     const dimmed = ancestorHidden && selfVisible; // locally on, effectively off
     const cls = [
       'scene-layer-row',
-      layer.id === ctx.selectedLayerId ? 'selected' : '',
-      ctx.dragId === layer.id ? 'dragging' : '',
+      (ctx.selectedIds?.has(layer.id) || layer.id === ctx.selectedLayerId) ? 'selected' : '',
+      (ctx.dragId === layer.id || ctx.dragSet?.has(layer.id)) ? 'dragging' : '',
       (ancestorHidden || !selfVisible) ? 'effectively-hidden' : '',
       isDropTarget && ctx.dropTarget?.mode === 'inside' ? 'drop-inside' : '',
       isDropTarget && ctx.dropTarget?.mode === 'above' ? 'drop-above' : '',
@@ -194,7 +254,7 @@ function renderNodes(nodes, ctx, ancestorHidden = false) {
           onDragStart={ctx.onDragStart(layer.id)}
           onDragOver={ctx.onDragOver(layer.id)}
           onDrop={ctx.onDropOnRow(layer.id)}
-          onClick={() => ctx.onSelect(layer.id)}
+          onClick={(e) => ctx.onRowClick(layer.id, e)}
         >
           <span
             className={'scene-tree-twirly' + (children.length ? ' has-children' : '')}

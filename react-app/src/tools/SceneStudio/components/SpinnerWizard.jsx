@@ -647,6 +647,12 @@ export function SpinnerWizard({
   // first; otherwise fall back to only rigs that LOOK like symbols (name/path
   // contains "symbol") — never the whole project pool, which used to admit
   // win_sequence / win_counter_multiplier etc. as false-positive symbols.
+  // A detected NN_Symbols/Animations/ folder IS the authoritative marker: take
+  // EVERY Spine rig inside it as a symbol, no filename check — the folder
+  // placement is trusted. Only the UNSTRUCTURED fallback (no Symbols folder in
+  // the project at all) still requires "symbol" in the filename, to avoid
+  // dragging in win_sequence / fire_effect / etc. that merely happen to have a
+  // win/land animation.
   const animSearchPool = structure?.anims?.length
     ? structure.anims
     : allSpineAssets.filter(looksLikeSymbolSpine);

@@ -353,6 +353,10 @@ export default function SceneStudioInner() {
   // (re-reads every asset → fresh textures). Viewport-only; never serialized.
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [selectedLayerId, setSelectedLayerId] = useState(null);
+  // Multi-selection of hierarchy objects (ctrl/shift-click). The primary
+  // `selectedLayerId` drives the inspector/viewport; `selectedLayerIds` is the
+  // full set for multi-drag reparent + multi-drop to the timeline.
+  const [selectedLayerIds, setSelectedLayerIds] = useState([]);
   const [selectedClipId, setSelectedClipId] = useState(null);
   // Multi-selection of timeline clips (ctrl/shift-click + marquee). The
   // primary `selectedClipId` is kept as the last-clicked clip and drives the
@@ -1643,42 +1647,96 @@ export default function SceneStudioInner() {
       return;
     }
 
-    // Find the active recording target — only if the user has explicitly
-    // selected a clip on this layer and the playhead sits inside it.
-    // Read selectedClipId from the ref so this callback never goes stale
-    // when invoked via window.__sceneStudio or a closure-captured handler.
+    // ── Resolve the auto-key recording target ──────────────────────────
+    // With auto-key ON, an edit records into a clip WITHOUT needing that clip
+    // selected first:
+    //   1. Playhead inside an existing clip on this layer → key into it and
+    //      auto-select it.
+    //   2. No clip at the playhead but one within 0.5s → snap to it (extend its
+    //      end / shift its start so the playhead lands inside).
+    //   3. Otherwise → create a fresh 1s clip centred on the playhead.
+    // Auto-key OFF keeps edits transient (they snap back on release).
+    // selectedClipId is read from the ref so this callback never goes stale.
     let targetClip = null;
     let targetTrack = null;
     const selClipId = selectedClipIdRef.current;
     let needsExtend = false;   // playhead past clip end — extend + set loop:false
     let needsShiftBack = false; // playhead before clip start — shift clip backwards
-    if (selClipId && autoKeyRef.current) {
-      for (const tr of tracks) {
-        if (tr.layerId !== layerId) continue;
-        const c = (tr.clips || []).find((cl) => cl.id === selClipId);
-        if (!c) continue;
-        if (flowNow.time >= c.start && flowNow.time < c.start + c.duration) {
-          targetClip = c;
-          targetTrack = tr;
-        } else if (flowNow.time >= c.start + c.duration) {
-          targetClip = c;
-          targetTrack = tr;
-          needsExtend = true;
-        } else if (flowNow.time < c.start) {
-          targetClip = c;
-          targetTrack = tr;
-          needsShiftBack = true;
+    let newClipDef = null;     // clip to be created (case 3)
+    let createTrack = null;    // brand-new host track, if the layer has none yet
+    const t = flowNow.time;
+    const layerTracks = tracks.filter((tr) => tr.layerId === layerId);
+
+    if (autoKeyRef.current) {
+      // (1) clip at the playhead — prefer the selected clip if it qualifies.
+      for (const tr of layerTracks) {
+        for (const c of tr.clips || []) {
+          if (t >= c.start && t < c.start + c.duration) {
+            if (!targetClip || c.id === selClipId) { targetClip = c; targetTrack = tr; }
+          }
         }
-        break;
+      }
+      // (2) nearest clip whose edge is within 0.5s → snap to it.
+      if (!targetClip) {
+        const SNAP = 0.5;
+        let best = null;
+        for (const tr of layerTracks) {
+          for (const c of tr.clips || []) {
+            if (t >= c.start + c.duration) {
+              const d = t - (c.start + c.duration);
+              if (d <= SNAP && (!best || d < best.d)) best = { c, tr, d, side: 'end' };
+            } else if (t < c.start) {
+              const d = c.start - t;
+              if (d <= SNAP && (!best || d < best.d)) best = { c, tr, d, side: 'start' };
+            }
+          }
+        }
+        if (best) {
+          targetClip = best.c;
+          targetTrack = best.tr;
+          if (best.side === 'end') needsExtend = true; else needsShiftBack = true;
+        }
+      }
+      // (3) create a fresh 1s clip centred on the playhead.
+      if (!targetClip) {
+        newClipDef = {
+          id: uid('C'), name: null, start: Math.max(0, t - 0.5), duration: 1,
+          anim: null, skin: null, loop: false, curve: 'linear', speed: 1,
+          mixDuration: null, track: 0, autoFitDuration: false, channels: null
+        };
+        // Host on the selected clip's track if it's on this layer, else the
+        // layer's first track, else a brand-new track.
+        targetTrack = layerTracks.find((tr) => tr.clips?.some((c) => c.id === selClipId))
+          || layerTracks[0]
+          || null;
+        if (!targetTrack) { createTrack = { id: uid('T'), layerId, name: null, clips: [] }; targetTrack = createTrack; }
+        targetClip = newClipDef;
       }
     }
 
     if (!targetClip) {
-      // Animate mode with no recording target (autokey off, or no clip
-      // selected / playhead outside any selected clip): the edit is
-      // transient — commit nothing so the object snaps back to its
-      // evaluated pose on release. Base-pose edits belong to setup mode.
+      // Auto-key off (or nothing to record): the edit is transient — commit
+      // nothing so the object snaps back to its evaluated pose on release.
+      // Base-pose edits belong to setup mode.
       return;
+    }
+
+    // Materialise a freshly-created clip (and its track) BEFORE writing keys so
+    // the key-commit below finds it. sceneRef is synced synchronously so rapid
+    // drag moves route into this same clip instead of spawning duplicates.
+    if (newClipDef) {
+      setScene((prev) => {
+        const nextTracks = createTrack
+          ? [...(prev.flow?.tracks || []), { ...createTrack, clips: [newClipDef] }]
+          : (prev.flow?.tracks || []).map((tr) =>
+              tr.id === targetTrack.id
+                ? { ...tr, clips: [...(tr.clips || []), newClipDef].sort((a, b) => a.start - b.start) }
+                : tr
+            );
+        const next = { ...prev, flow: deriveFlowGraph({ ...(prev.flow || {}), tracks: nextTracks }) };
+        sceneRef.current = next;
+        return next;
+      });
     }
 
     // Extend clip to playhead (disable loop so the clip doesn't wrap around).
@@ -1847,6 +1905,19 @@ export default function SceneStudioInner() {
       };
       return { ...prev, flow: deriveFlowGraph(nextFlow) };
     });
+
+    // Auto-select the recording clip (and its layer) so the inspector/timeline
+    // reflect where keys just landed — only when it isn't already the primary
+    // selection, to avoid clearing a keyframe selection mid-edit.
+    if (targetClip.id !== selClipId) {
+      const clipId = targetClip.id;
+      const trackLayerId = targetTrack?.layerId ?? layerId;
+      setSelectedClipId(clipId);
+      setSelectedClipIds([clipId]);
+      setSelectedKey(null);
+      setSelectedLayerId(trackLayerId);
+      setSelectedLayerIds([trackLayerId]);
+    }
   }, [setScene]);
 
   const handleTransformLayer = useCallback((layerId, patch) => {
@@ -1894,22 +1965,35 @@ export default function SceneStudioInner() {
     });
   }, [setScene]);
 
-  const handleReorder = useCallback((draggedId, targetId, mode, canvasIdArg) => {
+  const handleReorder = useCallback((draggedArg, targetId, mode, canvasIdArg) => {
+    const draggedIds = Array.isArray(draggedArg) ? draggedArg : [draggedArg];
     setScene((prev) => {
-      const idx = prev.layers.findIndex((l) => l.id === draggedId);
-      if (idx < 0) return prev;
-      const dragged = prev.layers[idx];
+      // The set actually requested to move — existing layers only.
+      const idSet = new Set(draggedIds.filter((id) => prev.layers.some((l) => l.id === id)));
+      if (!idSet.size) return prev;
 
-      // Locked layers (e.g. a win-number child) can't be reparented/reordered,
-      // and nothing can be dropped *inside* one.
-      if (dragged.locked) return prev;
+      // Move only the "roots" of the selection: if both a parent and its
+      // descendant are selected, the descendant rides along with its parent
+      // (Unity behaviour), so we don't reparent it independently.
+      const isRoot = (id) => {
+        let p = prev.layers.find((l) => l.id === id)?.parentId ?? null;
+        while (p) { if (idSet.has(p)) return false; p = prev.layers.find((l) => l.id === p)?.parentId ?? null; }
+        return true;
+      };
+      // Keep document order so the moved group preserves its relative stacking.
+      let movers = prev.layers
+        .filter((l) => idSet.has(l.id) && isRoot(l.id) && !l.locked)
+        .map((l) => l.id);
+      if (!movers.length) return prev;
+
+      // Can't drop inside a locked target.
       if (mode === 'inside' && prev.layers.find((l) => l.id === targetId)?.locked) return prev;
+      // Can't drop the group onto one of its own members.
+      if ((mode === 'inside' || mode === 'above' || mode === 'below') && movers.includes(targetId)) return prev;
 
-      if (mode === 'inside' && (targetId === draggedId || isDescendantOf(prev, draggedId, targetId))) return prev;
-      if ((mode === 'above' || mode === 'below') && targetId === draggedId) return prev;
-
+      // Resolve the destination parent + canvas once from the target + mode.
       let newParentId = null;
-      let newCanvasId = dragged.canvasId;
+      let newCanvasId = prev.layers.find((l) => l.id === movers[0])?.canvasId;
       if (mode === 'inside') {
         const target = prev.layers.find((l) => l.id === targetId);
         if (!target) return prev;
@@ -1918,7 +2002,6 @@ export default function SceneStudioInner() {
       } else if (mode === 'above' || mode === 'below') {
         const target = prev.layers.find((l) => l.id === targetId);
         if (!target) return prev;
-        if (isDescendantOf(prev, draggedId, targetId)) return prev;
         newParentId = target.parentId ?? null;
         newCanvasId = target.canvasId;
       } else if (mode === 'canvasRoot') {
@@ -1926,23 +2009,26 @@ export default function SceneStudioInner() {
         newCanvasId = canvasIdArg || prev.activeCanvasId || prev.canvases[0].id;
       }
 
+      // Drop any mover that would become a child of itself or its own descendant.
+      movers = movers.filter((id) => !(newParentId && (newParentId === id || isDescendantOf(prev, id, targetId))));
+      if (!movers.length) return prev;
+
       const newWorldParentLand = newParentId ? getWorldPosition(prev, newParentId, 'landscape') : { x: 0, y: 0 };
       const newWorldParentPort = newParentId ? getWorldPosition(prev, newParentId, 'portrait') : { x: 0, y: 0 };
-      const oldWorldLand = getWorldPosition(prev, draggedId, 'landscape');
-      const oldWorldPort = getWorldPosition(prev, draggedId, 'portrait');
 
-      const draggedLandT = dragged.transforms.landscape;
-      const newLandT = { ...draggedLandT, x: oldWorldLand.x - newWorldParentLand.x, y: oldWorldLand.y - newWorldParentLand.y };
-      let newPortT = dragged.transforms.portrait;
-      if (newPortT) newPortT = { ...newPortT, x: oldWorldPort.x - newWorldParentPort.x, y: oldWorldPort.y - newWorldParentPort.y };
+      // Rebuild each mover with the new parent/canvas, preserving world position.
+      const rebuilt = movers.map((id) => {
+        const dragged = prev.layers.find((l) => l.id === id);
+        const oldWorldLand = getWorldPosition(prev, id, 'landscape');
+        const oldWorldPort = getWorldPosition(prev, id, 'portrait');
+        const newLandT = { ...dragged.transforms.landscape, x: oldWorldLand.x - newWorldParentLand.x, y: oldWorldLand.y - newWorldParentLand.y };
+        let newPortT = dragged.transforms.portrait;
+        if (newPortT) newPortT = { ...newPortT, x: oldWorldPort.x - newWorldParentPort.x, y: oldWorldPort.y - newWorldParentPort.y };
+        return { ...dragged, parentId: newParentId, canvasId: newCanvasId, transforms: { landscape: newLandT, portrait: newPortT } };
+      });
 
-      const without = prev.layers.filter((l) => l.id !== draggedId);
-      const newDragged = {
-        ...dragged,
-        parentId: newParentId,
-        canvasId: newCanvasId,
-        transforms: { landscape: newLandT, portrait: newPortT }
-      };
+      const moverSet = new Set(movers);
+      const without = prev.layers.filter((l) => !moverSet.has(l.id));
 
       let insertAt;
       if (mode === 'inside') {
@@ -1959,7 +2045,8 @@ export default function SceneStudioInner() {
       } else {
         insertAt = without.length;
       }
-      return { ...prev, layers: [...without.slice(0, insertAt), newDragged, ...without.slice(insertAt)] };
+      if (insertAt < 0) insertAt = without.length;
+      return { ...prev, layers: [...without.slice(0, insertAt), ...rebuilt, ...without.slice(insertAt)] };
     });
   }, []);
 
@@ -3030,7 +3117,7 @@ export default function SceneStudioInner() {
     if (!clipId) return;
     for (const track of sceneRef.current.flow?.tracks || []) {
       const clip = track.clips?.find((c) => c.id === clipId);
-      if (clip) { setSelectedLayerId(track.layerId); return; }
+      if (clip) { setSelectedLayerId(track.layerId); setSelectedLayerIds([track.layerId]); return; }
     }
   }, []);
 
@@ -3049,7 +3136,7 @@ export default function SceneStudioInner() {
     if (!primary) return;
     for (const track of sceneRef.current.flow?.tracks || []) {
       const clip = track.clips?.find((c) => c.id === primary);
-      if (clip) { setSelectedLayerId(track.layerId); return; }
+      if (clip) { setSelectedLayerId(track.layerId); setSelectedLayerIds([track.layerId]); return; }
     }
   }, []);
 
@@ -3619,6 +3706,7 @@ export default function SceneStudioInner() {
    */
   const handleSelectLayer = useCallback((layerId) => {
     setSelectedLayerId(layerId);
+    setSelectedLayerIds(layerId ? [layerId] : []);
     setSelectedClipId((curClipId) => {
       if (!curClipId) { setSelectedClipIds([]); return null; }
       const tracks = sceneRef.current.flow?.tracks || [];
@@ -3629,6 +3717,31 @@ export default function SceneStudioInner() {
             setSelectedClipIds([]);
             return null;
           }
+          return curClipId;
+        }
+      }
+      setSelectedKey(null);
+      setSelectedClipIds([]);
+      return null;
+    });
+  }, []);
+
+  /**
+   * Multi-select entrypoint for the hierarchy (ctrl/shift-click). `ids` is the
+   * full selected set; `primaryId` is the last-clicked layer that drives the
+   * inspector/viewport + clip sync (same rules as single-select).
+   */
+  const handleSelectLayers = useCallback((ids, primaryId) => {
+    const list = Array.isArray(ids) ? ids.filter(Boolean) : [];
+    const primary = primaryId ?? (list.length ? list[list.length - 1] : null);
+    setSelectedLayerIds(list);
+    setSelectedLayerId(primary);
+    setSelectedClipId((curClipId) => {
+      if (!curClipId) { setSelectedClipIds([]); return null; }
+      const tracks = sceneRef.current.flow?.tracks || [];
+      for (const tr of tracks) {
+        if (tr.clips?.some((c) => c.id === curClipId)) {
+          if (tr.layerId !== primary) { setSelectedKey(null); setSelectedClipIds([]); return null; }
           return curClipId;
         }
       }
@@ -3962,7 +4075,9 @@ export default function SceneStudioInner() {
               <HierarchyPanel
                 scene={scene}
                 selectedLayerId={selectedLayerId}
+                selectedLayerIds={selectedLayerIds}
                 onSelect={handleSelectLayer}
+                onSelectMany={handleSelectLayers}
                 onToggleVisibility={handleToggleVisibility}
                 alphaForLayer={alphaForLayer}
                 flowTime={flowState.time}
