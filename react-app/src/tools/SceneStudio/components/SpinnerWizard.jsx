@@ -226,16 +226,22 @@ const isAnimSegment    = (s) => /^anim/i.test(s);
  * wizard-assets and anims are Spine wizard-assets, all under that root.
  */
 function detectSymbolsStructure(pngPool, spinePool) {
-  // Group PNGs by their *Symbols root (path up to and incl. the Symbols segment)
-  const groups = new Map(); // rootKey → { rootLabel, statics, blurred, loose }
+  // Group assets by their *Symbols root (path up to and incl. the Symbols
+  // segment). PNGs classify into statics/blurred/loose; Spine rigs collect
+  // under `spines` so an animation-ONLY Symbols folder (no static PNGs at all)
+  // is still detected — the common animations-first convention.
+  const groups = new Map(); // rootKey → { rootLabel, statics, blurred, loose, spines }
+  const ensureGroup = (segs, i) => {
+    const rootKey = segs.slice(0, i + 1).join('/').toLowerCase();
+    if (!groups.has(rootKey))
+      groups.set(rootKey, { rootKey, rootLabel: segs[i], statics: [], blurred: [], loose: [], spines: [] });
+    return groups.get(rootKey);
+  };
   for (const a of pngPool) {
     const segs = assetPathSegments(a);
     const i = segs.findIndex(isSymbolsSegment);
     if (i < 0) continue;
-    const rootKey = segs.slice(0, i + 1).join('/').toLowerCase();
-    if (!groups.has(rootKey))
-      groups.set(rootKey, { rootKey, rootLabel: segs[i], statics: [], blurred: [], loose: [] });
-    const g = groups.get(rootKey);
+    const g = ensureGroup(segs, i);
     const sub = segs[i + 1]; // subfolder name, or the filename if PNG sits in root
     const isFile = i + 1 === segs.length - 1;
     if (!isFile && isStaticSegment(sub)) g.statics.push(a);
@@ -243,38 +249,44 @@ function detectSymbolsStructure(pngPool, spinePool) {
     else if (isFile) g.loose.push(a);
     // PNGs in Animations/ are Spine atlas pages — ignore.
   }
+  for (const a of spinePool) {
+    const segs = assetPathSegments(a);
+    const i = segs.findIndex(isSymbolsSegment);
+    if (i < 0) continue;
+    ensureGroup(segs, i).spines.push(a);
+  }
   if (!groups.size) return null;
 
-  // Pick the root with the most statics (tie-break: most PNGs overall)
+  // Pick the root with the most statics (tie-break: most assets overall,
+  // spines included — so a spine-only folder with 0 statics is still chosen).
+  const total = (g) => g.statics.length + g.blurred.length + g.loose.length + g.spines.length;
   let best = null;
   for (const g of groups.values()) {
-    const score = [g.statics.length, g.statics.length + g.blurred.length + g.loose.length];
-    const bestScore = best ? [best.statics.length, best.statics.length + best.blurred.length + best.loose.length] : [-1, -1];
+    const score = [g.statics.length, total(g)];
+    const bestScore = best ? [best.statics.length, total(best)] : [-1, -1];
     if (score[0] > bestScore[0] || (score[0] === bestScore[0] && score[1] > bestScore[1])) best = g;
   }
   if (!best) return null;
 
   // No StaticArt subfolder → PNGs sitting directly in the Symbols folder are
-  // the statics (minus obvious blur variants).
+  // the statics (minus obvious blur variants). May be empty for an
+  // animation-only folder — that's fine, the Spine anims define the set.
   const statics = best.statics.length
     ? best.statics
     : best.loose.filter((a) => !isBlurVariant(a));
-  if (!statics.length) return null;
 
-  // Spine assets under the same root (prefer an Animations/ subfolder; fall
-  // back to anything under the root if there is none).
-  const spineUnderRoot = spinePool.filter((a) => {
-    const segs = assetPathSegments(a);
-    const i = segs.findIndex(isSymbolsSegment);
-    if (i < 0) return false;
-    return segs.slice(0, i + 1).join('/').toLowerCase() === best.rootKey;
-  });
+  // Spine assets under this root (prefer an Animations/ subfolder; fall back
+  // to anything under the root if there is none).
+  const spineUnderRoot = best.spines;
   const spineInAnimFolder = spineUnderRoot.filter((a) => {
     const segs = assetPathSegments(a);
     const i = segs.findIndex(isSymbolsSegment);
     return segs.slice(i + 1, -1).some(isAnimSegment);
   });
   const anims = spineInAnimFolder.length ? spineInAnimFolder : spineUnderRoot;
+
+  // Need SOMETHING to define the symbol set: static PNGs or Spine anims.
+  if (!statics.length && !anims.length) return null;
 
   return {
     rootLabel: best.rootLabel,
@@ -626,21 +638,6 @@ export function SpinnerWizard({
   // Statics define the symbol set; blurred + anims only match against them.
   const structure = detectSymbolsStructure(allPngAssets, allSpineAssets);
 
-  // Candidates for the "fill from assets" button:
-  //   manual filter text → filtered pool (user override)
-  //   detected structure → statics folder ONLY
-  //   neither            → legacy name-score heuristic
-  const candidates =
-    assetFilter.trim() ? buildCandidates(allPngAssets, assetFilter)
-    : structure        ? structure.statics
-    : buildCandidates(allPngAssets, '');
-  // True when no filter text AND nothing was detected (no Symbols folder, score ≤ 0 everywhere)
-  const noAutoDetect  = !assetFilter.trim() && candidates.length === 0 && allPngAssets.length > 0;
-  // T7: weak (positive but sub-threshold) matches, only meaningful in the
-  // legacy no-structure/no-filter heuristic path — a detected Symbols folder
-  // or an explicit manual filter are already confident/user-directed.
-  const weakCandidates = (!assetFilter.trim() && !structure) ? weakSymbolCandidates(allPngAssets) : [];
-
   // Blur search order: detected Blurred folder first, then the whole pool.
   const blurSearchPool = structure ? [...structure.blurred, ...allPngAssets] : allPngAssets;
   // Anim search order: Spine assets from the symbols root's Animations folder
@@ -656,6 +653,24 @@ export function SpinnerWizard({
   const animSearchPool = structure?.anims?.length
     ? structure.anims
     : allSpineAssets.filter(looksLikeSymbolSpine);
+
+  // Candidates for the "fill from assets" button:
+  //   manual filter text → filtered pool (user override)
+  //   detected structure → statics folder ONLY
+  //   neither            → legacy name-score heuristic
+  const candidates =
+    assetFilter.trim() ? buildCandidates(allPngAssets, assetFilter)
+    : structure        ? structure.statics
+    : buildCandidates(allPngAssets, '');
+  // True when no filter text AND nothing was detected: no Symbols folder
+  // (structure null — covers animation-only folders now too), no static
+  // candidates, and no symbol Spine rigs to fill from either.
+  const noAutoDetect  = !assetFilter.trim() && !structure && candidates.length === 0
+    && animSearchPool.length === 0 && allPngAssets.length > 0;
+  // T7: weak (positive but sub-threshold) matches, only meaningful in the
+  // legacy no-structure/no-filter heuristic path — a detected Symbols folder
+  // or an explicit manual filter are already confident/user-directed.
+  const weakCandidates = (!assetFilter.trim() && !structure) ? weakSymbolCandidates(allPngAssets) : [];
 
   // ── Spine metadata (animations + skins) from the actual .json files ──────
   // assetId → { animations: string[]|null, skins: string[] }.
