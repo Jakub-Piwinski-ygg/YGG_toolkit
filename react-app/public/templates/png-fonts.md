@@ -1,7 +1,7 @@
 ---
 name: PNG Fonts Template
 description: Photoshop template for building PNG font atlases — used by the engine for win numbers, free-spin counters, multiplier counters and similar in-game text.
-sharepoint: https://yggdrasilmlt.sharepoint.com/sites/gameassets/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2Fgameassets%2FShared%20Documents%2F%5FTEMPLATES%2FFONT%5FTEMPLATES&viewid=698da493%2Def5f%2D4427%2D8f8e%2Dccc998cacd56
+sharepoint: https://yggdrasilmlt.sharepoint.com/sites/gameassets/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2Fgameassets%2FShared%20Documents%2F%5FTEMPLATES%2FStatic%20Art%2FFONT%5FTEMPLATES&viewid=698da493%2Def5f%2D4427%2D8f8e%2Dccc998cacd56
 preview: FontTemplate/Font Template Thumbnail.png
 updated: 2026-05-25
 ---
